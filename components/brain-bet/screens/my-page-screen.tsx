@@ -110,7 +110,9 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
         <h1 className="font-display text-2xl font-extrabold text-foreground">내 정보</h1>
       </header>
 
-      <div className="mt-6 rounded-2xl bg-card px-4 py-4 toy-border">
+      {/* 1. 계정 */}
+      <p className="mt-6 text-xs font-bold uppercase tracking-wide text-muted-foreground">계정</p>
+      <div className="mt-2 rounded-2xl bg-card px-4 py-4 toy-border">
         <div className="flex items-center gap-3">
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground toy-border">
             {user ? <Mail size={20} strokeWidth={2.2} /> : <User size={20} strokeWidth={2.2} />}
@@ -173,25 +175,8 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
         </div>
       </div>
 
-      {petProfile && (
-        <button
-          type="button"
-          onClick={handleCopyShareLink}
-          className="mt-3 flex items-center gap-3 rounded-2xl bg-card px-4 py-4 text-left toy-border"
-        >
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground toy-border">
-            <Link2 size={20} strokeWidth={2.2} />
-          </span>
-          <div className="flex-1">
-            <p className="font-display text-sm font-extrabold text-foreground">내 Statling 공유 링크</p>
-            <p className="text-xs text-muted-foreground">친구가 링크를 열고 기록하면 친구 도감에 {petProfile.name}이 등록돼요.</p>
-          </div>
-        </button>
-      )}
-
-      <FeedbackSection petProfile={petProfile} />
-
-      <p className="mt-6 text-xs font-bold uppercase tracking-wide text-muted-foreground">설정</p>
+      {/* 2. 게임 */}
+      <p className="mt-6 text-xs font-bold uppercase tracking-wide text-muted-foreground">게임</p>
       <button
         type="button"
         onClick={onShowOnboarding}
@@ -205,6 +190,25 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
           <p className="text-xs text-muted-foreground">앱 사용법을 다시 확인해요.</p>
         </div>
       </button>
+
+      {petProfile && (
+        <button
+          type="button"
+          onClick={handleCopyShareLink}
+          className="mt-2 flex items-center gap-3 rounded-2xl bg-card px-4 py-4 text-left toy-border"
+        >
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground toy-border">
+            <Link2 size={20} strokeWidth={2.2} />
+          </span>
+          <div className="flex-1">
+            <p className="font-display text-sm font-extrabold text-foreground">내 Statling 공유 링크</p>
+            <p className="text-xs text-muted-foreground">친구가 링크를 열고 기록하면 친구 도감에 {petProfile.name}이 등록돼요.</p>
+          </div>
+        </button>
+      )}
+
+      {/* 3. 설정 */}
+      <p className="mt-6 text-xs font-bold uppercase tracking-wide text-muted-foreground">설정</p>
       <button
         type="button"
         data-sfx-skip
@@ -297,10 +301,16 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
         )}
       </div>
 
+      {/* 4. 의견 보내기 */}
+      <p className="mt-6 text-xs font-bold uppercase tracking-wide text-muted-foreground">의견 보내기</p>
+      <FeedbackSection className="mt-2" petProfile={petProfile} />
+
+      {/* 5. 관리 */}
+      <p className="mt-6 text-xs font-bold uppercase tracking-wide text-muted-foreground">관리</p>
       <button
         type="button"
         onClick={() => setConfirmingReset(true)}
-        className="mt-3 flex items-center justify-center gap-2 rounded-2xl bg-card px-4 py-3 text-sm font-bold text-destructive toy-border"
+        className="mt-2 flex items-center justify-center gap-2 rounded-2xl bg-card px-4 py-3 text-sm font-bold text-destructive toy-border"
       >
         <RotateCcw size={16} strokeWidth={2.4} />
         펫 초기화

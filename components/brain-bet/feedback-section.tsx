@@ -134,6 +134,8 @@ function draftFromRecord(record: FeedbackRecord): FeedbackDraft {
 interface FeedbackSectionProps {
   /** Stamped onto the saved record as statlingId/statlingName — see lib/feedback/feedback-storage.ts. Null before a Statling is hatched. */
   petProfile: PetProfile | null
+  /** Outer top-margin override — defaults to the spacing this section used when it sat directly under the previous card (see MyPageScreen for the "의견 보내기" section's own header spacing). */
+  className?: string
 }
 
 /**
@@ -152,7 +154,7 @@ interface FeedbackSectionProps {
  * in a row) and the form is replaced by a confirmation card right after a
  * successful submit.
  */
-export function FeedbackSection({ petProfile }: FeedbackSectionProps) {
+export function FeedbackSection({ petProfile, className = 'mt-6' }: FeedbackSectionProps) {
   const toastManager = Toast.useToastManager()
   const [existingRecord, setExistingRecord] = useState<FeedbackRecord | null>(() => loadFeedbackRecord())
   const [draft, setDraft] = useState<FeedbackDraft>(() => {
@@ -206,7 +208,7 @@ export function FeedbackSection({ petProfile }: FeedbackSectionProps) {
   }
 
   return (
-    <div className="mt-6 rounded-2xl bg-card px-4 py-5 toy-border">
+    <div className={cn(className, 'rounded-2xl bg-card px-4 py-5 toy-border')}>
       <button
         type="button"
         onClick={() => setIsOpen((v) => !v)}
