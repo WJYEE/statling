@@ -11,6 +11,7 @@ import {
   CHARACTER_STATE_SEQUENCE,
   characterStateForInteraction,
   type CharacterStateFolder,
+  type CharacterStateKey,
 } from '@/lib/character-state-assets'
 import { loadSavedDecoPlacementState } from '@/lib/deco-placement-storage'
 import { WALK_OFFSET_DISTANCE } from '@/lib/config/pet-autonomy.config'
@@ -95,6 +96,8 @@ interface PetMoodViewProps {
   isGiftReady?: boolean
   /** "미니게임을 일정 수준 이상 꾸준히 플레이했을 때" — see lib/pet-care/pet-memory.ts#isConsistentPlayer. */
   isConsistentPlayer?: boolean
+  /** A 대화 answer's own expression, held briefly — see hooks/use-pet-talk.ts and characterStateForInteraction's `forcedStateKey`. Wins over everything else while set. */
+  forcedStateKey?: CharacterStateKey | null
   /** Called when the Statling is tapped while isGiftReady — see hooks/use-pet-care.ts's `claimGift`. */
   onClaimGift?: () => void
   /**
@@ -135,6 +138,7 @@ export function PetMoodView({
   isReconnectGreeting = false,
   isGiftReady = false,
   isConsistentPlayer = false,
+  forcedStateKey = null,
   onClaimGift,
   onDismissSpeech,
   testerFolder,
@@ -186,6 +190,7 @@ export function PetMoodView({
         isReconnectGreeting,
         isGiftReady,
         isConsistentPlayer,
+        forcedStateKey: forcedStateKey ?? undefined,
       })
     : null
 

@@ -98,8 +98,6 @@ export interface PetCareState {
   cooldowns: CooldownState
   /** Last "놀기" mini-variant shown, so the next one is never a repeat. */
   lastPlayVariantId?: string
-  /** Most recent dialogue line ids (ring buffer, oldest evicted first) — kept across reloads so lines don't repeat immediately after a refresh. */
-  recentDialogueIds: string[]
 }
 
 /**

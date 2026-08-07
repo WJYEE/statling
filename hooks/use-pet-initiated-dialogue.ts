@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { PET_AUTONOMY_CONFIG } from '@/lib/config/pet-autonomy.config'
+import { USER_NOTE_ECHO_CHANCE } from '@/lib/config/talk.config'
 import {
   entryEventToDialogueCategory,
   pickInitiatedDialogue,
@@ -10,6 +11,7 @@ import {
   type InitiatedDialogueCategory,
 } from '@/lib/pet-care/initiated-dialogue'
 import { shouldShowMemoryComment, type PetMemory } from '@/lib/pet-care/pet-memory'
+import { loadUserNotes } from '@/lib/pet-care/user-notes-storage'
 import { computeEntryEvent, toLocalDateKey, type VisitContext } from '@/lib/pet-care/visit-context'
 import type { CareStatId, SecondaryTag } from '@/lib/pet-care/types'
 
@@ -126,6 +128,17 @@ export function usePetInitiatedDialogue(input: UsePetInitiatedDialogueInput) {
         showSpeech(line.text, AMBIENT_HOLD_MS)
         onDialogueShownRef.current(line.id, 'general')
         onMemoryCommentShownRef.current()
+        return
+      }
+
+      // "이후 Statling이 가끔 해당 문구를 말풍선으로 다시 말하도록" — the one
+      // isFreeText 대화 question's saved answers (lib/pet-care/talk-questions.ts),
+      // echoed back at the same cadence/cooldown as any other ambient line.
+      const notes = loadUserNotes()
+      if (notes.length > 0 && Math.random() < USER_NOTE_ECHO_CHANCE) {
+        const note = notes[Math.floor(Math.random() * notes.length)]
+        showSpeech(`저번에 네가 나한테 "${note.text}"라고 했었잖아. 기억하고 있어!`, AMBIENT_HOLD_MS)
+        onDialogueShownRef.current(`note-echo-${note.id}`, 'general')
         return
       }
 

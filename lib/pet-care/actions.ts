@@ -32,7 +32,6 @@ import {
   showerTier,
 } from '@/lib/pet-care/care-reactions'
 import { clampStat } from '@/lib/pet-care/decay'
-import { pickDialogue, pushRecentDialogue, type DialogueCategory } from '@/lib/pet-care/dialogue'
 import { applyExpGain, getNewlyUnlockedRewards, type ExpGainResult } from '@/lib/pet-care/leveling'
 import type { CareActionId, CareStatId, PetAnimation, PetCareState, RoomCareState } from '@/lib/pet-care/types'
 
@@ -220,24 +219,26 @@ export function performPet(state: PetCareState, now: Date): ActionResult {
   return { petState, deltas, message: petMessageFor(tier, alreadySatisfied), animation: 'pet', levelUp: expGain.levelUp }
 }
 
-export function performTalk(state: PetCareState, category: DialogueCategory, now: Date): ActionResult {
+/**
+ * 대화's answer step — the response text/expression comes entirely from
+ * whichever choice the player just picked (see lib/pet-care/talk-questions.ts,
+ * hooks/use-pet-talk.ts), so this only ever handles the mechanical side
+ * (cooldown + intimacy exp), same shape every other performXxx here does.
+ * Called once per answered question, never on the question just opening —
+ * browsing/canceling a question costs nothing.
+ */
+export function performTalkAnswer(state: PetCareState, now: Date, responseText: string): ActionResult {
   const blocked = blockedByCooldown(state, 'talk', now)
-  if (blocked) return { ...blocked, dialogue: pickDialogue(category, state.intimacyLevel, state.recentDialogueIds).text }
+  if (blocked) return { ...blocked, dialogue: responseText }
 
-  const line = pickDialogue(category, state.intimacyLevel, state.recentDialogueIds)
   const expGain = gainExp(state, TALK_INTIMACY_EXP)
   const petState = withCooldown(
-    {
-      ...state,
-      intimacyLevel: expGain.intimacyLevel,
-      intimacyExp: expGain.intimacyExp,
-      recentDialogueIds: pushRecentDialogue(state.recentDialogueIds, line.id),
-    },
+    { ...state, intimacyLevel: expGain.intimacyLevel, intimacyExp: expGain.intimacyExp },
     'talk',
     now,
   )
 
-  return { petState, deltas: {}, animation: 'talk', dialogue: line.text, levelUp: expGain.levelUp }
+  return { petState, deltas: {}, animation: 'talk', dialogue: responseText, levelUp: expGain.levelUp }
 }
 
 /**

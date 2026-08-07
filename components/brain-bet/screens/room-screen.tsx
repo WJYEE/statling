@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, Crosshair, Sparkles } from 'lucide-react'
 import { Toast } from '@base-ui/react/toast'
 import { CareActionButton } from '@/components/brain-bet/care-action-button'
@@ -9,14 +9,16 @@ import { PetMoodView } from '@/components/brain-bet/pet-mood-view'
 import { RoomCanvas } from '@/components/brain-bet/room-canvas'
 import { RoomCleanOverlay } from '@/components/brain-bet/room-clean-overlay'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
+import { TalkQuestionCard } from '@/components/brain-bet/talk-question-card'
 import { ToyButton } from '@/components/brain-bet/toy-button'
 import { usePetCare } from '@/hooks/use-pet-care'
 import { usePetMemory } from '@/hooks/use-pet-memory'
 import { usePetInitiatedDialogue } from '@/hooks/use-pet-initiated-dialogue'
 import { usePetAutonomy } from '@/hooks/use-pet-autonomy'
+import { usePetTalk } from '@/hooks/use-pet-talk'
 import { useSound } from '@/hooks/use-sound'
 import { STATS, type StatId } from '@/lib/brain-bet'
-import type { CharacterStateFolder } from '@/lib/character-state-assets'
+import type { CharacterStateFolder, CharacterStateKey } from '@/lib/character-state-assets'
 import type { PetProfile } from '@/lib/pets/pet-profile'
 import { CARE_ACTIONS } from '@/lib/room'
 import { ROOM_ASSETS } from '@/lib/room-assets'
@@ -26,6 +28,7 @@ import { isConsistentPlayer } from '@/lib/pet-care/pet-memory'
 import { computeInteractionMode } from '@/lib/pet-care/interaction-mode'
 import type { PetAnimation } from '@/lib/pet-care/types'
 import { RECONNECT_ANGRY_HOLD_MS } from '@/lib/config/character-state.config'
+import { TALK_EXPRESSION_HOLD_MS } from '@/lib/config/talk.config'
 
 interface RoomScreenProps {
   statlingName: string
@@ -114,6 +117,35 @@ export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMi
   const isGiftReady = care.petState.giftReadyLevel !== null
   const isConsistentPlayerNow = isConsistentPlayer(memory.memory)
 
+  // A picked 대화 answer's own expression (happy/thinking/embarrassed/love/
+  // tired/...), held for TALK_EXPRESSION_HOLD_MS regardless of what mood/
+  // animation would otherwise show — see character-state-assets.ts's
+  // `forcedStateKey`. A plain useRef (not the `schedule` pattern usePetCare
+  // uses internally) since this is the only timeout room-screen.tsx itself owns.
+  const [talkExpressionKey, setTalkExpressionKey] = useState<CharacterStateKey | null>(null)
+  const talkExpressionTimeoutRef = useRef<number | null>(null)
+
+  function handleTalkAnswered(responseText: string, expression?: CharacterStateKey) {
+    care.answerTalk(responseText)
+    memory.recordCareAction('talk')
+    if (talkExpressionTimeoutRef.current !== null) window.clearTimeout(talkExpressionTimeoutRef.current)
+    if (expression) {
+      setTalkExpressionKey(expression)
+      talkExpressionTimeoutRef.current = window.setTimeout(() => setTalkExpressionKey(null), TALK_EXPRESSION_HOLD_MS)
+    } else {
+      setTalkExpressionKey(null)
+    }
+  }
+
+  useEffect(
+    () => () => {
+      if (talkExpressionTimeoutRef.current !== null) window.clearTimeout(talkExpressionTimeoutRef.current)
+    },
+    [],
+  )
+
+  const talk = usePetTalk({ onOpen: care.registerTalkOpen, onAnswered: handleTalkAnswered })
+
   // "들어왔을 때" — one occasional chirp on entering the Room, not on every
   // care-action press (see hooks/use-pet-care.ts's showSpeech doc comment
   // for why those stopped playing a sound on every message).
@@ -161,6 +193,13 @@ export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMi
   const secondaryLabel = care.secondaryTags[0] ? SECONDARY_TAG_LABEL[care.secondaryTags[0]] : null
 
   function handleCareAction(actionId: (typeof CARE_ACTIONS)[number]['id']) {
+    // 대화 no longer performs an action directly — it opens a question
+    // (see hooks/use-pet-talk.ts); the actual stats/cooldown/exp effect only
+    // applies once the player answers (handleTalkAnswered above).
+    if (actionId === 'talk') {
+      talk.openQuestion()
+      return
+    }
     care.performAction(actionId)
     memory.recordCareAction(actionId)
     if (actionId === 'feed') play('pet-feed')
@@ -168,9 +207,9 @@ export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMi
     else if (actionId === 'play') play('pet-play')
     else if (actionId === 'pet') play('pet-care-pop')
     // No character voice here anymore — a line on every single feed/wash/
-    // play/pet/talk press read as too chatty. Voice is reserved for
-    // occasional situational moments instead (room entry below, gift claim,
-    // level-up) — see lib/audio/character-voice.ts's doc comment.
+    // play/pet press read as too chatty. Voice is reserved for occasional
+    // situational moments instead (room entry below, gift claim, level-up)
+    // — see lib/audio/character-voice.ts's doc comment.
   }
 
   /** "선물 주려고 할 때" — the Statling tap that actually hands over an unclaimed gift (see care.claimGift/isGiftReady above). */
@@ -247,6 +286,7 @@ export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMi
               isReconnectGreeting={isReconnectGreeting}
               isGiftReady={isGiftReady}
               isConsistentPlayer={isConsistentPlayerNow}
+              forcedStateKey={talkExpressionKey}
               onClaimGift={handleClaimGift}
               onDismissSpeech={dismissSpeech}
               testerFolder={testerFolder}
@@ -272,11 +312,20 @@ export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMi
             action={action}
             cooldown={care.cooldowns[action.id]}
             showAttentionDot={care.attentionFlags[action.id]}
-            disabled={memory.gameReaction.active}
+            disabled={memory.gameReaction.active || talk.isActive}
             onClick={() => handleCareAction(action.id)}
           />
         ))}
       </div>
+
+      {talk.activeQuestion && (
+        <TalkQuestionCard
+          question={talk.activeQuestion}
+          onChoose={talk.chooseAnswer}
+          onSubmitFreeText={talk.submitFreeText}
+          onCancel={talk.cancelQuestion}
+        />
+      )}
 
       {/* grow CTA — the one action on this screen meant to stand out more than the compact HUD above */}
       <ToyButton className="mx-auto mt-3 w-full max-w-xs px-5 py-2.5 sm:mt-4 sm:py-3" onClick={handleGrowClick}>

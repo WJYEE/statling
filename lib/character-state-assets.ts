@@ -176,12 +176,15 @@ export const TESTER_CHARACTER_FOLDERS: CharacterStateFolder[] = CHARACTER_ROSTER
  * (feed/wash/play/pet/talk, mood shifts, milestones) rather than a
  * manual-only preview.
  *
- * Every one of the 24 states now has a real trigger EXCEPT `embarrassed`
- * (reserved for a future dialogue line — see lib/pet-care/dialogue.ts) and
- * `evolve` (no evolution feature exists yet); both are still reachable via
- * the tester's manual click-through preview.
+ * Every one of the 24 states now has a real trigger EXCEPT `evolve` (no
+ * evolution feature exists yet) — still reachable via the tester's manual
+ * click-through preview. `embarrassed` (and happy/thinking/love/tired) can
+ * also come from a 대화 answer's own expression now — see `forcedStateKey`
+ * below and lib/pet-care/talk-questions.ts.
  *
  * Priority, top to bottom (see each section's own comment for why):
+ * 0. `forcedStateKey` — a 대화 answer's expression, when one is set. Wins
+ *    unconditionally, before even over-use.
  * 1. Over-petting/over-talking — wins regardless of the underlying action's
  *    tier, so even an already-satisfied press still reads as annoyed once
  *    the streak crosses its threshold.
@@ -216,6 +219,14 @@ export interface InteractionStateContext {
   isGiftReady?: boolean
   /** "미니게임을 일정 수준 이상 꾸준히 플레이했을 때" — see lib/pet-care/pet-memory.ts#isConsistentPlayer. */
   isConsistentPlayer?: boolean
+  /**
+   * Wins over everything else below, unconditionally — a 대화 answer's own
+   * expression (happy/thinking/embarrassed/love/tired/...), held for a few
+   * seconds by room-screen.tsx regardless of what mood/animation/stats would
+   * otherwise resolve to. See lib/pet-care/talk-questions.ts's
+   * `TalkChoice.expression` and hooks/use-pet-talk.ts.
+   */
+  forcedStateKey?: CharacterStateKey
 }
 
 export function characterStateForInteraction({
@@ -227,7 +238,10 @@ export function characterStateForInteraction({
   isReconnectGreeting = false,
   isGiftReady = false,
   isConsistentPlayer = false,
+  forcedStateKey,
 }: InteractionStateContext): CharacterStateKey {
+  if (forcedStateKey) return forcedStateKey
+
   // Over-use wins outright — checked ahead of the action switch so it
   // applies whether or not that action's own tier would otherwise suppress
   // its art (see the 'pet'/'talk' cases below).

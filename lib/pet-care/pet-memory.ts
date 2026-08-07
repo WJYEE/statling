@@ -27,7 +27,7 @@ export interface PetMemory {
   favoriteCareAction?: CareActionId
 
   recentCareActions: CareActionId[]
-  /** Deliberately its own id-namespace, distinct from PetCareState.recentDialogueIds (the talk-button ring buffer) — see the plan's Q1. */
+  /** Ambient/entry-greeting line ids only — the 대화 button's own question history (hooks/use-pet-talk.ts) is tracked separately, in-memory. */
   recentInitiatedDialogueIds: string[]
 
   recentGameIds: string[]

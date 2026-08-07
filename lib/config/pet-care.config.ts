@@ -83,9 +83,13 @@ export const CLEAN_EXP = 3
 export const PLAY_EFFECT = { happiness: 15, affection: 5, energy: -10 }
 export const PLAY_EXP = 5
 export const PLAY_VARIANT_IDS = ['ball', 'star-chase', 'run'] as const
+/** Above this happiness, "놀기" reads as already-satisfied — same "already full" shape as FEED_SATIETY_MAX_THRESHOLD/SHOWER_CLEANLINESS_MAX_THRESHOLD (suppressed deltas, art falls back to idle/happy instead of the 'play' art). */
+export const PLAY_HAPPINESS_MAX_THRESHOLD = 95
 
 export const PET_EFFECT = { affection: 4, happiness: 3 }
 export const PET_INTIMACY_EXP = 1
+/** Above this affection, "쓰다듬기" reads as already-satisfied — same shape as PLAY_HAPPINESS_MAX_THRESHOLD. */
+export const PET_AFFECTION_MAX_THRESHOLD = 95
 
 /**
  * "너무 많이 쓰다듬었을 때" (angry tester art) — PET_COOLDOWN_MS already
@@ -98,9 +102,6 @@ export const OVERPET_WINDOW_MS = 90_000
 export const OVERPET_REACTION_HOLD_MS = 2_000
 
 export const TALK_INTIMACY_EXP = 1
-
-/** Ring-buffer size for `recentDialogueIds` / `lastPlayVariantId` history — small on purpose, just enough to avoid immediate repeats. */
-export const RECENT_DIALOGUE_HISTORY_SIZE = 6
 
 export const REACTION_FEEDBACK_MS = 1600
 

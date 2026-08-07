@@ -21,7 +21,6 @@ export function createDefaultPetCareState(): PetCareState {
     giftReadyLevel: null,
     lastUpdatedAt: new Date().toISOString(),
     cooldowns: {},
-    recentDialogueIds: [],
   }
 }
 
@@ -48,7 +47,6 @@ function sanitize(state: PetCareState): PetCareState {
     stats,
     unlockedRewardLevels: Array.isArray(state.unlockedRewardLevels) ? state.unlockedRewardLevels : [],
     cooldowns: state.cooldowns && typeof state.cooldowns === 'object' ? state.cooldowns : {},
-    recentDialogueIds: Array.isArray(state.recentDialogueIds) ? state.recentDialogueIds : [],
   }
 }
 

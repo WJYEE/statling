@@ -26,7 +26,7 @@ import {
   performPet,
   performPlay,
   performShower,
-  performTalk,
+  performTalkAnswer,
   type ActionResult,
   type CooldownStatus,
 } from '@/lib/pet-care/actions'
@@ -276,21 +276,32 @@ export function usePetCare() {
         finalizeAction(performPet(pet, now))
         return
       }
-      case 'talk': {
-        const nowMs = now.getTime()
-        const recentClicks = [...talkClickTimestampsRef.current, nowMs].filter(
-          (t) => nowMs - t < OVERTALK_WINDOW_MS,
-        )
-        talkClickTimestampsRef.current = recentClicks
-        if (recentClicks.length >= OVERTALK_COUNT_THRESHOLD) {
-          talkClickTimestampsRef.current = [] // fires once per streak, not on every talk after
-          setIsOverTalked(true)
-          schedule(() => setIsOverTalked(false), OVERTALK_REACTION_HOLD_MS)
-        }
-        finalizeAction(performTalk(pet, mood, now))
-        return
-      }
     }
+  }
+
+  /**
+   * Called when the 대화 button opens a new question (hooks/use-pet-talk.ts),
+   * not when it's answered — over-talking is about how often the player
+   * keeps re-opening questions, same streak-tracking shape as isOverPetted
+   * above. Free of stats/cooldown effects on its own; answerTalk below is
+   * what actually costs a cooldown/grants exp, once a choice is made.
+   */
+  function registerTalkOpen() {
+    const nowMs = Date.now()
+    const recentClicks = [...talkClickTimestampsRef.current, nowMs].filter((t) => nowMs - t < OVERTALK_WINDOW_MS)
+    talkClickTimestampsRef.current = recentClicks
+    if (recentClicks.length >= OVERTALK_COUNT_THRESHOLD) {
+      talkClickTimestampsRef.current = [] // fires once per streak, not on every open after
+      setIsOverTalked(true)
+      schedule(() => setIsOverTalked(false), OVERTALK_REACTION_HOLD_MS)
+    }
+    setLastUserActionAt(nowMs)
+  }
+
+  /** The 대화 answer step — see lib/pet-care/actions.ts#performTalkAnswer. `responseText` is whichever choice/free-text acknowledgement hooks/use-pet-talk.ts resolved; this only ever applies the cooldown/exp/speech-bubble side of it. */
+  function answerTalk(responseText: string) {
+    setLastUserActionAt(Date.now())
+    finalizeAction(performTalkAnswer(petStateRef.current, new Date(), responseText))
   }
 
   /** Tapping the Statling while a gift is ready — clears giftReadyLevel and shows a small thank-you. A no-op otherwise (see pet-mood-view.tsx's click handler). */
@@ -372,6 +383,8 @@ export function usePetCare() {
     performAction,
     applyEffect,
     claimGift,
+    registerTalkOpen,
+    answerTalk,
     /** Tap-to-dismiss support — lets room-screen close the bubble immediately instead of waiting out its auto-hide timer. */
     dismissSpeech: () => setSpeech(null),
   }
