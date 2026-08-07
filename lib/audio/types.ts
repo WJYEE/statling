@@ -23,6 +23,15 @@ export type SoundName =
   | 'pet-wash'
   | 'pet-play'
   | 'pet-reveal'
+  // sfx_archieve set — newer asset pass layered on top of the sfx_fix set
+  // above (which stays exactly as-is; nothing in it was removed). See
+  // audio-config.ts's ARCHIEVE_SFX_BASE_PATH.
+  | 'click'
+  | 'confirm'
+  | 'final-result'
+  | 'level-up'
+  | 'wrong'
+  | 'achievement'
 
 export interface SoundConfig {
   /** Public path, e.g. /assets/statling/audio/sfx_fix/ui-click-soft.mp3 */

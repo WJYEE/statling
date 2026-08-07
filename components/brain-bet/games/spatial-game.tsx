@@ -165,7 +165,7 @@ export function SpatialGame({ index, mode, difficulty, onComplete }: SpatialGame
       ? (timeLimitMsRef.current ?? 0)
       : Math.round(performance.now() - questionStartedAtRef.current)
     const isCorrect = !timedOut && selectedOptionIndex === question.correctOptionIndex
-    play(isCorrect ? 'answer-correct' : 'answer-wrong-soft')
+    play(isCorrect ? 'answer-correct' : 'wrong')
 
     setStage('feedback')
     setLastOutcome({ selectedOptionIndex, isCorrect, timedOut })

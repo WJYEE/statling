@@ -62,7 +62,7 @@ export function ConfirmDialog({
               className="flex-1 px-4 py-2.5 text-sm"
               data-sfx-skip
               onClick={() => {
-                play('ui-confirm')
+                play('confirm')
                 onConfirm()
                 onOpenChange(false)
               }}

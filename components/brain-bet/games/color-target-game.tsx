@@ -178,7 +178,7 @@ export function ColorTargetGame({ index, mode, difficulty, onComplete }: ColorTa
     if (stage !== 'playing') return
     const correct = obj.colorId === targetColorId
     const reactionTimeMs = correct ? Math.round(performance.now() - targetSetAtRef.current) : null
-    play(correct ? 'answer-correct' : 'answer-wrong-soft')
+    play(correct ? 'answer-correct' : 'wrong')
     eventsRef.current.push({
       kind: correct ? 'correct' : 'wrong',
       colorId: obj.colorId,

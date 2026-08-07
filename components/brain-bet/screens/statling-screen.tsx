@@ -299,6 +299,7 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
         <button
           type="button"
           disabled={isSaving}
+          data-sfx="confirm"
           onClick={handleSaveDeco}
           className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-primary px-4 py-3 text-sm font-bold text-primary-foreground toy-border toy-shadow"
         >

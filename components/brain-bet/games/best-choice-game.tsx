@@ -87,7 +87,7 @@ export function BestChoiceGame({ index, mode, difficulty, onComplete }: BestChoi
       timedOut,
     }
     const updated = [...answers, answer]
-    play(answer.selectedIndex != null && answer.selectedScore === bestPossibleScore ? 'answer-correct' : 'answer-wrong-soft')
+    play(answer.selectedIndex != null && answer.selectedScore === bestPossibleScore ? 'answer-correct' : 'wrong')
     setAnswers(updated)
     setSelectedIndex(choiceIndex)
     setStage('feedback')

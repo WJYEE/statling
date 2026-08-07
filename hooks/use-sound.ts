@@ -11,6 +11,8 @@ import type { SoundName } from '@/lib/audio/types'
 export function useSound() {
   return {
     play: (name: SoundName) => audioManager.play(name),
+    /** Character voice line (feed/pet/level-up/...) — see lib/audio/character-voice.ts. Pass petProfile?.id straight through; falls back to the shared line automatically. */
+    playCharacterVoice: (petId: string | null | undefined) => audioManager.playCharacterVoice(petId),
     stop: (name: SoundName) => audioManager.stop(name),
     stopAll: () => audioManager.stopAll(),
     setVolume: (name: SoundName, volume: number) => audioManager.setVolume(name, volume),

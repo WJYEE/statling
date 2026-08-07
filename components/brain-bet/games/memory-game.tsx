@@ -200,7 +200,7 @@ export function MemoryGame({ index, mode, difficulty: gameDifficulty, onComplete
     if (stage !== 'selecting' || selectedCells.includes(cellId)) return
 
     const isCorrect = targetCells.includes(cellId)
-    play(isCorrect ? 'answer-correct' : 'answer-wrong-soft')
+    play(isCorrect ? 'answer-correct' : 'wrong')
     const newSelected = [...selectedCells, cellId]
     const newCorrect = correctCount + (isCorrect ? 1 : 0)
     const newWrong = wrongCount + (isCorrect ? 0 : 1)

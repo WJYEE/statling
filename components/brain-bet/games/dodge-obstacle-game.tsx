@@ -188,7 +188,7 @@ export function DodgeObstacleGame({
             changed = true
             const collided = o.lane === playerLaneRef.current
             eventsRef.current.push({ kind: collided ? 'collided' : 'dodged', lane: o.lane, atMs: elapsed })
-            play(collided ? 'answer-wrong-soft' : 'answer-correct')
+            play(collided ? 'wrong' : 'answer-correct')
             if (collided && now - lastCollisionAtRef.current > DODGE_OBSTACLE_COLLISION_COOLDOWN_MS) {
               lastCollisionAtRef.current = now
               setFlash('hit')

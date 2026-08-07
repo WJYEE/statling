@@ -21,9 +21,9 @@ const UNLOCK_EVENTS: Array<keyof DocumentEventMap> = ['pointerdown', 'keydown']
  * 3. Unlock <audio> playback on the first real user gesture — required by
  *    mobile Safari/Chrome autoplay policy (spec §10). Same listener resumes
  *    BGM if step 2 got blocked, so a player never has to press "play".
- * 4. A single delegated click listener that plays 'ui-click-soft' for any
- *    plain button the app doesn't otherwise give a specific sound to. This
- *    is what makes "일반 버튼 → ui-click-soft" (spec §6) work for the app's
+ * 4. A single delegated click listener that plays 'click' for any plain
+ *    button the app doesn't otherwise give a specific sound to. This is what
+ *    makes "일반 버튼 → click.mp3" work for the app's
  *    ~40 one-off `<button>` elements without editing every one of them:
  *      - add `data-sfx="some-other-sound"` to a button to override which
  *        sound it plays
@@ -59,7 +59,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
       if ((trigger as HTMLButtonElement).disabled) return
 
       const explicitSound = trigger.getAttribute('data-sfx') as SoundName | null
-      audioManager.play(explicitSound ?? 'ui-click-soft')
+      audioManager.play(explicitSound ?? 'click')
     }
     document.addEventListener('click', handleDelegatedClick)
 

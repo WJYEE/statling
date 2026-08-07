@@ -61,7 +61,7 @@ interface RoomScreenProps {
 export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMission, testerFolder }: RoomScreenProps) {
   const care = usePetCare()
   const toastManager = Toast.useToastManager()
-  const { play } = useSound()
+  const { play, playCharacterVoice } = useSound()
 
   const memory = usePetMemory(care.applyEffect)
 
@@ -120,6 +120,7 @@ export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMi
     care.levelUpEvent.unlocks.forEach((reward) => {
       toastManager.add({ title: reward.title, description: reward.description, type: 'success' })
     })
+    playCharacterVoice(petProfile?.id)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire only when a new levelUpEvent object appears
   }, [care.levelUpEvent])
 
@@ -158,6 +159,11 @@ export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMi
     else if (actionId === 'shower') play('pet-wash')
     else if (actionId === 'play') play('pet-play')
     else if (actionId === 'pet') play('pet-care-pop')
+    // Character voice layers on top of the SFX above for every care action,
+    // 'talk' included — see lib/audio/character-voice.ts for how petId
+    // resolves to a clip, and its own doc comment for how to wire in more
+    // interactions later.
+    playCharacterVoice(petProfile?.id)
   }
 
   /** Blocks 성장시키기(and therefore every minigame it leads to) while the Statling is asleep — the only entry point into Grow/minigames from Room. */

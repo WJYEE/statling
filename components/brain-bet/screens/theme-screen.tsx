@@ -324,7 +324,7 @@ export function ThemeScreen({ topStat, petProfile, onDirtyChange }: ThemeScreenP
           <Undo2 size={16} />
           저장된 방으로 되돌리기
         </button>
-        <ToyButton className="flex-1 px-4 py-3 text-sm" disabled={isSaving} onClick={handleSave}>
+        <ToyButton className="flex-1 px-4 py-3 text-sm" disabled={isSaving} data-sfx="confirm" onClick={handleSave}>
           <Save size={16} />
           방 저장
         </ToyButton>

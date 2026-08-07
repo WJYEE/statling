@@ -391,7 +391,7 @@ export function JudgmentGame({ index, mode, difficulty, onComplete }: JudgmentGa
 
     const correctAnswer = computeJudgmentAnswerForMapping(current.ruleMapping, current.stimulus)
     const isCorrect = correctAnswer !== null && answer === correctAnswer
-    play(isCorrect ? 'answer-correct' : 'answer-wrong-soft')
+    play(isCorrect ? 'answer-correct' : 'wrong')
     const responseTimeMs = Math.round(performance.now() - blockShownAtRef.current)
 
     setExitingBlock({

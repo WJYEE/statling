@@ -202,7 +202,7 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete }: FitPuzzle
         return prev.map((p) => (p.spec.id === id ? { ...p, placed: true, x: snappedX, y: snappedY } : p))
       }
 
-      play('answer-wrong-soft')
+      play('wrong')
       setRoundMisplacements((n) => n + 1)
       // Bounce back to the tray.
       const trayIndex = level.pieces.findIndex((p) => p.id === id)

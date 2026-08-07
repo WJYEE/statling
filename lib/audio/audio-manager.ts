@@ -4,7 +4,12 @@ import { ALL_BGM_TRACK_IDS, BGM_TRACK_MAP, DEFAULT_BGM_VOLUME, MAIN_THEME_TRACK_
 import type { BgmTrackId } from '@/lib/audio/bgm-config'
 import { BgmPlayer } from '@/lib/audio/bgm-player'
 import { loadBgmSettings, saveBgmSettings } from '@/lib/audio/bgm-settings-storage'
+import { ALL_CHARACTER_VOICE_SRCS, characterVoiceSrc } from '@/lib/audio/character-voice'
 import type { BgmMode, BgmSettings, SoundName } from '@/lib/audio/types'
+
+/** Shared by every character voice line — see AudioManager.playCharacterVoice. Not per-character (only the src differs), so one flat config covers all of them, including future additions to character-voice.ts. */
+const CHARACTER_VOICE_VOLUME = 0.4
+const CHARACTER_VOICE_MIN_INTERVAL_MS = 500
 
 function shuffle<T>(items: T[]): T[] {
   const result = [...items]
@@ -29,6 +34,9 @@ function shuffle<T>(items: T[]): T[] {
 class AudioManager {
   private players = new Map<SoundName, SoundPlayer>()
   private lastPlayedAt = new Map<SoundName, number>()
+  /** Keyed by resolved src (not SoundName) — character voice lines aren't a fixed enum, so they get their own small pool instead of a SFX_CONFIG entry each. See playCharacterVoice. */
+  private voicePlayers = new Map<string, SoundPlayer>()
+  private voiceLastPlayedAt = new Map<string, number>()
   private muted = false
   /**
    * Independent of `muted` — forced true for the whole Intro flow (Landing
@@ -76,12 +84,24 @@ class AudioManager {
     return player
   }
 
+  private getVoicePlayer(src: string): SoundPlayer {
+    let player = this.voicePlayers.get(src)
+    if (!player) {
+      player = new SoundPlayer({ src, volume: CHARACTER_VOICE_VOLUME, minIntervalMs: CHARACTER_VOICE_MIN_INTERVAL_MS, maxConcurrent: 1 })
+      this.voicePlayers.set(src, player)
+    }
+    return player
+  }
+
   /** Creates (but does not play) every pooled <audio> element up front, so the first real play() has zero network/decode delay. */
   preloadAll(): void {
     if (this.preloaded || typeof window === 'undefined') return
     this.preloaded = true
     for (const name of ALL_SOUND_NAMES) {
       this.getPlayer(name).preload()
+    }
+    for (const src of ALL_CHARACTER_VOICE_SRCS) {
+      this.getVoicePlayer(src).preload()
     }
   }
 
@@ -102,12 +122,35 @@ class AudioManager {
     }
   }
 
+  /**
+   * Character voice line for whichever interaction just happened (feed/pet/
+   * level-up/...) — see lib/audio/character-voice.ts for how `petId` resolves
+   * to a file, and hooks/use-pet-care.ts / room-screen.tsx for the current
+   * call sites. Same muted/introLocked gate and missing-file safety as
+   * play(); dedup is per-file (`src`), not per-character, so rapid presses
+   * on the same pet never overlap regardless of which line is playing.
+   */
+  playCharacterVoice(petId: string | null | undefined): void {
+    if (this.muted || this.introLocked || typeof window === 'undefined') return
+    try {
+      const src = characterVoiceSrc(petId)
+      const last = this.voiceLastPlayedAt.get(src) ?? 0
+      const now = performance.now()
+      if (now - last < CHARACTER_VOICE_MIN_INTERVAL_MS) return
+      this.voiceLastPlayedAt.set(src, now)
+      this.getVoicePlayer(src).play()
+    } catch {
+      // A missing/broken voice clip must never interrupt the caller's flow.
+    }
+  }
+
   stop(name: SoundName): void {
     this.players.get(name)?.stop()
   }
 
   stopAll(): void {
     for (const player of this.players.values()) player.stop()
+    for (const player of this.voicePlayers.values()) player.stop()
   }
 
   setVolume(name: SoundName, volume: number): void {
@@ -141,6 +184,9 @@ class AudioManager {
     this.unlocked = true
     for (const name of ALL_SOUND_NAMES) {
       this.getPlayer(name).unlock()
+    }
+    for (const src of ALL_CHARACTER_VOICE_SRCS) {
+      this.getVoicePlayer(src).unlock()
     }
   }
 

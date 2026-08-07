@@ -70,7 +70,7 @@ export function CompleteScreen({
   const { play } = useSound()
 
   useEffect(() => {
-    play('game-complete')
+    play('final-result')
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire exactly once per mount (GameFlow remounts this screen fresh each round via stepKey)
   }, [])
 

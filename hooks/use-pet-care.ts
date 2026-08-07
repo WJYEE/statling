@@ -219,7 +219,7 @@ export function usePetCare() {
         unlockedRewardLevels: [...finalPetState.unlockedRewardLevels, ...unlocks.map((u) => u.level)],
         giftReadyLevel: giftLevel ?? finalPetState.giftReadyLevel,
       }
-      play('pet-level-up')
+      play('level-up')
       setLevelUpEvent({ key: Date.now(), level: result.levelUp.level, unlocks })
       schedule(() => setLevelUpEvent(null), 4000)
     }
@@ -324,7 +324,7 @@ export function usePetCare() {
         unlockedRewardLevels: [...finalPetState.unlockedRewardLevels, ...unlocks.map((u) => u.level)],
         giftReadyLevel: giftLevel ?? finalPetState.giftReadyLevel,
       }
-      play('pet-level-up')
+      play('level-up')
       setLevelUpEvent({ key: Date.now(), level: result.levelUp.level, unlocks })
       schedule(() => setLevelUpEvent(null), 4000)
       playAnimation('jump')

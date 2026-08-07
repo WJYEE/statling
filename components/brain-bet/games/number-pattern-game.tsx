@@ -87,7 +87,7 @@ export function NumberPatternGame({ index, mode, difficulty, onComplete }: Numbe
       timedOut,
     }
     const updated = [...answers, answer]
-    play(answer.isCorrect ? 'answer-correct' : 'answer-wrong-soft')
+    play(answer.isCorrect ? 'answer-correct' : 'wrong')
     setAnswers(updated)
     setSelected(value)
     setStage('feedback')

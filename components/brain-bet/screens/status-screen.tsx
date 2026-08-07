@@ -44,7 +44,7 @@ export function StatusScreen({
   const [expandedStat, setExpandedStat] = useState<StatId | null>(null)
 
   useEffect(() => {
-    if (isFirstComplete) play('game-complete')
+    if (isFirstComplete) play('final-result')
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire exactly once per mount, only for the real "all 6 games done" moment
   }, [])
 

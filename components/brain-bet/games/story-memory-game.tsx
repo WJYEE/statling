@@ -112,7 +112,7 @@ export function StoryMemoryGame({ index, mode, difficulty, onComplete }: StoryMe
       responseTimeMs,
     }
     const updated = [...answers, answer]
-    play(answer.isCorrect ? 'answer-correct' : 'answer-wrong-soft')
+    play(answer.isCorrect ? 'answer-correct' : 'wrong')
     setAnswers(updated)
     setSelected(choiceIndex)
     setStage('feedback')

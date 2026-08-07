@@ -56,6 +56,7 @@ export function NamingScreen({ petProfile, onConfirm }: NamingScreenProps) {
       <ToyButton
         className="mt-6 w-full"
         disabled={!valid}
+        data-sfx="confirm"
         onClick={() => valid && onConfirm(name.trim())}
       >
         이름 정하기
