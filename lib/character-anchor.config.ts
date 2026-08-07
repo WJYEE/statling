@@ -18,8 +18,8 @@ export type CharacterAnchorSet = Record<CharacterAnchorKey, AnchorPoint>
  * Generic fallback — where head/face/body typically sit (as a fraction of
  * the character's own square render box) for this app's centered chibi art
  * style. Sanity-checked against a few finished characters (01_치즈털실냥이,
- * 02_로봇, 08_고래) rather than guessed, but real per-character art doesn't
- * agree closely (e.g. 02_로봇's long antenna and extra bottom padding reads
+ * 02_플로봇, 08_바다고래) rather than guessed, but real per-character art doesn't
+ * agree closely (e.g. 02_플로봇's long antenna and extra bottom padding reads
  * very differently from a compact whale) — this is a starting point for any
  * character/state with no curated override below, not a promise of a pixel-
  * perfect fit for all 30 characters. Add entries to
@@ -46,10 +46,10 @@ const CHARACTER_ANCHOR_OVERRIDES: Partial<Record<string, Partial<Record<Characte
   '01_치즈털실냥이': {
     idle: { head: { x: 0.5, y: 0.22 }, face: { x: 0.5, y: 0.34 }, body: { x: 0.48, y: 0.72 } },
   },
-  '02_로봇': {
+  '02_플로봇': {
     idle: { head: { x: 0.5, y: 0.12 }, face: { x: 0.5, y: 0.47 }, body: { x: 0.5, y: 0.85 } },
   },
-  '08_고래': {
+  '08_바다고래': {
     idle: { head: { x: 0.5, y: 0.28 }, face: { x: 0.44, y: 0.48 }, body: { x: 0.5, y: 0.68 } },
   },
 }

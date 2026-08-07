@@ -105,7 +105,7 @@ export interface CharacterStateFolder {
  * Builds every state's asset path for a folder that follows the
  * `{folderId}/{folderId}_{NN}_{fileToken}.png` naming convention. This is
  * the one place that convention is encoded — wiring up a new character once
- * its 24 files land (e.g. 02_로봇, 03_양, ...) is just calling this with that
+ * its 24 files land (e.g. 02_플로봇, 03_잎사귀양, ...) is just calling this with that
  * folder's name, never re-deriving the path pattern by hand.
  */
 export function buildCharacterStateFolder(folderId: string, displayName: string): CharacterStateFolder {
@@ -128,33 +128,33 @@ export function buildCharacterStateFolder(folderId: string, displayName: string)
  */
 const CHARACTER_ROSTER: Array<[folderId: string, displayName: string]> = [
   ['01_치즈털실냥이', '치즈털실냥이'],
-  ['02_로봇', '로봇'],
-  ['03_양', '양'],
+  ['02_플로봇', '플로봇'],
+  ['03_잎사귀양', '잎사귀양'],
   ['04_상처도치', '상처도치'],
-  ['05_노란병아리', '노란병아리'],
+  ['05_알삐약이', '알삐약이'],
   ['06_초록스카프수달', '초록스카프수달'],
   ['07_별사막여우', '별사막여우'],
-  ['08_고래', '고래'],
-  ['09_귀신', '귀신'],
-  ['10_벌', '벌'],
+  ['08_바다고래', '바다고래'],
+  ['09_동글이유령', '동글이유령'],
+  ['10_반짝벌', '반짝벌'],
   ['11_하트덕', '하트덕'],
-  ['12_홍학', '홍학'],
+  ['12_분홍학', '분홍학'],
   ['13_나뭇잎여우', '나뭇잎여우'],
-  ['14_코알라', '코알라'],
-  ['15_개미햝기', '개미햝기'],
+  ['14_새싹코알라', '새싹코알라'],
+  ['15_물끄럼개미핥기', '물끄럼개미핥기'],
   ['16_균형다람쥐', '균형다람쥐'],
-  ['17_보라곰', '보라곰'],
+  ['17_포동동곰', '포동동곰'],
   ['18_지식토끼', '지식토끼'],
-  ['19_까망외계인', '까망외계인'],
-  ['20_찐강쥐', '찐강쥐'],
-  ['21_거북이', '거북이'],
-  ['22_아홀로틀', '아홀로틀'],
+  ['19_우주멍멍이', '우주멍멍이'],
+  ['20_스카프강쥐', '스카프강쥐'],
+  ['21_동글거북', '동글거북'],
+  ['22_붕어빵아홀로틀', '붕어빵아홀로틀'],
   ['23_잎라쿤', '잎라쿤'],
   ['24_꽃사막여우', '꽃사막여우'],
   ['25_치즈생쥐', '치즈생쥐'],
-  ['26_푸른늑대', '푸른늑대'],
+  ['26_눈송이늑대', '눈송이늑대'],
   ['27_겨울펭귄', '겨울펭귄'],
-  ['28_카피바라', '카피바라'],
+  ['28_귤카피바라', '귤카피바라'],
   ['29_무지개유니콘', '무지개유니콘'],
   ['30_꽃다발공룡', '꽃다발공룡'],
 ]

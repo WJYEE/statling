@@ -7,15 +7,15 @@ import { getPetProfileById } from '@/lib/pets/pet-profile'
  * (petProfile is null — see pet-mood-view.tsx). One character per stat: the
  * lowest-numbered roster entry (see lib/pets/pet-profile.ts#CHARACTER_CATALOG)
  * whose primaryStat is that stat — reaction -> 01_치즈털실냥이, memory ->
- * 05_노란병아리, focus -> 03_양, judgment -> 02_로봇, spatial -> 08_고래,
- * reasoning -> 07_별사막여우.
+ * 05_알삐약이, focus -> 03_잎사귀양, judgment -> 02_플로봇, spatial ->
+ * 08_바다고래, reasoning -> 07_별사막여우.
  */
 const CHARACTER_IMAGE_SRC: Record<StatId, string> = {
   reaction: getPetProfileById('01_치즈털실냥이')!.imageSrc,
-  memory: getPetProfileById('05_노란병아리')!.imageSrc,
-  focus: getPetProfileById('03_양')!.imageSrc,
-  judgment: getPetProfileById('02_로봇')!.imageSrc,
-  spatial: getPetProfileById('08_고래')!.imageSrc,
+  memory: getPetProfileById('05_알삐약이')!.imageSrc,
+  focus: getPetProfileById('03_잎사귀양')!.imageSrc,
+  judgment: getPetProfileById('02_플로봇')!.imageSrc,
+  spatial: getPetProfileById('08_바다고래')!.imageSrc,
   reasoning: getPetProfileById('07_별사막여우')!.imageSrc,
 }
 
