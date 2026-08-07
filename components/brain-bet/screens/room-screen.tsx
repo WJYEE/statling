@@ -294,6 +294,19 @@ export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMi
           }
         />
         <RoomCleanOverlay roomCleanliness={care.roomState.cleanliness} showSparkle={care.animation === 'shake'} />
+
+        {/* Overlaid on the room background itself, right under the Statling
+            (STATLING_Z_INDEX is 50 — this sits above it) — not pushed down
+            below the care-action row anymore, so answering doesn't require
+            scrolling the character out of view. */}
+        {talk.activeQuestion && (
+          <TalkQuestionCard
+            question={talk.activeQuestion}
+            onChoose={talk.chooseAnswer}
+            onSubmitFreeText={talk.submitFreeText}
+            onCancel={talk.cancelQuestion}
+          />
+        )}
       </div>
 
       <PetCareHud
