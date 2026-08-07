@@ -1,4 +1,4 @@
-import { PLAY_ORDER, type StatId } from '@/lib/brain-bet'
+import { PLAY_ORDER, type RawRecord, type StatId } from '@/lib/brain-bet'
 import { GAME_DIFFICULTY_ORDER, type GameDifficulty } from '@/lib/game/difficulty'
 import { clampScore, isBetterByGameScore } from '@/lib/scoring/shared'
 
@@ -19,6 +19,14 @@ export interface MiniGamePerformanceRecord {
   difficulty: GameDifficulty
   normalizedScore: number
   completedAt: string
+  /**
+   * The same per-game display record CompleteScreen shows (e.g. "평균
+   * 205ms" / "정답률 92%") — optional because records saved before this
+   * field existed have none. Lets lib/ranking/ranking-provider.ts's
+   * per-game leaderboard show a real raw metric for "나" instead of just
+   * the normalized 0-100 score.
+   */
+  raw?: RawRecord
 }
 
 function recordKey(gameId: string, difficulty: GameDifficulty): string {
@@ -124,6 +132,7 @@ export interface RecordCompletionInput {
   difficulty: GameDifficulty
   normalizedScore: number
   completedAt: string
+  raw?: RawRecord
 }
 
 export interface RecordCompletionResult {
@@ -171,6 +180,7 @@ export function recordMiniGameCompletion(
           difficulty: input.difficulty,
           normalizedScore: clampScore(input.normalizedScore),
           completedAt: input.completedAt,
+          raw: input.raw,
         },
       }
     : state.gameDifficultyBestRecords

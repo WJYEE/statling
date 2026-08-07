@@ -15,6 +15,7 @@ import type { BgmTrackId } from '@/lib/audio/bgm-config'
 import type { BgmMode } from '@/lib/audio/types'
 import { useAuth } from '@/lib/auth/auth-provider'
 import type { PetProfile } from '@/lib/pets/pet-profile'
+import { loadXpState } from '@/lib/ranking/xp-ledger'
 
 const BGM_MODE_LABELS: Record<BgmMode, string> = {
   'repeat-one': '단일 반복',
@@ -34,6 +35,8 @@ interface MyPageScreenProps {
 
 export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, onShowOnboarding }: MyPageScreenProps) {
   const [sfxEnabled, setSfxEnabled] = useState(() => loadSfxEnabled())
+  /** Personal growth number only (see lib/ranking/xp-ledger.ts) — never used for any ranking computation, see lib/ranking/ranking-provider.ts. */
+  const [totalXp] = useState(() => loadXpState().totalXp)
   const bgm = useBgm()
   const [bgmEnabled, setBgmEnabledState] = useState(() => bgm.isEnabled())
   const [bgmMode, setBgmModeState] = useState<BgmMode>(() => bgm.getMode())
@@ -169,9 +172,13 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
 
       <div className="mt-3 flex items-center gap-3 rounded-2xl bg-card px-4 py-4 toy-border">
         <StatBadge stat={STATS[topStat]} size="sm" />
-        <div>
+        <div className="flex-1">
           <p className="font-display text-sm font-extrabold text-foreground">{statlingName}</p>
           <p className="text-xs text-muted-foreground">{STATLING_TYPES[topStat].typeName}</p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="font-display text-sm font-extrabold text-foreground">{totalXp.toLocaleString()} XP</p>
+          <p className="text-[10px] text-muted-foreground">누적 성장치</p>
         </div>
       </div>
 
