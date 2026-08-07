@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { CharacterAnchorSet } from '@/lib/character-anchor.config'
+import { isDecoVisibleForState, type CharacterStateKey } from '@/lib/character-state-assets'
 import { getSupportedDecoAssetById } from '@/lib/deco-supported-assets'
 import { DECO_BEHIND_Z_BASE, DECO_FRONT_Z_BASE, DECO_STATLING_Z_INDEX } from '@/lib/deco-placement-layout'
 import type { DecoPlacementItem } from '@/lib/deco-placement-state'
@@ -12,6 +13,16 @@ interface DecoOverlayProps {
   /** Resolved head/face/body anchor points for whatever character + expression/action state `characterSlot` is currently showing — see lib/character-anchor.config.ts. Each item's rendered position is this set's `[item.anchor]` point plus that item's own offset, so a sticker tracks the right spot even as the character's pose (and therefore where its head/face/body actually is) changes. */
   anchors: CharacterAnchorSet
   characterSlot: ReactNode
+  /**
+   * Which of the 24 character states `characterSlot` is currently showing —
+   * see lib/character-state-assets.ts. Deco only renders while this is a
+   * "visible" state (isDecoVisibleForState — MVP: idle/blink only, since
+   * every action pose moves the head/body far enough that idle's anchor
+   * coordinates no longer line up). Omit it to keep Deco always visible,
+   * for callers that only ever show a resting pose (e.g. deco-canvas.tsx's
+   * editor preview, always anchored to 'idle').
+   */
+  stateKey?: CharacterStateKey
   className?: string
 }
 
@@ -23,10 +34,11 @@ interface DecoOverlayProps {
  * and mirrors its exact box-size/z-index scheme for the editable one) — so
  * a Statling never looks different in Room than it did in the editor.
  */
-export function DecoOverlay({ items, characterSize, anchors, characterSlot, className }: DecoOverlayProps) {
+export function DecoOverlay({ items, characterSize, anchors, characterSlot, stateKey, className }: DecoOverlayProps) {
+  const visibleItems = stateKey == null || isDecoVisibleForState(stateKey) ? items : []
   return (
     <div className={cn('relative', className)} style={{ width: characterSize, height: characterSize }}>
-      {items.map((item, index) => {
+      {visibleItems.map((item, index) => {
         const asset = getSupportedDecoAssetById(item.itemId)
         if (!asset || item.layer !== 'behind') return null
         return (
@@ -47,7 +59,7 @@ export function DecoOverlay({ items, characterSize, anchors, characterSlot, clas
         {characterSlot}
       </div>
 
-      {items.map((item, index) => {
+      {visibleItems.map((item, index) => {
         const asset = getSupportedDecoAssetById(item.itemId)
         if (!asset || item.layer !== 'front') return null
         return (

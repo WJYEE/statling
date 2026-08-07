@@ -91,6 +91,23 @@ export const CHARACTER_STATE_SEQUENCE: CharacterStateDef[] = [
   { number: 24, key: 'evolve', fileToken: 'evolve', label: '진화' },
 ]
 
+/**
+ * States a Deco (hat/glasses/ribbon/...) is allowed to render in — see
+ * components/brain-bet/deco-overlay.tsx. MVP policy: only the two states
+ * that share the character's resting pose (idle, and the periodic blink
+ * that reuses it) keep the current single global anchor set meaningful;
+ * every action pose (eat/wash/play/...) moves the head/body enough that a
+ * Deco anchored to idle's coordinates looks visibly wrong, so it's hidden
+ * instead of mis-placed. Once per-state anchor overrides exist for a given
+ * action (see lib/character-anchor.config.ts's CHARACTER_ANCHOR_OVERRIDES),
+ * add that state's key here to start showing Deco in it again.
+ */
+const DECO_VISIBLE_STATE_KEYS: ReadonlySet<CharacterStateKey> = new Set(['idle', 'blink'])
+
+export function isDecoVisibleForState(key: CharacterStateKey): boolean {
+  return DECO_VISIBLE_STATE_KEYS.has(key)
+}
+
 const CHARACTERS_BASE = '/assets/statling/characters'
 
 export interface CharacterStateFolder {

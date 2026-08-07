@@ -264,6 +264,7 @@ export function PetMoodView({
               items={decoItems}
               characterSize={CHARACTER_BOX_SIZE}
               anchors={anchors}
+              stateKey={stateDef.key}
               characterSlot={
                 <AssetImage
                   key={`${stateDef.key}-${clickTick}`}
@@ -287,6 +288,7 @@ export function PetMoodView({
                 items={decoItems}
                 characterSize={CHARACTER_BOX_SIZE}
                 anchors={anchors}
+                stateKey={stateDef.key}
                 characterSlot={
                   <AssetImage
                     src={realFolder.assets[stateDef.key]}
@@ -302,6 +304,7 @@ export function PetMoodView({
               items={decoItems}
               characterSize={CHARACTER_BOX_SIZE}
               anchors={anchors}
+              stateKey={stateDef.key}
               characterSlot={
                 <AssetImage
                   src={realFolder.assets[stateDef.key]}
@@ -317,6 +320,7 @@ export function PetMoodView({
             items={decoItems}
             characterSize={CHARACTER_BOX_SIZE}
             anchors={anchors}
+            stateKey={stateDef.key}
             characterSlot={<CharacterImage type={topStat} size={CHARACTER_BOX_SIZE} className={ANIMATION_CLASS[animation]} />}
           />
         )}
