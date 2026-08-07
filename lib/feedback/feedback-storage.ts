@@ -60,8 +60,12 @@ function saveFeedbackRecord(record: FeedbackRecord): void {
 export interface FeedbackAnswers {
   satisfaction: SatisfactionValue
   favoritePart: FavoritePartValue[]
+  favoritePartOtherText: string
   improvementArea: ImprovementAreaValue[]
+  improvementAreaOtherText: string
+  improvementAreaDetail: string
   returnIntent: ReturnIntentValue
+  returnIntentDetail: string
   comment: string
   /** The representative pet's catalog id + display name, if one exists yet — see lib/pets/pet-profile.ts. Both null before a Statling is hatched. */
   statlingId: string | null
@@ -84,8 +88,12 @@ export function upsertFeedbackRecord(answers: FeedbackAnswers): FeedbackRecord {
     id: existing?.id ?? generateSessionId(),
     satisfaction: answers.satisfaction,
     favoritePart: answers.favoritePart,
+    favoritePartOtherText: (answers.favoritePartOtherText ?? '').trim(),
     improvementArea: answers.improvementArea,
+    improvementAreaOtherText: (answers.improvementAreaOtherText ?? '').trim(),
+    improvementAreaDetail: (answers.improvementAreaDetail ?? '').trim(),
     returnIntent: answers.returnIntent,
+    returnIntentDetail: (answers.returnIntentDetail ?? '').trim(),
     comment: (answers.comment ?? '').trim(),
     appVersion: APP_VERSION,
     deviceType: detectDevice().deviceType,

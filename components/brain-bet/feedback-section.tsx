@@ -8,6 +8,7 @@ import {
   emptyFeedbackDraft,
   FAVORITE_PART_OPTIONS,
   IMPROVEMENT_AREA_OPTIONS,
+  RETURN_INTENT_FOLLOW_UP_VALUES,
   RETURN_INTENT_OPTIONS,
   SATISFACTION_OPTIONS,
   type FeedbackDraft,
@@ -120,8 +121,12 @@ function draftFromRecord(record: FeedbackRecord): FeedbackDraft {
   return {
     satisfaction: record.satisfaction,
     favoritePart: record.favoritePart,
+    favoritePartOtherText: record.favoritePartOtherText ?? '',
     improvementArea: record.improvementArea,
+    improvementAreaOtherText: record.improvementAreaOtherText ?? '',
+    improvementAreaDetail: record.improvementAreaDetail ?? '',
     returnIntent: record.returnIntent,
+    returnIntentDetail: record.returnIntentDetail ?? '',
     comment: record.comment,
   }
 }
@@ -140,9 +145,12 @@ interface FeedbackSectionProps {
  * "here's what you told us, change anything" rather than starting blank.
  * Q1/Q4 are required single-select radios, Q2/Q3 are required multi-select
  * checkboxes (at least one choice each); Q5 is an optional free-text
- * comment. Submitting is guarded by `isSubmitting` (blocks a
- * double-click from writing two updates in a row) and the form is replaced
- * by a confirmation card right after a successful submit.
+ * comment. Q2/Q3's "기타" option and Q3/Q4's follow-up elaboration prompts
+ * are all conditional free-text that only appear once their trigger
+ * selection is made, and are never required to submit. Submitting is
+ * guarded by `isSubmitting` (blocks a double-click from writing two updates
+ * in a row) and the form is replaced by a confirmation card right after a
+ * successful submit.
  */
 export function FeedbackSection({ petProfile }: FeedbackSectionProps) {
   const toastManager = Toast.useToastManager()
@@ -177,8 +185,12 @@ export function FeedbackSection({ petProfile }: FeedbackSectionProps) {
       const saved = upsertFeedbackRecord({
         satisfaction: draft.satisfaction as SatisfactionValue,
         favoritePart: draft.favoritePart,
+        favoritePartOtherText: draft.favoritePartOtherText,
         improvementArea: draft.improvementArea,
+        improvementAreaOtherText: draft.improvementAreaOtherText,
+        improvementAreaDetail: draft.improvementAreaDetail,
         returnIntent: draft.returnIntent as ReturnIntentValue,
+        returnIntentDetail: draft.returnIntentDetail,
         comment: draft.comment,
         statlingId: petProfile?.id ?? null,
         statlingName: petProfile?.name ?? null,
@@ -223,7 +235,7 @@ export function FeedbackSection({ petProfile }: FeedbackSectionProps) {
             <div className="mt-4 flex flex-col items-center gap-2 py-4 text-center">
               <CheckCircle2 size={28} strokeWidth={2.4} className="text-primary" />
               <p className="font-display text-sm font-extrabold text-foreground">
-                {isEditingExisting ? '의견이 수정되었어요!' : '피드백을 보내주셔서 감사해요!'}
+                소중한 의견 감사합니다. 다음 업데이트에 적극 반영하겠습니다!
               </p>
               <button
                 type="button"
@@ -268,6 +280,16 @@ export function FeedbackSection({ petProfile }: FeedbackSectionProps) {
                       onChange={(v) => updateField('favoritePart', v)}
                     />
                   </div>
+                  {draft.favoritePart.includes('other') && (
+                    <input
+                      type="text"
+                      value={draft.favoritePartOtherText}
+                      onChange={(e) => updateField('favoritePartOtherText', e.target.value)}
+                      placeholder="어떤 부분이 좋았는지 알려주세요. (선택)"
+                      maxLength={200}
+                      className="mt-2 w-full rounded-xl bg-secondary px-3 py-2.5 text-sm text-foreground toy-border placeholder:text-muted-foreground focus:outline-none"
+                    />
+                  )}
                 </div>
 
                 <div>
@@ -282,10 +304,34 @@ export function FeedbackSection({ petProfile }: FeedbackSectionProps) {
                       onChange={(v) => updateField('improvementArea', v)}
                     />
                   </div>
+                  {draft.improvementArea.includes('other') && (
+                    <input
+                      type="text"
+                      value={draft.improvementAreaOtherText}
+                      onChange={(e) => updateField('improvementAreaOtherText', e.target.value)}
+                      placeholder="어떤 부분이 아쉬웠는지 알려주세요. (선택)"
+                      maxLength={200}
+                      className="mt-2 w-full rounded-xl bg-secondary px-3 py-2.5 text-sm text-foreground toy-border placeholder:text-muted-foreground focus:outline-none"
+                    />
+                  )}
+                  {draft.improvementArea.length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-[11px] font-semibold text-muted-foreground">
+                        조금만 더 자세히 알려주시면 서비스 개선에 큰 도움이 됩니다. (선택)
+                      </p>
+                      <textarea
+                        value={draft.improvementAreaDetail}
+                        onChange={(e) => updateField('improvementAreaDetail', e.target.value)}
+                        rows={2}
+                        maxLength={300}
+                        className="mt-1.5 w-full resize-none rounded-xl bg-secondary px-3 py-2.5 text-sm text-foreground toy-border placeholder:text-muted-foreground focus:outline-none"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <div>
-                  <p className={FIELD_LABEL_CLASS}>4. 앞으로도 다시 사용하고 싶나요?</p>
+                  <p className={FIELD_LABEL_CLASS}>4. 앞으로도 계속 사용하고 싶나요?</p>
                   <div className="mt-2">
                     <RadioGroup
                       name="returnIntent"
@@ -294,6 +340,20 @@ export function FeedbackSection({ petProfile }: FeedbackSectionProps) {
                       onChange={(v) => updateField('returnIntent', v)}
                     />
                   </div>
+                  {draft.returnIntent && RETURN_INTENT_FOLLOW_UP_VALUES.includes(draft.returnIntent) && (
+                    <div className="mt-2">
+                      <p className="text-[11px] font-semibold text-muted-foreground">
+                        어떤 점이 개선되면 다시 사용할 것 같나요? (선택)
+                      </p>
+                      <textarea
+                        value={draft.returnIntentDetail}
+                        onChange={(e) => updateField('returnIntentDetail', e.target.value)}
+                        rows={2}
+                        maxLength={300}
+                        className="mt-1.5 w-full resize-none rounded-xl bg-secondary px-3 py-2.5 text-sm text-foreground toy-border placeholder:text-muted-foreground focus:outline-none"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <div>
