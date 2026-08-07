@@ -154,8 +154,8 @@ export function FeedbackSection({ petProfile }: FeedbackSectionProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [justSubmitted, setJustSubmitted] = useState(false)
   const [showValidation, setShowValidation] = useState(false)
-  /** Open by default so existing behavior (form always visible) doesn't change for anyone — collapsing is purely an opt-in way to shrink MyPage, not a new default-hidden state. */
-  const [isOpen, setIsOpen] = useState(true)
+  /** Collapsed by default — MyPage stays compact on first visit; tapping the header expands the form, tapping again collapses it. */
+  const [isOpen, setIsOpen] = useState(false)
 
   const isEditingExisting = existingRecord !== null
   const missingRequired =
