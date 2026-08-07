@@ -16,7 +16,6 @@ export type SoundName =
   | 'answer-correct'
   | 'answer-wrong-soft'
   | 'game-complete'
-  | 'pet-chirp-happy'
   | 'pet-care-pop'
   | 'pet-level-up'
   | 'pet-feed'
@@ -45,7 +44,7 @@ export interface SoundConfig {
   minIntervalMs?: number
   /**
    * How many overlapping instances of this one sound may play at once
-   * (spec §3, e.g. pet-chirp-happy capped at 2). Also doubles as the pooled
+   * (spec §3, e.g. answer-correct capped at 3). Also doubles as the pooled
    * <audio> element count, so repeated triggers never wait on a previous
    * instance to finish before a new one can start.
    */

@@ -201,8 +201,12 @@ export function usePetCare() {
     schedule(() => setAnimationOverride(null), holdMs)
   }
 
+  // No SFX on every care-action message anymore — a chirp on every single
+  // feed/wash/play/pet/talk press read as too chatty. Sound is reserved for
+  // specific occasional moments instead (room entry, gift-ready, level-up —
+  // see room-screen.tsx's playCharacterVoice call sites); this bubble still
+  // shows its text either way.
   function showSpeech(text: string, holdMs = 2400) {
-    play('pet-chirp-happy')
     setSpeech(text)
     schedule(() => setSpeech((cur) => (cur === text ? null : cur)), holdMs)
   }

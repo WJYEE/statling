@@ -12,7 +12,6 @@ import {
 import { shouldShowMemoryComment, type PetMemory } from '@/lib/pet-care/pet-memory'
 import { computeEntryEvent, toLocalDateKey, type VisitContext } from '@/lib/pet-care/visit-context'
 import type { CareStatId, SecondaryTag } from '@/lib/pet-care/types'
-import { useSound } from '@/hooks/use-sound'
 
 /** How often the ambient loop re-checks whether a state-request/general line is due — an internal poll rate, not a user-facing cooldown itself (those are PET_AUTONOMY_CONFIG's cooldown fields). */
 const AMBIENT_POLL_MS = 10_000
@@ -41,7 +40,6 @@ export interface UsePetInitiatedDialogueInput {
  * doesn't force text out more often than the state-request rule allows.
  */
 export function usePetInitiatedDialogue(input: UsePetInitiatedDialogueInput) {
-  const { play } = useSound()
   const [speech, setSpeech] = useState<string | null>(null)
 
   const speechRef = useRef<string | null>(null)
@@ -68,8 +66,10 @@ export function usePetInitiatedDialogue(input: UsePetInitiatedDialogueInput) {
     timeoutsRef.current.push(id)
   }
 
+  // No SFX here either — see hooks/use-pet-care.ts's showSpeech doc comment;
+  // the room-entry chirp now happens once via room-screen.tsx's
+  // playCharacterVoice on mount, not on every ambient/greeting line.
   function showSpeech(text: string, holdMs: number) {
-    play('pet-chirp-happy')
     setSpeech(text)
     schedule(() => setSpeech((cur) => (cur === text ? null : cur)), holdMs)
   }

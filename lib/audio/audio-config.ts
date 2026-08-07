@@ -23,7 +23,6 @@ function archieveSfxSrc(fileName: string): string {
  *   countdown (countdown-intro's 3 ticks immediately followed by
  *   countdown-final's "go" accent, pre-mixed — see sfx_fix/countdown-whole.mp3)
  *   — played once per countdown, never overlapped with itself
- * - pet-chirp-happy: up to 2 overlapping instances, never a 3rd
  */
 export const SFX_CONFIG: Record<SoundName, SoundConfig> = {
   'ui-click-soft': { src: sfxSrc('ui-click-soft'), volume: 0.25, minIntervalMs: 70, maxConcurrent: 2 },
@@ -35,7 +34,6 @@ export const SFX_CONFIG: Record<SoundName, SoundConfig> = {
   'answer-correct': { src: sfxSrc('answer-correct'), volume: 0.35, minIntervalMs: 60, maxConcurrent: 3 },
   'answer-wrong-soft': { src: sfxSrc('answer-wrong-soft'), volume: 0.3, minIntervalMs: 60, maxConcurrent: 3 },
   'game-complete': { src: sfxSrc('game-complete'), volume: 0.5, minIntervalMs: 300, maxConcurrent: 1 },
-  'pet-chirp-happy': { src: sfxSrc('pet-chirp-happy'), volume: 0.35, minIntervalMs: 150, maxConcurrent: 2 },
   'pet-care-pop': { src: sfxSrc('pet-care-pop'), volume: 0.35, minIntervalMs: 100, maxConcurrent: 2 },
   'pet-level-up': { src: sfxSrc('pet-level-up'), volume: 0.55, minIntervalMs: 300, maxConcurrent: 1 },
   'pet-feed': { src: sfxSrc('pet-feed'), volume: 0.35, minIntervalMs: 150, maxConcurrent: 1 },

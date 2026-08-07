@@ -114,6 +114,14 @@ export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMi
   const isGiftReady = care.petState.giftReadyLevel !== null
   const isConsistentPlayerNow = isConsistentPlayer(memory.memory)
 
+  // "들어왔을 때" — one occasional chirp on entering the Room, not on every
+  // care-action press (see hooks/use-pet-care.ts's showSpeech doc comment
+  // for why those stopped playing a sound on every message).
+  useEffect(() => {
+    playCharacterVoice(petProfile?.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per mount only
+  }, [])
+
   useEffect(() => {
     if (!care.levelUpEvent) return
     toastManager.add({ title: `Lv.${care.levelUpEvent.level} 달성!`, type: 'success' })
@@ -159,10 +167,15 @@ export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMi
     else if (actionId === 'shower') play('pet-wash')
     else if (actionId === 'play') play('pet-play')
     else if (actionId === 'pet') play('pet-care-pop')
-    // Character voice layers on top of the SFX above for every care action,
-    // 'talk' included — see lib/audio/character-voice.ts for how petId
-    // resolves to a clip, and its own doc comment for how to wire in more
-    // interactions later.
+    // No character voice here anymore — a line on every single feed/wash/
+    // play/pet/talk press read as too chatty. Voice is reserved for
+    // occasional situational moments instead (room entry below, gift claim,
+    // level-up) — see lib/audio/character-voice.ts's doc comment.
+  }
+
+  /** "선물 주려고 할 때" — the Statling tap that actually hands over an unclaimed gift (see care.claimGift/isGiftReady above). */
+  function handleClaimGift() {
+    care.claimGift()
     playCharacterVoice(petProfile?.id)
   }
 
@@ -234,7 +247,7 @@ export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMi
               isReconnectGreeting={isReconnectGreeting}
               isGiftReady={isGiftReady}
               isConsistentPlayer={isConsistentPlayerNow}
-              onClaimGift={care.claimGift}
+              onClaimGift={handleClaimGift}
               onDismissSpeech={dismissSpeech}
               testerFolder={testerFolder}
             />
