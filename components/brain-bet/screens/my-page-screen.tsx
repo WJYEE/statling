@@ -16,6 +16,7 @@ import type { BgmMode } from '@/lib/audio/types'
 import { useAuth } from '@/lib/auth/auth-provider'
 import type { PetProfile } from '@/lib/pets/pet-profile'
 import { loadXpState } from '@/lib/ranking/xp-ledger'
+import { trackShare } from '@/lib/missions/mission-tracker'
 
 const BGM_MODE_LABELS: Record<BgmMode, string> = {
   'repeat-one': '단일 반복',
@@ -56,6 +57,7 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
     const url = `${window.location.origin}/share/${encodeURIComponent(petProfile.id)}`
     try {
       await navigator.clipboard.writeText(url)
+      trackShare()
       toastManager.add({ title: '공유 링크를 복사했어요.', type: 'success' })
     } catch {
       toastManager.add({ title: url, description: '링크를 직접 복사해주세요.', type: 'error' })

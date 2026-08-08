@@ -17,6 +17,7 @@ import { STATLING_Z_INDEX, applyMove, spawnDefaultItem } from '@/lib/room/room-l
 import { loadSavedRoomState, saveRoomState } from '@/lib/room/room-storage'
 import { deepCloneRoomState, roomStatesEqual, type RoomItem, type RoomState } from '@/lib/room/room-state'
 import { cn } from '@/lib/utils'
+import { trackRoomDecorSaved } from '@/lib/missions/mission-tracker'
 
 interface ThemeScreenProps {
   topStat: StatId
@@ -182,6 +183,7 @@ export function ThemeScreen({ topStat, petProfile, onDirtyChange }: ThemeScreenP
       const persisted = saveRoomState(draftState)
       setSavedState(persisted)
       setDraftState(deepCloneRoomState(persisted))
+      trackRoomDecorSaved()
       toastManager.add({ title: '방이 저장되었어요.', type: 'success' })
     } catch {
       toastManager.add({ title: '저장하지 못했어요. 다시 시도해주세요.', type: 'error' })

@@ -20,6 +20,7 @@ import { loadSavedDecoPlacementState, saveDecoPlacementState } from '@/lib/deco-
 import { getSupportedDecoAssetById, SUPPORTED_DECO_ASSETS } from '@/lib/deco-supported-assets'
 import type { PetProfile } from '@/lib/pets/pet-profile'
 import { cn } from '@/lib/utils'
+import { trackStatlingDecorSaved } from '@/lib/missions/mission-tracker'
 
 interface StatlingScreenProps {
   statlingName: string
@@ -140,6 +141,7 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
       const persisted = saveDecoPlacementState(draftDeco)
       setSavedDeco(persisted)
       setDraftDeco(deepCloneDecoPlacementState(persisted))
+      trackStatlingDecorSaved()
       toastManager.add({ title: '꾸미기가 저장되었어요.', type: 'success' })
     } catch {
       toastManager.add({ title: '저장하지 못했어요. 다시 시도해주세요.', type: 'error' })

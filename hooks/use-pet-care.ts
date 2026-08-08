@@ -37,6 +37,7 @@ import { createDefaultPetCareState, loadPetCareState, savePetCareState } from '@
 import { createDefaultRoomCareState, loadRoomCareState, saveRoomCareState } from '@/lib/pet-care/room-care-storage'
 import type { CareActionId, CareStatId, Mood, PetAnimation, PetCareState, RoomCareState, SecondaryTag } from '@/lib/pet-care/types'
 import { useSound } from '@/hooks/use-sound'
+import { trackCareInteraction } from '@/lib/missions/mission-tracker'
 
 const ACTION_IDS: CareActionId[] = ['feed', 'shower', 'clean', 'play', 'pet', 'talk']
 
@@ -246,6 +247,7 @@ export function usePetCare() {
     const pet = petStateRef.current
     const room = roomStateRef.current
     setLastUserActionAt(now.getTime())
+    trackCareInteraction(actionId, now)
 
     switch (actionId) {
       case 'feed':
@@ -300,8 +302,10 @@ export function usePetCare() {
 
   /** The 대화 answer step — see lib/pet-care/actions.ts#performTalkAnswer. `responseText` is whichever choice/free-text acknowledgement hooks/use-pet-talk.ts resolved; this only ever applies the cooldown/exp/speech-bubble side of it. */
   function answerTalk(responseText: string) {
-    setLastUserActionAt(Date.now())
-    finalizeAction(performTalkAnswer(petStateRef.current, new Date(), responseText))
+    const now = new Date()
+    setLastUserActionAt(now.getTime())
+    trackCareInteraction('talk', now)
+    finalizeAction(performTalkAnswer(petStateRef.current, now, responseText))
   }
 
   /** Tapping the Statling while a gift is ready — clears giftReadyLevel and shows a small thank-you. A no-op otherwise (see pet-mood-view.tsx's click handler). */
