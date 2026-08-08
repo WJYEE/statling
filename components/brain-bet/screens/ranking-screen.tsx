@@ -1,19 +1,25 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { ArrowLeft, ChevronRight, Trophy } from 'lucide-react'
+import { type ReactNode, useEffect, useState } from 'react'
+import { ArrowLeft, ChevronRight } from 'lucide-react'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { PLAY_ORDER, STATS, type StatId } from '@/lib/brain-bet'
 import { GAME_POOL } from '@/lib/game/game-registry'
 import { useAuth } from '@/lib/auth/auth-provider'
-import { rankingProvider, type GameRankingEntry, type OverallRankingResult } from '@/lib/ranking/ranking-provider'
+import {
+  rankingProvider,
+  type GameRankingEntry,
+  type OverallRankingEntry,
+  type XpRankingEntry,
+} from '@/lib/ranking/ranking-provider'
 import { cn } from '@/lib/utils'
 
-type RankingTab = 'overall' | 'byGame'
+type RankingTab = 'overall' | 'byGame' | 'xp'
 
 const RANKING_TABS: { id: RankingTab; label: string }[] = [
   { id: 'overall', label: '종합 랭킹' },
   { id: 'byGame', label: '게임별 랭킹' },
+  { id: 'xp', label: 'XP 랭킹' },
 ]
 
 interface RankingScreenProps {
@@ -22,14 +28,16 @@ interface RankingScreenProps {
 }
 
 /**
- * Bottom tab bar's 랭킹 destination. Two independent views, both backed by
+ * Bottom tab bar's 랭킹 destination. Three independent views, all backed by
  * lib/ranking/ranking-provider.ts so a future Supabase-backed leaderboard is
  * a provider swap, not a UI rewrite:
- * - 종합 랭킹: one rank number derived from every mini-game's record
- *   (never XP, never a visible composite score — see ranking-provider.ts).
+ * - 종합 랭킹: full list, best-first, derived from every mini-game's record
+ *   (never XP, never a visible internal score — see ranking-provider.ts).
  * - 게임별 랭킹: 능력 선택 → 게임 선택 → 그 게임 기록 랭킹. Each stat is
  *   purely a grouping category here; the actual ranking only ever happens
  *   per individual game.
+ * - XP 랭킹: totalXp only — the one ranking view XP is allowed to appear
+ *   in; it never feeds 종합 랭킹's calculation.
  */
 export function RankingScreen({ statlingName }: RankingScreenProps) {
   const [activeTab, setActiveTab] = useState<RankingTab>('overall')
@@ -53,7 +61,7 @@ export function RankingScreen({ statlingName }: RankingScreenProps) {
               aria-selected={isActive}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                'flex-1 rounded-2xl px-4 py-2.5 text-sm font-bold toy-border transition-colors',
+                'flex-1 rounded-2xl px-3 py-2.5 text-sm font-bold toy-border transition-colors',
                 isActive ? 'bg-primary text-primary-foreground' : 'bg-card text-foreground',
               )}
             >
@@ -64,58 +72,89 @@ export function RankingScreen({ statlingName }: RankingScreenProps) {
       </div>
 
       <div role="tabpanel" className="mt-6">
-        {activeTab === 'overall' ? (
-          <OverallRankingPanel statlingName={statlingName} userId={user?.id ?? null} />
-        ) : (
-          <ByGameRankingPanel statlingName={statlingName} userId={user?.id ?? null} />
-        )}
+        {activeTab === 'overall' && <OverallRankingPanel statlingName={statlingName} userId={user?.id ?? null} />}
+        {activeTab === 'byGame' && <ByGameRankingPanel statlingName={statlingName} userId={user?.id ?? null} />}
+        {activeTab === 'xp' && <XpRankingPanel statlingName={statlingName} userId={user?.id ?? null} />}
       </div>
     </div>
   )
 }
 
+function RankingSkeleton() {
+  return (
+    <div className="flex flex-col gap-2">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} className="h-[60px] animate-pulse rounded-2xl bg-muted/60" aria-hidden="true" />
+      ))}
+    </div>
+  )
+}
+
 function OverallRankingPanel({ statlingName, userId }: { statlingName: string; userId: string | null }) {
-  const [result, setResult] = useState<OverallRankingResult | 'loading'>('loading')
+  const [entries, setEntries] = useState<OverallRankingEntry[] | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    setResult('loading')
-    rankingProvider.getOverallRanking({ displayName: statlingName || '게스트', userId }).then((r) => {
-      if (!cancelled) setResult(r)
+    setEntries(null)
+    rankingProvider.getOverallRanking({ displayName: statlingName || '게스트', userId }).then((result) => {
+      if (!cancelled) setEntries(result)
     })
     return () => {
       cancelled = true
     }
   }, [statlingName, userId])
 
+  if (entries === null) return <RankingSkeleton />
+
+  const hasMe = entries.some((entry) => entry.isMe)
+
   return (
-    <div className="flex flex-col items-center gap-4 rounded-2xl bg-card px-6 py-10 toy-border toy-shadow">
-      {result === 'loading' ? (
-        <div className="h-24 w-full max-w-xs animate-pulse rounded-2xl bg-muted/60" aria-hidden="true" />
-      ) : result.rank == null ? (
-        <>
-          <span className="grid h-14 w-14 place-items-center rounded-full bg-muted text-muted-foreground toy-border">
-            <Trophy size={26} strokeWidth={2.2} />
-          </span>
-          <p className="max-w-xs text-center text-sm font-bold text-foreground">
-            아직 종합 랭킹을 계산할 기록이 없어요.
-          </p>
-          <p className="max-w-xs text-center text-xs text-muted-foreground">
-            미니게임을 플레이하면 그 기록을 바탕으로 종합 랭킹이 매겨져요.
-          </p>
-        </>
-      ) : (
-        <>
-          <span className="grid h-14 w-14 place-items-center rounded-full bg-accent text-accent-foreground toy-border">
-            <Trophy size={26} strokeWidth={2.2} />
-          </span>
-          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">종합 랭킹</p>
-          <p className="font-display text-4xl font-extrabold text-foreground">{result.rank.toLocaleString()}위</p>
-          <p className="max-w-xs text-center text-xs text-muted-foreground">
-            각 미니게임 기록을 바탕으로 계산돼요. 게임을 더 플레이하면 순위가 바뀔 수 있어요.
-          </p>
-        </>
+    <div className="flex flex-col gap-2">
+      {entries.map((entry, index) => (
+        <RankRow key={entry.id} rank={index + 1} displayName={entry.displayName} isMe={entry.isMe} />
+      ))}
+      {!hasMe && (
+        <p className="mt-1 text-center text-[11px] text-muted-foreground">
+          아직 게임 기록이 없어 종합 랭킹에 표시되지 않아요. 미니게임을 플레이해보세요.
+        </p>
       )}
+      <p className="mt-2 text-center text-[11px] text-muted-foreground">
+        각 미니게임 기록을 바탕으로 계산돼요. 다른 유저의 실제 기록은 서버 연동 후 반영될 예정이에요.
+      </p>
+    </div>
+  )
+}
+
+function XpRankingPanel({ statlingName, userId }: { statlingName: string; userId: string | null }) {
+  const [entries, setEntries] = useState<XpRankingEntry[] | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setEntries(null)
+    rankingProvider.getXpRanking({ displayName: statlingName || '게스트', userId }).then((result) => {
+      if (!cancelled) setEntries(result)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [statlingName, userId])
+
+  if (entries === null) return <RankingSkeleton />
+
+  return (
+    <div className="flex flex-col gap-2">
+      {entries.map((entry, index) => (
+        <RankRow
+          key={entry.id}
+          rank={index + 1}
+          displayName={entry.displayName}
+          isMe={entry.isMe}
+          trailing={<span className="shrink-0 font-display text-sm font-extrabold text-foreground">{entry.totalXp.toLocaleString()} XP</span>}
+        />
+      ))}
+      <p className="mt-2 text-center text-[11px] text-muted-foreground">
+        게임을 완료할 때마다 점수만큼 XP를 얻어요. XP는 종합 랭킹 계산에는 사용되지 않아요.
+      </p>
     </div>
   )
 }
@@ -160,10 +199,17 @@ function ByGameRankingPanel({ statlingName, userId }: { statlingName: string; us
         </div>
         <div className="mt-1 flex flex-col gap-2">
           {entries === null
-            ? Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="h-[60px] animate-pulse rounded-2xl bg-muted/60" aria-hidden="true" />
-              ))
-            : entries.map((entry, index) => <GameRankingRow key={entry.id} rank={index + 1} entry={entry} />)}
+            ? <RankingSkeleton />
+            : entries.map((entry, index) => (
+                <RankRow
+                  key={entry.id}
+                  rank={index + 1}
+                  displayName={entry.displayName}
+                  isMe={entry.isMe}
+                  subtitle={entry.raw?.primary}
+                  trailing={<span className="shrink-0 font-display text-sm font-extrabold text-foreground">{entry.normalizedScore}점</span>}
+                />
+              ))}
         </div>
         <p className="mt-2 text-center text-[11px] text-muted-foreground">
           이 게임의 실제 기록 기준으로 순위가 매겨져요. 다른 유저의 실제 기록은 서버 연동 후 반영될 예정이에요.
@@ -221,12 +267,25 @@ function ByGameRankingPanel({ statlingName, userId }: { statlingName: string; us
   )
 }
 
-function GameRankingRow({ rank, entry }: { rank: number; entry: GameRankingEntry }) {
+/** Shared row shape for all three ranking lists — `trailing` (a score/XP figure) and `subtitle` (a raw-record line) are both optional so 종합 랭킹 can render rank+name only, matching "내부 점수는 노출하지 않음". */
+function RankRow({
+  rank,
+  displayName,
+  isMe,
+  subtitle,
+  trailing,
+}: {
+  rank: number
+  displayName: string
+  isMe: boolean
+  subtitle?: string
+  trailing?: ReactNode
+}) {
   return (
     <div
       className={cn(
         'flex items-center gap-3 rounded-2xl px-4 py-3 toy-border',
-        entry.isMe ? 'bg-accent toy-shadow-sm' : 'bg-card',
+        isMe ? 'bg-accent toy-shadow-sm' : 'bg-card',
       )}
     >
       <span
@@ -239,12 +298,12 @@ function GameRankingRow({ rank, entry }: { rank: number; entry: GameRankingEntry
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate font-display text-sm font-extrabold text-foreground">
-          {entry.displayName}
-          {entry.isMe && <span className="ml-1.5 text-[10px] font-bold text-primary">나</span>}
+          {displayName}
+          {isMe && <span className="ml-1.5 text-[10px] font-bold text-primary">나</span>}
         </p>
-        {entry.raw && <p className="truncate text-[11px] text-muted-foreground">{entry.raw.primary}</p>}
+        {subtitle && <p className="truncate text-[11px] text-muted-foreground">{subtitle}</p>}
       </div>
-      <p className="shrink-0 font-display text-sm font-extrabold text-foreground">{entry.normalizedScore}점</p>
+      {trailing}
     </div>
   )
 }

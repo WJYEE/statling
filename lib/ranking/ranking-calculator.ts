@@ -35,14 +35,15 @@ export function computeParticipantAwarePercentile(myScore: number, rivalScores: 
 
 /**
  * Combines every played game's percentile into ONE internal composite
- * (0-100) — the "종합 랭킹 계산용" number spec explicitly forbids showing
- * to the user (see percentileToOverallRank, the only thing derived from
- * this that ever reaches the UI). Weighted by participantCount rather than
- * a simple average, so a game with a deep rival pool (a well-established
- * leaderboard) counts for more than one almost nobody has played yet —
- * this is the "단순 순위 평균은 사용하지 말고" requirement.
+ * (0-100) — the number spec explicitly forbids showing to the user. Callers
+ * (see lib/ranking/ranking-provider.ts#getOverallRanking) only ever use this
+ * to sort the player against a rival roster, never to render it directly.
+ * Weighted by participantCount rather than a simple average, so a game with
+ * a deep rival pool (a well-established leaderboard) counts for more than
+ * one almost nobody has played yet — this is the "단순 순위 평균은
+ * 사용하지 말고" requirement.
  * Returns null when there is nothing to combine (player hasn't completed
- * any mini-game yet) — callers should treat that as "no rank yet", not 0.
+ * any mini-game yet) — callers should treat that as "not ranked yet", not 0.
  */
 export function combineGamePercentiles(inputs: GamePercentileInput[]): number | null {
   if (inputs.length === 0) return null
@@ -50,19 +51,4 @@ export function combineGamePercentiles(inputs: GamePercentileInput[]): number | 
   if (totalWeight === 0) return null
   const weightedSum = inputs.reduce((sum, g) => sum + g.percentile * g.participantCount, 0)
   return weightedSum / totalWeight
-}
-
-/**
- * Maps an internal composite percentile to a 1-based rank within a
- * synthesized total-player pool (`totalPoolSize`) — the ONLY number
- * RankingScreen is allowed to render ("종합 랭킹 N위"), never the
- * composite percentile itself. `totalPoolSize` stands in for "however many
- * players actually exist" until a real backend can supply the true count;
- * swapping to Supabase later only means passing a real count here instead
- * of a constant.
- */
-export function percentileToOverallRank(compositePercentile: number, totalPoolSize: number): number {
-  const clamped = Math.min(100, Math.max(0, compositePercentile))
-  const rank = Math.round(((100 - clamped) / 100) * (totalPoolSize - 1)) + 1
-  return Math.min(totalPoolSize, Math.max(1, rank))
 }

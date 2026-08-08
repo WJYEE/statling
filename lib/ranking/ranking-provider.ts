@@ -1,10 +1,10 @@
 import type { RawRecord } from '@/lib/brain-bet'
 import { getOrCreateDeviceId } from '@/lib/room/room-storage'
 import { getAllRepresentativeRecords, getRepresentativeRecord, loadPlayerSkillState } from '@/lib/game/player-skill-storage'
+import { loadXpState } from '@/lib/ranking/xp-ledger'
 import {
   combineGamePercentiles,
   computeParticipantAwarePercentile,
-  percentileToOverallRank,
   type GamePercentileInput,
 } from '@/lib/ranking/ranking-calculator'
 
@@ -14,9 +14,11 @@ export interface OverallRankingQuery {
   userId?: string | null
 }
 
-export interface OverallRankingResult {
-  /** Null when the player hasn't completed a single mini-game yet — there is nothing to rank. RankingScreen shows an empty state in that case, never "0위"/"N/A위". */
-  rank: number | null
+/** One row of the 종합 랭킹 list — deliberately has no score/percentile field, so the internal composite (see ranking-calculator.ts) can never leak into the UI even by accident. */
+export interface OverallRankingEntry {
+  id: string
+  displayName: string
+  isMe: boolean
 }
 
 /** One row of a single game's leaderboard — ranked by that game's own normalizedScore (see LocalRankingProvider.getGameRanking's doc comment for why that counts as "raw record 기준"). */
@@ -35,6 +37,19 @@ export interface GameRankingQuery {
   userId?: string | null
 }
 
+/** One row of the XP 랭킹 list — total XP only, the one place XP is allowed to rank against other players (still never feeds getOverallRanking). */
+export interface XpRankingEntry {
+  id: string
+  displayName: string
+  totalXp: number
+  isMe: boolean
+}
+
+export interface XpRankingQuery {
+  displayName: string
+  userId?: string | null
+}
+
 /**
  * Ranking's swap seam: RankingScreen only ever talks to `rankingProvider`
  * (the singleton below), never to a concrete implementation. Today that's
@@ -47,24 +62,34 @@ export interface GameRankingQuery {
  * doesn't change either; only the score pools fed into it stop being
  * synthesized locally and start coming from real rows.
  *
- * XP (lib/ranking/xp-ledger.ts) is deliberately never read anywhere in this
- * file — per spec, XP is a personal growth/profile number only and must
- * never feed into any ranking computation.
+ * XP (lib/ranking/xp-ledger.ts) is only ever read by getXpRanking — never
+ * by getOverallRanking or getGameRanking — per spec: XP is a personal
+ * growth/profile number that is also allowed its own ranking tab, but must
+ * never feed into the mini-game-record-based overall/per-game rankings.
  */
 export interface RankingProvider {
-  /** "종합 랭킹 N위" — computed from every mini-game the player has a representative record for, never from XP. See lib/ranking/ranking-calculator.ts for the percentile/combine math. */
-  getOverallRanking(query: OverallRankingQuery): Promise<OverallRankingResult>
+  /** 종합 랭킹 — full list sorted best-first, computed from every mini-game the player has a representative record for, never from XP. Only rank position + name are exposed; see OverallRankingEntry. */
+  getOverallRanking(query: OverallRankingQuery): Promise<OverallRankingEntry[]>
   /** One specific game's leaderboard, sorted by that game's own normalizedScore (its own raw-record-derived gameScore) — descending, best first. */
   getGameRanking(query: GameRankingQuery): Promise<GameRankingEntry[]>
+  /** XP 랭킹 — full list sorted by totalXp, descending. Independent of getOverallRanking's math. */
+  getXpRanking(query: XpRankingQuery): Promise<XpRankingEntry[]>
 }
 
-/** Stand-ins for "other players" until a real leaderboard exists — cycled through when a game's synthesized pool is larger than this list. */
+/** Stand-ins for "other players" until a real leaderboard exists — cycled through when a pool is larger than this list. */
 const PLACEHOLDER_NAMES = ['몽글이', '또리', '살구', '두부', '콩콩이', '보리', '구름이', '또랑이', '마루', '방울이', '토실이', '나린']
 
-/** Synthesized "how many players exist server-side" — swapped for a real count once a backend can supply one. See percentileToOverallRank. */
-const OVERALL_POOL_SIZE = 500
+/** Fixed seed for the 종합 랭킹 tab's synthetic roster — one shared leaderboard, not per-gameId like buildRivalScorePool. */
+const OVERALL_RIVAL_SEED = 'overall-ranking'
+const OVERALL_RIVAL_COUNT = 39
 
-/** FNV-1a-ish string hash — deterministic, so the same gameId always seeds the same placeholder pool (no reshuffling on every remount/session). */
+/** Fixed seed for the XP 랭킹 tab's synthetic roster. */
+const XP_RIVAL_SEED = 'xp-ranking'
+const XP_RIVAL_COUNT = 39
+/** Loose upper bound for a synthesized rival's totalXp — plausible "long-time player" ceiling, not derived from anything real. */
+const XP_RIVAL_MAX = 4000
+
+/** FNV-1a-ish string hash — deterministic, so the same seed always produces the same placeholder pool (no reshuffling on every remount/session). */
 function hashSeed(seed: string): number {
   let h = 2166136261
   for (let i = 0; i < seed.length; i++) {
@@ -74,7 +99,7 @@ function hashSeed(seed: string): number {
   return h >>> 0
 }
 
-/** mulberry32 — tiny deterministic PRNG driven by hashSeed, so a given gameId's rival pool is stable across sessions/devices without needing a stored seed anywhere. */
+/** mulberry32 — tiny deterministic PRNG driven by hashSeed, so a given seed's pool is stable across sessions/devices without needing a stored seed anywhere. */
 function mulberry32(seed: number): () => number {
   let state = seed
   return () => {
@@ -84,6 +109,11 @@ function mulberry32(seed: number): () => number {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
+}
+
+/** Cheap central-limit approximation of a bell curve in [0, 1) from a PRNG. */
+function bellSample(rng: () => number): number {
+  return (rng() + rng() + rng()) / 3
 }
 
 /**
@@ -96,42 +126,93 @@ function mulberry32(seed: number): () => number {
  * centered in the 45-65 range, clamped to 0-100.
  */
 function buildRivalScorePool(gameId: string): number[] {
-  const seed = hashSeed(gameId)
-  const rng = mulberry32(seed)
+  const rng = mulberry32(hashSeed(gameId))
   const participantCount = 20 + Math.floor(rng() * 121) // 20-140
   const center = 45 + Math.floor(rng() * 21) // 45-65
   const scores: number[] = []
   for (let i = 0; i < participantCount; i++) {
-    const bell = (rng() + rng() + rng()) / 3 // ~triangular, biased toward center
-    const spread = (bell - 0.5) * 70
+    const spread = (bellSample(rng) - 0.5) * 70
     scores.push(Math.min(100, Math.max(0, Math.round(center + spread))))
   }
   return scores
 }
 
-function placeholderNameFor(gameId: string, index: number): string {
-  const base = PLACEHOLDER_NAMES[(hashSeed(gameId) + index) % PLACEHOLDER_NAMES.length]
-  const cycle = Math.floor((hashSeed(gameId) + index) / PLACEHOLDER_NAMES.length)
+/**
+ * The 종합 랭킹 tab's synthetic roster — each rival gets its own composite
+ * percentile (0-100) directly, rather than being built up from a fake
+ * per-game history: these stand-ins have no underlying mini-game records to
+ * derive one from, same as buildRivalScorePool's per-game rivals don't have
+ * real trial data behind their scores.
+ */
+function buildOverallRivalPercentiles(): number[] {
+  const rng = mulberry32(hashSeed(OVERALL_RIVAL_SEED))
+  const percentiles: number[] = []
+  for (let i = 0; i < OVERALL_RIVAL_COUNT; i++) {
+    percentiles.push(Math.min(100, Math.max(0, Math.round(bellSample(rng) * 100))))
+  }
+  return percentiles
+}
+
+/** The XP 랭킹 tab's synthetic roster — skewed toward lower XP with a long tail toward XP_RIVAL_MAX, roughly how a real cumulative-play metric distributes across a player base. */
+function buildXpRivalPool(): number[] {
+  const rng = mulberry32(hashSeed(XP_RIVAL_SEED))
+  const values: number[] = []
+  for (let i = 0; i < XP_RIVAL_COUNT; i++) {
+    values.push(Math.round(XP_RIVAL_MAX * rng() ** 2))
+  }
+  return values
+}
+
+function placeholderNameFor(seed: string, index: number): string {
+  const base = PLACEHOLDER_NAMES[(hashSeed(seed) + index) % PLACEHOLDER_NAMES.length]
+  const cycle = Math.floor((hashSeed(seed) + index) / PLACEHOLDER_NAMES.length)
   return cycle > 0 ? `${base} #${cycle + 1}` : base
 }
 
 class LocalRankingProvider implements RankingProvider {
-  async getOverallRanking(_query: OverallRankingQuery): Promise<OverallRankingResult> {
+  /**
+   * Sorts "나" (when she has at least one representative mini-game record)
+   * together with a synthetic rival roster by an internal composite
+   * percentile — same combineGamePercentiles math as before, just no
+   * longer collapsed to a single rank number against an abstract pool
+   * size. The composite is stripped from every entry before returning, so
+   * OverallRankingEntry (and therefore the UI) never sees it.
+   */
+  async getOverallRanking(query: OverallRankingQuery): Promise<OverallRankingEntry[]> {
     const representatives = getAllRepresentativeRecords(loadPlayerSkillState())
     const gameIds = Object.keys(representatives)
-    if (gameIds.length === 0) return { rank: null }
 
-    const percentileInputs: GamePercentileInput[] = gameIds.map((gameId) => {
-      const rivals = buildRivalScorePool(gameId)
-      return {
-        percentile: computeParticipantAwarePercentile(representatives[gameId].normalizedScore, rivals),
-        participantCount: rivals.length,
+    const rivalEntries = buildOverallRivalPercentiles().map((percentile, i) => ({
+      id: `overall_rival_${i}`,
+      displayName: placeholderNameFor(OVERALL_RIVAL_SEED, i),
+      isMe: false,
+      percentile,
+    }))
+
+    let myEntry: (typeof rivalEntries)[number] | null = null
+    if (gameIds.length > 0) {
+      const percentileInputs: GamePercentileInput[] = gameIds.map((gameId) => {
+        const rivalScores = buildRivalScorePool(gameId)
+        return {
+          percentile: computeParticipantAwarePercentile(representatives[gameId].normalizedScore, rivalScores),
+          participantCount: rivalScores.length,
+        }
+      })
+      const composite = combineGamePercentiles(percentileInputs)
+      if (composite != null) {
+        myEntry = {
+          id: query.userId ?? getOrCreateDeviceId(),
+          displayName: query.displayName || '게스트',
+          isMe: true,
+          percentile: composite,
+        }
       }
-    })
+    }
 
-    const composite = combineGamePercentiles(percentileInputs)
-    if (composite == null) return { rank: null }
-    return { rank: percentileToOverallRank(composite, OVERALL_POOL_SIZE) }
+    const all = myEntry ? [...rivalEntries, myEntry] : rivalEntries
+    return all
+      .sort((a, b) => b.percentile - a.percentile)
+      .map(({ id, displayName, isMe }) => ({ id, displayName, isMe }))
   }
 
   /**
@@ -169,6 +250,24 @@ class LocalRankingProvider implements RankingProvider {
 
     const entries = myEntry ? [...rivalEntries, myEntry] : rivalEntries
     return entries.sort((a, b) => b.normalizedScore - a.normalizedScore)
+  }
+
+  async getXpRanking(query: XpRankingQuery): Promise<XpRankingEntry[]> {
+    const rivalEntries: XpRankingEntry[] = buildXpRivalPool().map((totalXp, i) => ({
+      id: `xp_rival_${i}`,
+      displayName: placeholderNameFor(XP_RIVAL_SEED, i),
+      totalXp,
+      isMe: false,
+    }))
+
+    const myEntry: XpRankingEntry = {
+      id: query.userId ?? getOrCreateDeviceId(),
+      displayName: query.displayName || '게스트',
+      totalXp: loadXpState().totalXp,
+      isMe: true,
+    }
+
+    return [...rivalEntries, myEntry].sort((a, b) => b.totalXp - a.totalXp)
   }
 }
 
