@@ -12,6 +12,18 @@ interface LandingScreenProps {
   resumeCount?: number;
   onResume?: () => void;
   onRestart?: () => void;
+  /**
+   * True only for a device that has logged in before and is currently
+   * signed out (see game-flow.tsx's isReturningLoggedOut) — never true for
+   * a first-time visitor, so their existing "게임 시작하기" flow below is
+   * completely unaffected. Swaps the primary CTA to "Statling 만나러 가기"
+   * (routes to login instead of starting the game directly) and hides the
+   * autosave notice, which doesn't make sense to show someone who already
+   * has an account.
+   */
+  isReturningLoggedOut?: boolean;
+  /** Routes to the login/signup screen — only wired up when isReturningLoggedOut is true. */
+  onGoToLogin?: () => void;
 }
 
 export function LandingScreen({
@@ -19,6 +31,8 @@ export function LandingScreen({
   resumeCount = 0,
   onResume,
   onRestart,
+  isReturningLoggedOut = false,
+  onGoToLogin,
 }: LandingScreenProps) {
   const { play } = useSound();
   const canResume = resumeCount > 0;
@@ -114,6 +128,23 @@ export function LandingScreen({
               처음부터 다시 하기
             </button>
           </>
+        ) : isReturningLoggedOut ? (
+          <button
+            type="button"
+            data-sfx-skip
+            onClick={() => {
+              play("ui-confirm");
+              onGoToLogin?.();
+            }}
+            className="group inline-flex items-center gap-2 rounded-2xl bg-primary px-8 py-4 font-display text-xl font-extrabold text-primary-foreground toy-border toy-shadow-lg transition-transform duration-150 hover:-translate-y-0.5 active:translate-x-1 active:translate-y-1 active:shadow-none"
+          >
+            Statling 만나러 가기
+            <ArrowRight
+              size={22}
+              strokeWidth={2.8}
+              className="transition-transform duration-150 group-hover:translate-x-1"
+            />
+          </button>
         ) : (
           <>
             <button
@@ -141,27 +172,29 @@ export function LandingScreen({
         )}
       </div>
 
-      {/* Autosave notice */}
-      <div className="mt-6 flex w-full max-w-sm items-center gap-3 rounded-2xl bg-card px-4 py-3 toy-border toy-shadow-sm">
-        <span
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent text-accent-foreground toy-border"
-          aria-hidden="true"
-        >
-          <Save size={17} strokeWidth={2.4} />
-        </span>
+      {/* Autosave notice — hidden for a returning-logged-out visitor (see isReturningLoggedOut doc comment above). */}
+      {!isReturningLoggedOut && (
+        <div className="mt-6 flex w-full max-w-sm items-center gap-3 rounded-2xl bg-card px-4 py-3 toy-border toy-shadow-sm">
+          <span
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent text-accent-foreground toy-border"
+            aria-hidden="true"
+          >
+            <Save size={17} strokeWidth={2.4} />
+          </span>
 
-        <div className="min-w-0">
-          <p className="font-display text-sm font-extrabold leading-tight text-foreground">
-            자동 저장 지원
-          </p>
+          <div className="min-w-0">
+            <p className="font-display text-sm font-extrabold leading-tight text-foreground">
+              자동 저장 지원
+            </p>
 
-          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-            게임을 완료할 때마다 저장돼요.
-            <br />
-            언제든 돌아와 이어서 할 수 있어요.
-          </p>
+            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+              게임을 완료할 때마다 저장돼요.
+              <br />
+              언제든 돌아와 이어서 할 수 있어요.
+            </p>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

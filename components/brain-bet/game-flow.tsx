@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ConfirmDialog } from '@/components/brain-bet/confirm-dialog'
 import { LandingScreen } from '@/components/brain-bet/screens/landing-screen'
+import { LoginScreen } from '@/components/brain-bet/screens/login-screen'
 import { ReactionGame } from '@/components/brain-bet/games/reaction-game'
 import { MemoryGame } from '@/components/brain-bet/games/memory-game'
 import { FocusGame } from '@/components/brain-bet/games/focus-game'
@@ -75,6 +76,7 @@ import {
 import { addXp, loadXpState, saveXpState } from '@/lib/ranking/xp-ledger'
 import { useAuth } from '@/lib/auth/auth-provider'
 import { trackDailyVisit, trackFirstLogin, trackGamePlayed } from '@/lib/missions/mission-tracker'
+import { loadActivityCounters } from '@/lib/missions/activity-counters'
 import {
   clearIntroProgress,
   loadIntroProgress,
@@ -141,6 +143,7 @@ import { formatNumberPatternRawRecord } from '@/lib/scoring/number-pattern'
 
 type Phase =
   | 'landing'
+  | 'login'
   | 'game'
   | 'complete'
   | 'freeplay-complete'
@@ -174,7 +177,7 @@ const emptyFinals = () =>
   Object.fromEntries(PLAY_ORDER.map((id) => [id, 0])) as Record<StatId, number>
 
 export function GameFlow() {
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
   const [phase, setPhase] = useState<Phase>('landing')
   const [flowMode, setFlowMode] = useState<'first' | 'free'>('first')
   const [index, setIndex] = useState(0)
@@ -265,6 +268,20 @@ export function GameFlow() {
    * has been assigned yet at all.
    */
   const displayedPetProfile = petRecord ? resolveCurrentPetProfile(petRecord) : null
+
+  /**
+   * True only for a device that has logged in at least once before (see
+   * lib/missions/activity-counters.ts#hasLoggedInEver, flipped by
+   * trackFirstLogin() the moment a real login is first detected — see the
+   * effect below) and is currently signed out. A first-time visitor who has
+   * never logged in always has `hasLoggedInEver: false`, so Landing's
+   * existing "게임 시작하기" flow is untouched for them — this only swaps in
+   * the "다시 로그인" flow for someone specifically returning after a
+   * logout. Recomputed on every render (a cheap synchronous localStorage
+   * read) rather than cached in state, so it immediately reflects a logout
+   * that just happened without needing a remount.
+   */
+  const isReturningLoggedOut = !authLoading && !user && loadActivityCounters().hasLoggedInEver
 
   /** Dev/QA only — the currently-active tester folder, if any (see qa-skip-menu.tsx). */
   const activeTesterFolder = TESTER_CHARACTER_FOLDERS.find((f) => f.folderId === testerFolderId) ?? null
@@ -359,6 +376,7 @@ export function GameFlow() {
    */
   const isIntroPhase =
     phase === 'landing' ||
+    phase === 'login' ||
     phase === 'egg' ||
     phase === 'reveal' ||
     phase === 'save' ||
@@ -478,6 +496,30 @@ export function GameFlow() {
   /** "처음부터 다시 하기" — only wipes the Intro checkpoint (see start()); never touches pet/room/care data. Gated behind confirmingRestartIntro so a stray tap can't silently discard progress. */
   const restartIntro = () => {
     clearIntroProgress()
+    start()
+  }
+
+  /** Landing's "Statling 만나러 가기" CTA (see isReturningLoggedOut) — routes to the login/signup screen instead of starting the game directly. */
+  const goToLogin = () => setPhase('login')
+
+  /**
+   * LoginScreen's onAuthenticated — login never touches local pet data
+   * (see lib/auth/local-auth-provider.tsx, entirely separate storage), so
+   * this just re-reads whatever was already on this device and routes
+   * accordingly: an existing confirmed Statling goes straight to Home,
+   * otherwise a fresh Intro run starts, same as a first-time visitor's
+   * "게임 시작하기" would. Mirrors the mount effect's own confirmed-branch
+   * logic above.
+   */
+  const handleLoginAuthenticated = () => {
+    const stored = loadStoredPetProfile()
+    if (stored?.confirmed) {
+      setFinals(stored.latestFinals)
+      setPetRecord(stored)
+      if (stored.statlingName) setStatlingName(stored.statlingName)
+      setPhase('room')
+      return
+    }
     start()
   }
 
@@ -1170,7 +1212,13 @@ export function GameFlow() {
             resumeCount={introResume?.completedGames.length ?? 0}
             onResume={resumeIntro}
             onRestart={() => setConfirmingRestartIntro(true)}
+            isReturningLoggedOut={isReturningLoggedOut}
+            onGoToLogin={goToLogin}
           />
+        )}
+
+        {phase === 'login' && (
+          <LoginScreen onAuthenticated={handleLoginAuthenticated} onBack={() => setPhase('landing')} />
         )}
 
         {SHOW_QA_SKIP && (phase === 'room' || (phase === 'game' && flowMode === 'first')) && (
