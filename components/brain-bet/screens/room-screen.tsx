@@ -298,13 +298,17 @@ export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMi
         {/* Overlaid on the room background itself, right under the Statling
             (STATLING_Z_INDEX is 50 — this sits above it) — not pushed down
             below the care-action row anymore, so answering doesn't require
-            scrolling the character out of view. */}
+            scrolling the character out of view. The ONLY talk popup on this
+            screen — question, choices, AND the answer all render inside
+            this one card (see talk-question-card.tsx), so there is never a
+            second one elsewhere on the page. */}
         {talk.activeQuestion && (
           <TalkQuestionCard
             question={talk.activeQuestion}
+            answerText={talk.answerText}
             onChoose={talk.chooseAnswer}
             onSubmitFreeText={talk.submitFreeText}
-            onCancel={talk.cancelQuestion}
+            onClose={talk.cancelQuestion}
           />
         )}
       </div>
@@ -330,15 +334,6 @@ export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMi
           />
         ))}
       </div>
-
-      {talk.activeQuestion && (
-        <TalkQuestionCard
-          question={talk.activeQuestion}
-          onChoose={talk.chooseAnswer}
-          onSubmitFreeText={talk.submitFreeText}
-          onCancel={talk.cancelQuestion}
-        />
-      )}
 
       {/* grow CTA — the one action on this screen meant to stand out more than the compact HUD above */}
       <ToyButton className="mx-auto mt-3 w-full max-w-xs px-5 py-2.5 sm:mt-4 sm:py-3" onClick={handleGrowClick}>

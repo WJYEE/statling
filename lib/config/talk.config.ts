@@ -12,6 +12,9 @@ export const RECENT_QUESTION_HISTORY_SIZE = 3
 /** How long a choice's forced expression (see TalkChoice.expression) holds the character art before falling back to the normal mood/animation read. Roughly matches the speech bubble's own hold so the face and the line clear together. */
 export const TALK_EXPRESSION_HOLD_MS = 2800
 
+/** How long the talk popup keeps showing the chosen answer before auto-closing itself (see hooks/use-pet-talk.ts) — the player can also close it early via the X button or by tapping the card. */
+export const TALK_ANSWER_AUTO_CLOSE_MS = 3200
+
 /** "최근 입력 문구 몇 개만 보관" — oldest entries drop off once a new one pushes past this. */
 export const MAX_USER_NOTES = 5
 
