@@ -379,7 +379,7 @@ export function GameFlow() {
    * lib/game/player-skill-storage.ts for the idempotency/averaging rules
    * this delegates to.
    */
-  function recordSkillCompletion(statCategory: StatId, gameScore: number, raw: RawRecord) {
+  function recordSkillCompletion(statCategory: StatId, gameScore: number, raw: RawRecord, metrics: Record<string, number>) {
     const { state, applied } = recordMiniGameCompletion(loadPlayerSkillState(), {
       completionId: currentAttemptIdRef.current,
       gameId: activeGameKey,
@@ -388,6 +388,7 @@ export function GameFlow() {
       normalizedScore: gameScore,
       completedAt: new Date().toISOString(),
       raw,
+      metrics,
     })
     if (applied) savePlayerSkillState(state)
     // Ranking XP — same choke point, so every valid completion (Intro or Free
@@ -503,7 +504,7 @@ export function GameFlow() {
     setStatStatus((map) => applyGameResult('reaction', map, result))
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('reaction', gameScore, result.raw)
+    if (result.isValidAttempt) recordSkillCompletion('reaction', gameScore, result.raw, { medianReactionMs: rawSummary.medianReactionMs, consistency: rawSummary.consistency })
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reaction', activeGameKey, gameScore)
     setFinals((f) => ({ ...f, reaction: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
@@ -547,7 +548,7 @@ export function GameFlow() {
     setStatStatus((map) => applyGameResult('memory', map, result))
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('memory', gameScore, result.raw)
+    if (result.isValidAttempt) recordSkillCompletion('memory', gameScore, result.raw, { weightedAccuracy: rawSummary.weightedAccuracy, averageAdjustedResponseTimeMs: rawSummary.averageAdjustedResponseTimeMs })
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('memory', activeGameKey, gameScore)
     setFinals((f) => ({ ...f, memory: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
@@ -591,7 +592,7 @@ export function GameFlow() {
     setStatStatus((map) => applyGameResult('focus', map, result))
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('focus', gameScore, result.raw)
+    if (result.isValidAttempt) recordSkillCompletion('focus', gameScore, result.raw, { weightedAccuracy: rawSummary.weightedAccuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs })
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('focus', activeGameKey, gameScore)
     setFinals((f) => ({ ...f, focus: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
@@ -635,7 +636,7 @@ export function GameFlow() {
     setStatStatus((map) => applyGameResult('judgment', map, result))
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('judgment', gameScore, result.raw)
+    if (result.isValidAttempt) recordSkillCompletion('judgment', gameScore, result.raw, { correctBlocks: rawSummary.correctBlocks, overallAccuracy: rawSummary.overallAccuracy })
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('judgment', activeGameKey, gameScore)
     setFinals((f) => ({ ...f, judgment: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
@@ -679,7 +680,7 @@ export function GameFlow() {
     setStatStatus((map) => applyGameResult('spatial', map, result))
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('spatial', gameScore, result.raw)
+    if (result.isValidAttempt) recordSkillCompletion('spatial', gameScore, result.raw, { difficultyWeightedAccuracy: rawSummary.difficultyWeightedAccuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs })
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('spatial', activeGameKey, gameScore)
     setFinals((f) => ({ ...f, spatial: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
@@ -723,7 +724,7 @@ export function GameFlow() {
     setStatStatus((map) => applyGameResult('reasoning', map, result))
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('reasoning', gameScore, result.raw)
+    if (result.isValidAttempt) recordSkillCompletion('reasoning', gameScore, result.raw, { difficultyWeightedAccuracy: rawSummary.difficultyWeightedAccuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs })
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reasoning', activeGameKey, gameScore)
     setFinals((f) => ({ ...f, reasoning: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
@@ -776,7 +777,7 @@ export function GameFlow() {
     setStatStatus((map) => applyGameResult('memory', map, result))
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('memory', gameScore, result.raw)
+    if (result.isValidAttempt) recordSkillCompletion('memory', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs })
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('memory', activeGameKey, gameScore)
     setFinals((f) => ({ ...f, memory: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
@@ -816,7 +817,7 @@ export function GameFlow() {
     setStatStatus((map) => applyGameResult('focus', map, result))
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('focus', gameScore, result.raw)
+    if (result.isValidAttempt) recordSkillCompletion('focus', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageReactionTimeMs: rawSummary.averageReactionTimeMs })
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('focus', activeGameKey, gameScore)
     setFinals((f) => ({ ...f, focus: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
@@ -856,7 +857,7 @@ export function GameFlow() {
     setStatStatus((map) => applyGameResult('reaction', map, result))
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('reaction', gameScore, result.raw)
+    if (result.isValidAttempt) recordSkillCompletion('reaction', gameScore, result.raw, { survivedMs: rawSummary.survivedMs, obstaclesDodged: rawSummary.obstaclesDodged })
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reaction', activeGameKey, gameScore)
     setFinals((f) => ({ ...f, reaction: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
@@ -896,7 +897,7 @@ export function GameFlow() {
     setStatStatus((map) => applyGameResult('judgment', map, result))
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('judgment', gameScore, result.raw)
+    if (result.isValidAttempt) recordSkillCompletion('judgment', gameScore, result.raw, { averageChoiceQuality: rawSummary.averageChoiceQuality, averageResponseTimeMs: rawSummary.averageResponseTimeMs })
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('judgment', activeGameKey, gameScore)
     setFinals((f) => ({ ...f, judgment: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
@@ -936,7 +937,7 @@ export function GameFlow() {
     setStatStatus((map) => applyGameResult('spatial', map, result))
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('spatial', gameScore, result.raw)
+    if (result.isValidAttempt) recordSkillCompletion('spatial', gameScore, result.raw, { totalCompletionMs: rawSummary.totalCompletionMs, misplacements: rawSummary.misplacements })
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('spatial', activeGameKey, gameScore)
     setFinals((f) => ({ ...f, spatial: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
@@ -976,7 +977,7 @@ export function GameFlow() {
     setStatStatus((map) => applyGameResult('reasoning', map, result))
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('reasoning', gameScore, result.raw)
+    if (result.isValidAttempt) recordSkillCompletion('reasoning', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs })
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reasoning', activeGameKey, gameScore)
     setFinals((f) => ({ ...f, reasoning: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')

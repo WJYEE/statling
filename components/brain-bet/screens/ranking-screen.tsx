@@ -10,6 +10,7 @@ import {
   rankingProvider,
   type GameRankingEntry,
   type OverallRankingEntry,
+  type RankedDifficulty,
   type XpRankingEntry,
 } from '@/lib/ranking/ranking-provider'
 import { cn } from '@/lib/utils'
@@ -22,6 +23,11 @@ const RANKING_TABS: { id: RankingTab; label: string }[] = [
   { id: 'xp', label: 'XP 랭킹' },
 ]
 
+const DIFFICULTY_TABS: { id: RankedDifficulty; label: string }[] = [
+  { id: 'hard', label: 'HARD' },
+  { id: 'extreme', label: 'EXTREME' },
+]
+
 interface RankingScreenProps {
   /** Shown as "나"'s row label — the pet's own given name. */
   statlingName: string
@@ -31,13 +37,17 @@ interface RankingScreenProps {
  * Bottom tab bar's 랭킹 destination. Three independent views, all backed by
  * lib/ranking/ranking-provider.ts so a future Supabase-backed leaderboard is
  * a provider swap, not a UI rewrite:
- * - 종합 랭킹: full list, best-first, derived from every mini-game's record
- *   (never XP, never a visible internal score — see ranking-provider.ts).
- * - 게임별 랭킹: 능력 선택 → 게임 선택 → 그 게임 기록 랭킹. Each stat is
- *   purely a grouping category here; the actual ranking only ever happens
- *   per individual game.
+ * - 종합 랭킹: full list, best-first, derived from every mini-game's Hard-tier
+ *   record (never XP, never Extreme, never a visible internal score).
+ * - 게임별 랭킹: 능력 선택 → 게임 선택 → Hard/Extreme 선택 → 그 게임·난이도
+ *   기록 랭킹, ranked by that game's own raw metric (lib/ranking/
+ *   game-ranking-metrics.config.ts). Each stat is purely a grouping
+ *   category here; the actual ranking only ever happens per individual
+ *   game+difficulty.
  * - XP 랭킹: totalXp only — the one ranking view XP is allowed to appear
  *   in; it never feeds 종합 랭킹's calculation.
+ * All three pin a "내 순위" summary at the top of their list (see
+ * MyRankCard) so a low rank is never something you have to scroll to find.
  */
 export function RankingScreen({ statlingName }: RankingScreenProps) {
   const [activeTab, setActiveTab] = useState<RankingTab>('overall')
@@ -90,6 +100,48 @@ function RankingSkeleton() {
   )
 }
 
+/**
+ * "내 순위" summary — sticky at the top of every list panel so a low rank
+ * never requires scrolling through the whole board to find. `rank: null`
+ * (no record yet at this tab/game/difficulty) shows `emptyText` instead of
+ * a rank number.
+ */
+function MyRankCard({
+  loading,
+  rank,
+  label,
+  detail,
+  emptyText,
+}: {
+  loading: boolean
+  rank: number | null
+  label: string
+  detail?: ReactNode
+  emptyText: string
+}) {
+  return (
+    <div className="sticky top-0 z-20 -mt-2 bg-background/95 pb-3 pt-2 backdrop-blur-sm">
+      <div className="flex items-center gap-3 rounded-2xl bg-accent px-4 py-3.5 toy-border toy-shadow-sm">
+        {loading ? (
+          <div className="h-9 w-full animate-pulse rounded-xl bg-muted/50" aria-hidden="true" />
+        ) : rank == null ? (
+          <p className="text-sm font-bold text-foreground">{emptyText}</p>
+        ) : (
+          <>
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary font-display text-sm font-extrabold text-primary-foreground">
+              {rank}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-bold text-accent-foreground/70">{label}</p>
+              {detail}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function OverallRankingPanel({ statlingName, userId }: { statlingName: string; userId: string | null }) {
   const [entries, setEntries] = useState<OverallRankingEntry[] | null>(null)
 
@@ -104,22 +156,25 @@ function OverallRankingPanel({ statlingName, userId }: { statlingName: string; u
     }
   }, [statlingName, userId])
 
-  if (entries === null) return <RankingSkeleton />
-
-  const hasMe = entries.some((entry) => entry.isMe)
+  const myIndex = entries?.findIndex((entry) => entry.isMe) ?? -1
+  const myRank = myIndex >= 0 ? myIndex + 1 : null
 
   return (
     <div className="flex flex-col gap-2">
-      {entries.map((entry, index) => (
-        <RankRow key={entry.id} rank={index + 1} displayName={entry.displayName} isMe={entry.isMe} />
-      ))}
-      {!hasMe && (
-        <p className="mt-1 text-center text-[11px] text-muted-foreground">
-          아직 게임 기록이 없어 종합 랭킹에 표시되지 않아요. 미니게임을 플레이해보세요.
-        </p>
-      )}
+      <MyRankCard
+        loading={entries === null}
+        rank={myRank}
+        label="내 종합 랭킹"
+        detail={<p className="font-display text-lg font-extrabold text-foreground">{myRank}위</p>}
+        emptyText="아직 게임 기록이 없어 종합 랭킹에 표시되지 않아요."
+      />
+      {entries === null
+        ? <RankingSkeleton />
+        : entries.map((entry, index) => (
+            <RankRow key={entry.id} rank={index + 1} displayName={entry.displayName} isMe={entry.isMe} />
+          ))}
       <p className="mt-2 text-center text-[11px] text-muted-foreground">
-        각 미니게임 기록을 바탕으로 계산돼요. 다른 유저의 실제 기록은 서버 연동 후 반영될 예정이에요.
+        각 미니게임의 Hard 기록을 바탕으로 계산돼요. 다른 유저의 실제 기록은 서버 연동 후 반영될 예정이에요.
       </p>
     </div>
   )
@@ -139,19 +194,34 @@ function XpRankingPanel({ statlingName, userId }: { statlingName: string; userId
     }
   }, [statlingName, userId])
 
-  if (entries === null) return <RankingSkeleton />
+  const myIndex = entries?.findIndex((entry) => entry.isMe) ?? -1
+  const myRank = myIndex >= 0 ? myIndex + 1 : null
+  const myXp = myIndex >= 0 ? entries?.[myIndex].totalXp : undefined
 
   return (
     <div className="flex flex-col gap-2">
-      {entries.map((entry, index) => (
-        <RankRow
-          key={entry.id}
-          rank={index + 1}
-          displayName={entry.displayName}
-          isMe={entry.isMe}
-          trailing={<span className="shrink-0 font-display text-sm font-extrabold text-foreground">{entry.totalXp.toLocaleString()} XP</span>}
-        />
-      ))}
+      <MyRankCard
+        loading={entries === null}
+        rank={myRank}
+        label="내 XP 랭킹"
+        detail={
+          <p className="font-display text-lg font-extrabold text-foreground">
+            {myRank}위 <span className="text-xs font-bold text-muted-foreground">· {myXp?.toLocaleString()} XP</span>
+          </p>
+        }
+        emptyText="XP 기록을 불러올 수 없어요."
+      />
+      {entries === null
+        ? <RankingSkeleton />
+        : entries.map((entry, index) => (
+            <RankRow
+              key={entry.id}
+              rank={index + 1}
+              displayName={entry.displayName}
+              isMe={entry.isMe}
+              trailing={<span className="shrink-0 font-display text-sm font-extrabold text-foreground">{entry.totalXp.toLocaleString()} XP</span>}
+            />
+          ))}
       <p className="mt-2 text-center text-[11px] text-muted-foreground">
         게임을 완료할 때마다 점수만큼 XP를 얻어요. XP는 종합 랭킹 계산에는 사용되지 않아요.
       </p>
@@ -162,6 +232,7 @@ function XpRankingPanel({ statlingName, userId }: { statlingName: string; userId
 function ByGameRankingPanel({ statlingName, userId }: { statlingName: string; userId: string | null }) {
   const [selectedStat, setSelectedStat] = useState<StatId | null>(null)
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null)
+  const [selectedDifficulty, setSelectedDifficulty] = useState<RankedDifficulty>('hard')
   const [entries, setEntries] = useState<GameRankingEntry[] | null>(null)
 
   useEffect(() => {
@@ -172,17 +243,21 @@ function ByGameRankingPanel({ statlingName, userId }: { statlingName: string; us
     let cancelled = false
     setEntries(null)
     rankingProvider
-      .getGameRanking({ gameId: selectedGameId, displayName: statlingName || '게스트', userId })
+      .getGameRanking({ gameId: selectedGameId, difficulty: selectedDifficulty, displayName: statlingName || '게스트', userId })
       .then((result) => {
         if (!cancelled) setEntries(result)
       })
     return () => {
       cancelled = true
     }
-  }, [selectedGameId, statlingName, userId])
+  }, [selectedGameId, selectedDifficulty, statlingName, userId])
 
   if (selectedStat && selectedGameId) {
     const game = GAME_POOL[selectedStat].find((g) => g.key === selectedGameId)
+    const myIndex = entries?.findIndex((entry) => entry.isMe) ?? -1
+    const myEntry = myIndex >= 0 ? entries?.[myIndex] : undefined
+    const myRank = myIndex >= 0 ? myIndex + 1 : null
+
     return (
       <div className="flex flex-col gap-2">
         <button
@@ -197,7 +272,42 @@ function ByGameRankingPanel({ statlingName, userId }: { statlingName: string; us
           <StatBadge stat={STATS[selectedStat]} size="sm" />
           <p className="font-display text-sm font-extrabold text-foreground">{game?.name ?? selectedGameId}</p>
         </div>
-        <div className="mt-1 flex flex-col gap-2">
+
+        <div role="tablist" aria-label="난이도" className="flex gap-2">
+          {DIFFICULTY_TABS.map((tab) => {
+            const isActive = tab.id === selectedDifficulty
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setSelectedDifficulty(tab.id)}
+                className={cn(
+                  'flex-1 rounded-xl px-3 py-2 text-xs font-bold toy-border transition-colors',
+                  isActive ? 'bg-primary text-primary-foreground' : 'bg-card text-foreground',
+                )}
+              >
+                {tab.label}
+              </button>
+            )
+          })}
+        </div>
+
+        <MyRankCard
+          loading={entries === null}
+          rank={myRank}
+          label={`내 기록 (${DIFFICULTY_TABS.find((t) => t.id === selectedDifficulty)?.label})`}
+          detail={
+            <p className="font-display text-lg font-extrabold text-foreground">
+              {myRank}위{' '}
+              {myEntry && <span className="text-xs font-bold text-muted-foreground">· {myEntry.primaryDisplay}</span>}
+            </p>
+          }
+          emptyText="이 난이도에서 아직 기록이 없어요."
+        />
+
+        <div className="flex flex-col gap-2">
           {entries === null
             ? <RankingSkeleton />
             : entries.map((entry, index) => (
@@ -206,8 +316,8 @@ function ByGameRankingPanel({ statlingName, userId }: { statlingName: string; us
                   rank={index + 1}
                   displayName={entry.displayName}
                   isMe={entry.isMe}
-                  subtitle={entry.raw?.primary}
-                  trailing={<span className="shrink-0 font-display text-sm font-extrabold text-foreground">{entry.normalizedScore}점</span>}
+                  trailing={<span className="shrink-0 font-display text-sm font-extrabold text-foreground">{entry.primaryDisplay}</span>}
+                  subtitle={entry.tiebreakerDisplay}
                 />
               ))}
         </div>
@@ -238,7 +348,10 @@ function ByGameRankingPanel({ statlingName, userId }: { statlingName: string; us
             <button
               key={game.key}
               type="button"
-              onClick={() => setSelectedGameId(game.key)}
+              onClick={() => {
+                setSelectedDifficulty('hard')
+                setSelectedGameId(game.key)
+              }}
               className="flex items-center justify-between rounded-2xl bg-card px-4 py-3.5 text-left toy-border"
             >
               <span className="font-display text-sm font-extrabold text-foreground">{game.name}</span>
@@ -267,7 +380,7 @@ function ByGameRankingPanel({ statlingName, userId }: { statlingName: string; us
   )
 }
 
-/** Shared row shape for all three ranking lists — `trailing` (a score/XP figure) and `subtitle` (a raw-record line) are both optional so 종합 랭킹 can render rank+name only, matching "내부 점수는 노출하지 않음". */
+/** Shared row shape for all three ranking lists — `trailing` (a metric/XP figure) and `subtitle` (a tiebreaker line) are both optional so 종합 랭킹 can render rank+name only, matching "내부 점수는 노출하지 않음". */
 function RankRow({
   rank,
   displayName,

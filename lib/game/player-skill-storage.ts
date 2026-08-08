@@ -27,6 +27,15 @@ export interface MiniGamePerformanceRecord {
    * the normalized 0-100 score.
    */
   raw?: RawRecord
+  /**
+   * Flat numeric metrics bag (e.g. `{ medianReactionMs: 214, consistency: 38 }`)
+   * this exact completion produced — the raw material
+   * lib/ranking/game-ranking-metrics.config.ts's per-game metric defs read
+   * from to rank/tie-break a per-game leaderboard by that game's own real
+   * metric instead of the normalized 0-100 score. Optional because records
+   * saved before this field existed have none.
+   */
+  metrics?: Record<string, number>
 }
 
 function recordKey(gameId: string, difficulty: GameDifficulty): string {
@@ -133,6 +142,7 @@ export interface RecordCompletionInput {
   normalizedScore: number
   completedAt: string
   raw?: RawRecord
+  metrics?: Record<string, number>
 }
 
 export interface RecordCompletionResult {
@@ -181,6 +191,7 @@ export function recordMiniGameCompletion(
           normalizedScore: clampScore(input.normalizedScore),
           completedAt: input.completedAt,
           raw: input.raw,
+          metrics: input.metrics,
         },
       }
     : state.gameDifficultyBestRecords
@@ -200,6 +211,33 @@ export function getBestScoreAtDifficulty(
   difficulty: GameDifficulty,
 ): number | null {
   return state.gameDifficultyBestRecords[recordKey(gameId, difficulty)]?.normalizedScore ?? null
+}
+
+/**
+ * One game's stored record at EXACTLY one difficulty tier — unlike
+ * getRepresentativeRecord below, this never falls back to a different tier.
+ * Used by ranking (lib/ranking/ranking-provider.ts) to keep Hard and
+ * Extreme leaderboards fully separate rather than collapsing them into one
+ * "whichever tier was attempted" record.
+ */
+export function getRecordAtDifficulty(
+  state: PlayerSkillState,
+  gameId: string,
+  difficulty: GameDifficulty,
+): MiniGamePerformanceRecord | null {
+  return state.gameDifficultyBestRecords[recordKey(gameId, difficulty)] ?? null
+}
+
+/** Every registered game's stored record at EXACTLY one difficulty tier (see getRecordAtDifficulty), keyed by gameId — games never played at that tier are simply absent, not backfilled from another tier. */
+export function getAllRecordsAtDifficulty(
+  state: PlayerSkillState,
+  difficulty: GameDifficulty,
+): Record<string, MiniGamePerformanceRecord> {
+  const byGameId: Record<string, MiniGamePerformanceRecord> = {}
+  for (const record of Object.values(state.gameDifficultyBestRecords)) {
+    if (record.difficulty === difficulty) byGameId[record.gameId] = record
+  }
+  return byGameId
 }
 
 /**

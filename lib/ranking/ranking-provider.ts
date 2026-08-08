@@ -1,12 +1,12 @@
-import type { RawRecord } from '@/lib/brain-bet'
 import { getOrCreateDeviceId } from '@/lib/room/room-storage'
-import { getAllRepresentativeRecords, getRepresentativeRecord, loadPlayerSkillState } from '@/lib/game/player-skill-storage'
+import { getAllRecordsAtDifficulty, getRecordAtDifficulty, loadPlayerSkillState } from '@/lib/game/player-skill-storage'
 import { loadXpState } from '@/lib/ranking/xp-ledger'
 import {
   combineGamePercentiles,
   computeParticipantAwarePercentile,
   type GamePercentileInput,
 } from '@/lib/ranking/ranking-calculator'
+import { getGameRankingMetricConfig, type MetricDirection } from '@/lib/ranking/game-ranking-metrics.config'
 
 export interface OverallRankingQuery {
   displayName: string
@@ -21,18 +21,23 @@ export interface OverallRankingEntry {
   isMe: boolean
 }
 
-/** One row of a single game's leaderboard — ranked by that game's own normalizedScore (see LocalRankingProvider.getGameRanking's doc comment for why that counts as "raw record 기준"). */
+/** Hard is the existing fixed-round format; Extreme is the same game at the harder tier — kept as fully separate leaderboards (see getGameRanking) rather than collapsed into one "representative" record. */
+export type RankedDifficulty = 'hard' | 'extreme'
+
+/** One row of a single game's leaderboard — ranked by that game's own raw metric (see lib/ranking/game-ranking-metrics.config.ts), never a 0-100 score. */
 export interface GameRankingEntry {
   id: string
   displayName: string
-  normalizedScore: number
-  /** This entry's real display record (e.g. "평균 205ms"), when known — placeholder rivals never have one, only "나" (once she has a saved record — see lib/game/player-skill-storage.ts#MiniGamePerformanceRecord.raw). */
-  raw: RawRecord | null
   isMe: boolean
+  /** Formatted primary (sort key) metric, e.g. "214ms" or "92%". */
+  primaryDisplay: string
+  /** Formatted tiebreaker metric, shown as a secondary line — only present when the game defines one. */
+  tiebreakerDisplay?: string
 }
 
 export interface GameRankingQuery {
   gameId: string
+  difficulty: RankedDifficulty
   displayName: string
   userId?: string | null
 }
@@ -59,8 +64,9 @@ export interface XpRankingQuery {
  * interface and swapping the singleton's assignment is the entire
  * migration — RankingScreen and every exported type here stay exactly as
  * they are. The calculation math itself (lib/ranking/ranking-calculator.ts)
- * doesn't change either; only the score pools fed into it stop being
- * synthesized locally and start coming from real rows.
+ * and the per-game metric definitions (lib/ranking/game-ranking-metrics.
+ * config.ts) don't change either; only the score/metric pools fed into them
+ * stop being synthesized locally and start coming from real rows.
  *
  * XP (lib/ranking/xp-ledger.ts) is only ever read by getXpRanking — never
  * by getOverallRanking or getGameRanking — per spec: XP is a personal
@@ -68,9 +74,9 @@ export interface XpRankingQuery {
  * never feed into the mini-game-record-based overall/per-game rankings.
  */
 export interface RankingProvider {
-  /** 종합 랭킹 — full list sorted best-first, computed from every mini-game the player has a representative record for, never from XP. Only rank position + name are exposed; see OverallRankingEntry. */
+  /** 종합 랭킹 — full list sorted best-first, computed from every mini-game the player has a Hard-tier record for (Extreme is deliberately excluded — see getOverallRanking's doc comment), never from XP. Only rank position + name are exposed; see OverallRankingEntry. */
   getOverallRanking(query: OverallRankingQuery): Promise<OverallRankingEntry[]>
-  /** One specific game's leaderboard, sorted by that game's own normalizedScore (its own raw-record-derived gameScore) — descending, best first. */
+  /** One specific game's leaderboard AT ONE DIFFICULTY TIER, sorted by that game's own raw metric (see lib/ranking/game-ranking-metrics.config.ts) — Hard and Extreme are always separate calls/lists, never merged. */
   getGameRanking(query: GameRankingQuery): Promise<GameRankingEntry[]>
   /** XP 랭킹 — full list sorted by totalXp, descending. Independent of getOverallRanking's math. */
   getXpRanking(query: XpRankingQuery): Promise<XpRankingEntry[]>
@@ -116,14 +122,24 @@ function bellSample(rng: () => number): number {
   return (rng() + rng() + rng()) / 3
 }
 
+/** Bell-samples a value inside `[min, max]` — used to synthesize a placeholder rival's raw metric value from a game-ranking-metrics.config.ts range. */
+function sampleInRange(rng: () => number, [min, max]: [number, number]): number {
+  return min + bellSample(rng) * (max - min)
+}
+
+/** 'asc' (lower is better) sorts ascending, 'desc' (higher is better) sorts descending — returns a standard Array#sort comparator result. */
+function compareByDirection(a: number, b: number, direction: MetricDirection): number {
+  return direction === 'asc' ? a - b : b - a
+}
+
 /**
- * One gameId's deterministic placeholder rival scores (0-100). Pool size
- * varies per game (20-140) so the "참가자 수를 고려한" weighting in
- * combineGamePercentiles actually has something to weight — some games
- * read as more established than others, same as a real leaderboard would
- * look before every game has equal play counts. Scores are drawn from three
- * averaged uniforms (a cheap central-limit approximation of a bell curve)
- * centered in the 45-65 range, clamped to 0-100.
+ * One gameId's deterministic placeholder rival scores (0-100 gameScore) —
+ * feeds ONLY the internal 종합 랭킹 percentile math (see getOverallRanking),
+ * never shown directly. Pool size varies per game (20-140) so the
+ * "참가자 수를 고려한" weighting in combineGamePercentiles actually has
+ * something to weight. Scores are drawn from three averaged uniforms (a
+ * cheap central-limit approximation of a bell curve) centered in the 45-65
+ * range, clamped to 0-100.
  */
 function buildRivalScorePool(gameId: string): number[] {
   const rng = mulberry32(hashSeed(gameId))
@@ -153,7 +169,7 @@ function buildOverallRivalPercentiles(): number[] {
   return percentiles
 }
 
-/** The XP 랭킹 tab's synthetic roster — skewed toward lower XP with a long tail toward XP_RIVAL_MAX, roughly how a real cumulative-play metric distributes across a player base. */
+/** The XP 랭킹 탭's synthetic roster — skewed toward lower XP with a long tail toward XP_RIVAL_MAX, roughly how a real cumulative-play metric distributes across a player base. */
 function buildXpRivalPool(): number[] {
   const rng = mulberry32(hashSeed(XP_RIVAL_SEED))
   const values: number[] = []
@@ -171,16 +187,19 @@ function placeholderNameFor(seed: string, index: number): string {
 
 class LocalRankingProvider implements RankingProvider {
   /**
-   * Sorts "나" (when she has at least one representative mini-game record)
+   * Sorts "나" (when she has at least one Hard-tier mini-game record)
    * together with a synthetic rival roster by an internal composite
-   * percentile — same combineGamePercentiles math as before, just no
-   * longer collapsed to a single rank number against an abstract pool
-   * size. The composite is stripped from every entry before returning, so
-   * OverallRankingEntry (and therefore the UI) never sees it.
+   * percentile. Deliberately reads getAllRecordsAtDifficulty(state, 'hard')
+   * rather than "whatever tier was last attempted" — Extreme records are
+   * excluded from this composite entirely per spec (Extreme stays a
+   * separate per-game leaderboard only, see getGameRanking) so a handful of
+   * Extreme clears can't skew 종합 랭킹 against players who've only reached
+   * Hard. The composite itself is stripped from every entry before
+   * returning, so OverallRankingEntry (and therefore the UI) never sees it.
    */
   async getOverallRanking(query: OverallRankingQuery): Promise<OverallRankingEntry[]> {
-    const representatives = getAllRepresentativeRecords(loadPlayerSkillState())
-    const gameIds = Object.keys(representatives)
+    const hardRecords = getAllRecordsAtDifficulty(loadPlayerSkillState(), 'hard')
+    const gameIds = Object.keys(hardRecords)
 
     const rivalEntries = buildOverallRivalPercentiles().map((percentile, i) => ({
       id: `overall_rival_${i}`,
@@ -194,7 +213,7 @@ class LocalRankingProvider implements RankingProvider {
       const percentileInputs: GamePercentileInput[] = gameIds.map((gameId) => {
         const rivalScores = buildRivalScorePool(gameId)
         return {
-          percentile: computeParticipantAwarePercentile(representatives[gameId].normalizedScore, rivalScores),
+          percentile: computeParticipantAwarePercentile(hardRecords[gameId].normalizedScore, rivalScores),
           participantCount: rivalScores.length,
         }
       })
@@ -216,40 +235,71 @@ class LocalRankingProvider implements RankingProvider {
   }
 
   /**
-   * Ranked by normalizedScore (each game's own 0-100 gameScore), not a
-   * fabricated cross-game composite: gameScore is already computed
-   * per-game from exactly the raw metric that game promises to measure
-   * (e.g. reaction's is 70% median-ms-based, judgment's is accuracy-based —
-   * see lib/scoring/*.ts), so ranking by it here IS ranking by "해당 게임
-   * 기준의 raw record", just already normalized to a comparable 0-100
-   * scale. "나"'s row additionally carries her real formatted raw text
-   * (raw.primary, e.g. "평균 205ms") when a saved record has one; synthetic
-   * placeholder rivals have no real raw text to show, since there is no
-   * real backend yet.
+   * Ranked by the game's own raw metric (lib/ranking/game-ranking-metrics.
+   * config.ts), e.g. reaction's median ms or memory's accuracy — never a
+   * 0-100 score. Hard and Extreme are always queried (and therefore ranked)
+   * completely separately: the synthetic rival pool is seeded per
+   * `${gameId}:${difficulty}`, and "나"'s row reads
+   * getRecordAtDifficulty(state, gameId, difficulty), which never falls
+   * back to a different tier. "나" only appears once she has a saved
+   * `metrics` bag for that exact game+tier (see lib/game/
+   * player-skill-storage.ts#MiniGamePerformanceRecord.metrics) — a record
+   * saved before that field existed, or no record at that tier at all,
+   * both mean she's simply absent from this list, same as a real player
+   * with no submitted score.
    */
   async getGameRanking(query: GameRankingQuery): Promise<GameRankingEntry[]> {
-    const rivalScores = buildRivalScorePool(query.gameId)
-    const rivalEntries: GameRankingEntry[] = rivalScores.map((score, i) => ({
-      id: `${query.gameId}_rival_${i}`,
-      displayName: placeholderNameFor(query.gameId, i),
-      normalizedScore: score,
-      raw: null,
+    const metricConfig = getGameRankingMetricConfig(query.gameId, query.difficulty)
+    if (!metricConfig) return []
+
+    const seed = `${query.gameId}:${query.difficulty}`
+    const rng = mulberry32(hashSeed(seed))
+    const participantCount = 20 + Math.floor(rng() * 81) // 20-100
+
+    interface RivalRow {
+      id: string
+      displayName: string
+      isMe: boolean
+      primary: number
+      tiebreaker?: number
+    }
+
+    const rivalEntries: RivalRow[] = Array.from({ length: participantCount }, (_, i) => ({
+      id: `${seed}_rival_${i}`,
+      displayName: placeholderNameFor(seed, i),
       isMe: false,
+      primary: sampleInRange(rng, metricConfig.primary.syntheticRange),
+      tiebreaker: metricConfig.tiebreaker ? sampleInRange(rng, metricConfig.tiebreaker.syntheticRange) : undefined,
     }))
 
-    const myRecord = getRepresentativeRecord(loadPlayerSkillState(), query.gameId)
-    const myEntry: GameRankingEntry | null = myRecord
-      ? {
-          id: query.userId ?? getOrCreateDeviceId(),
-          displayName: query.displayName || '게스트',
-          normalizedScore: myRecord.normalizedScore,
-          raw: myRecord.raw ?? null,
-          isMe: true,
-        }
-      : null
+    const myRecord = getRecordAtDifficulty(loadPlayerSkillState(), query.gameId, query.difficulty)
+    const myPrimary = myRecord?.metrics?.[metricConfig.primary.key]
+    const myEntry: RivalRow | null =
+      myRecord && typeof myPrimary === 'number'
+        ? {
+            id: query.userId ?? getOrCreateDeviceId(),
+            displayName: query.displayName || '게스트',
+            isMe: true,
+            primary: myPrimary,
+            tiebreaker: metricConfig.tiebreaker ? myRecord.metrics?.[metricConfig.tiebreaker.key] : undefined,
+          }
+        : null
 
-    const entries = myEntry ? [...rivalEntries, myEntry] : rivalEntries
-    return entries.sort((a, b) => b.normalizedScore - a.normalizedScore)
+    const all = myEntry ? [...rivalEntries, myEntry] : rivalEntries
+    all.sort((a, b) => {
+      const primaryCmp = compareByDirection(a.primary, b.primary, metricConfig.primary.direction)
+      if (primaryCmp !== 0 || !metricConfig.tiebreaker) return primaryCmp
+      return compareByDirection(a.tiebreaker ?? 0, b.tiebreaker ?? 0, metricConfig.tiebreaker.direction)
+    })
+
+    return all.map((entry) => ({
+      id: entry.id,
+      displayName: entry.displayName,
+      isMe: entry.isMe,
+      primaryDisplay: metricConfig.primary.format(entry.primary),
+      tiebreakerDisplay:
+        metricConfig.tiebreaker && entry.tiebreaker != null ? metricConfig.tiebreaker.format(entry.tiebreaker) : undefined,
+    }))
   }
 
   async getXpRanking(query: XpRankingQuery): Promise<XpRankingEntry[]> {
