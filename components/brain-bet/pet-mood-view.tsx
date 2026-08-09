@@ -5,6 +5,7 @@ import { DecoOverlay } from '@/components/brain-bet/deco-overlay'
 import { PetSpeechBubble } from '@/components/brain-bet/pet-speech-bubble'
 import type { StatId } from '@/lib/brain-bet'
 import { resolveCharacterAnchors } from '@/lib/character-anchor.config'
+import { preloadImages } from '@/lib/asset-preload'
 import type { PetProfile } from '@/lib/pets/pet-profile'
 import {
   buildCharacterStateFolder,
@@ -179,6 +180,19 @@ export function PetMoodView({
     [petProfile],
   )
   const activeFolder = testerFolder ?? realFolder
+
+  // Preloads all 24 of this folder's state PNGs the moment it's known (Home
+  // mount, or a tester-folder switch) — see lib/asset-preload.ts's doc
+  // comment for why this is what actually fixes "Statling reacts late on
+  // mobile": only 'idle'/'blink' have ever been shown by this point, so
+  // without this, the FIRST 먹이/씻기/놀기/... press (or the first mood
+  // swing into hungry/tired/...) pays a full network fetch + decode before
+  // the new art can even appear, no matter how fast the state/animation
+  // itself already changed.
+  useEffect(() => {
+    if (!activeFolder) return
+    preloadImages(Object.values(activeFolder.assets))
+  }, [activeFolder])
 
   const liveStateKey = activeFolder
     ? characterStateForInteraction({

@@ -242,27 +242,44 @@ export function usePetCare() {
     else if (result.dialogue) showSpeech(result.dialogue, 3200)
   }
 
+  /**
+   * Deferred one macrotask past this action's finalizeAction call (never a
+   * microtask — those still run before the browser paints) so the several
+   * synchronous localStorage reads/writes inside mission-tracker.ts
+   * (activity counters, daily missions, and — worst case — a full
+   * sync-achievement re-evaluation) can never sit in front of the Statling's
+   * visual reaction. That reaction is already fully triggered by the time
+   * this fires; the tracking call only affects bookkeeping the player never
+   * watches happen in real time. See lib/missions/mission-tracker.ts.
+   */
+  function trackCareInteractionDeferred(actionId: CareActionId, now: Date) {
+    window.setTimeout(() => trackCareInteraction(actionId, now), 0)
+  }
+
   function performAction(actionId: CareActionId) {
     const now = new Date()
     const pet = petStateRef.current
     const room = roomStateRef.current
     setLastUserActionAt(now.getTime())
-    trackCareInteraction(actionId, now)
 
     switch (actionId) {
       case 'feed':
         finalizeAction(performFeed(pet, now))
+        trackCareInteractionDeferred(actionId, now)
         return
       case 'shower':
         finalizeAction(performShower(pet, now))
+        trackCareInteractionDeferred(actionId, now)
         return
       case 'clean': {
         const result = performClean(pet, room, now)
         finalizeAction(result, result.roomState)
+        trackCareInteractionDeferred(actionId, now)
         return
       }
       case 'play':
         finalizeAction(performPlay(pet, now))
+        trackCareInteractionDeferred(actionId, now)
         return
       case 'pet': {
         const nowMs = now.getTime()
@@ -276,6 +293,7 @@ export function usePetCare() {
           schedule(() => setIsOverPetted(false), OVERPET_REACTION_HOLD_MS)
         }
         finalizeAction(performPet(pet, now))
+        trackCareInteractionDeferred(actionId, now)
         return
       }
     }
@@ -304,8 +322,8 @@ export function usePetCare() {
   function answerTalk(responseText: string) {
     const now = new Date()
     setLastUserActionAt(now.getTime())
-    trackCareInteraction('talk', now)
     finalizeAction(performTalkAnswer(petStateRef.current, now, responseText))
+    trackCareInteractionDeferred('talk', now)
   }
 
   /** Tapping the Statling while a gift is ready — clears giftReadyLevel and shows a small thank-you. A no-op otherwise (see pet-mood-view.tsx's click handler). */

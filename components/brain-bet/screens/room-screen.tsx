@@ -127,7 +127,11 @@ export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMi
 
   function handleTalkAnswered(responseText: string, expression?: CharacterStateKey) {
     care.answerTalk(responseText)
-    memory.recordCareAction('talk')
+    // Deferred past this tick's paint — recordCareAction's savePetMemory
+    // write has no bearing on what the Statling shows right now (care.answerTalk
+    // above already triggered that synchronously), see handleCareAction's
+    // identical deferral below for the same reasoning.
+    window.setTimeout(() => memory.recordCareAction('talk'), 0)
     if (talkExpressionTimeoutRef.current !== null) window.clearTimeout(talkExpressionTimeoutRef.current)
     if (expression) {
       setTalkExpressionKey(expression)
@@ -210,7 +214,13 @@ export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMi
       return
     }
     care.performAction(actionId)
-    memory.recordCareAction(actionId)
+    // Deferred past this tick's paint — care.performAction above already
+    // synchronously triggered the visual state/animation change; this
+    // savePetMemory write is bookkeeping the player never watches happen,
+    // and previously sat in front of that visual change blocking the paint
+    // (see hooks/use-pet-care.ts's own trackCareInteraction deferral for
+    // the same fix, same reasoning).
+    window.setTimeout(() => memory.recordCareAction(actionId), 0)
     if (actionId === 'feed') play('pet-feed')
     else if (actionId === 'shower') play('pet-wash')
     else if (actionId === 'play') play('pet-play')
