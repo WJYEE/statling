@@ -30,20 +30,36 @@ export const AUTONOMOUS_ACTION_HOLD_MS: Record<AutonomousActionId, number> = {
 }
 
 /**
- * How far the 'left'/'right' zone sits from center, as a CSS length —
- * expressed as a vw-clamp (same technique as pet-mood-view.tsx's
- * CHARACTER_BOX_SIZE) so it scales with the Room canvas's own actual
- * rendered width at every breakpoint, instead of a fixed px value that reads
- * as barely-there on a wide desktop Room and edge-hugging on a narrow phone
- * one. Chosen so the full left<->right span works out to roughly 60% of the
- * Room's width at both the ~330px mobile floor and the ~700px desktop
- * ceiling those same breakpoints correspond to (see CHARACTER_BOX_SIZE's own
- * doc comment for those reference numbers) — comfortably short of the edges
- * ("방의 좌우 끝까지는 아니더라도"), and still leaves the character's own box
- * (up to 270px wide) safely inside the Room at its widest. See
- * pet-mood-view.tsx's `translateX(calc(sign * WALK_OFFSET_DISTANCE))`.
+ * How far the 'left'/'right' zone sits from center, as a CSS length.
+ *
+ * Was `clamp(100px, 30vw, 210px)` — a viewport-relative guess at "roughly
+ * 60% of the Room's width" that assumed the Room scales continuously with
+ * vw. It doesn't: room-screen.tsx caps the Room at a flat max-w-70 (280px)
+ * below the `sm` breakpoint, then removes that cap entirely above it — so
+ * the Room's actual rendered width is NOT a fixed fraction of the viewport,
+ * and on phones the old formula kept growing past 280px while the Room
+ * itself stayed pinned there, walking the character straight out of frame.
+ *
+ * Fixed by computing the real thing: availableMovement =
+ * (roomWidth - characterWidth) / 2 - safePadding, entirely in CSS via
+ * container query units. `100cqw` reads the Room canvas's own true
+ * rendered width (see room-canvas.tsx's `@container` — the nearest
+ * ancestor with a container-query context is that canvas itself, not the
+ * viewport), so this stays correct through every breakpoint transition
+ * automatically, with no separate mobile/desktop cases to keep in sync.
+ * `clamp(160px, 44vw, 270px)` here must keep matching pet-mood-view.tsx's
+ * CHARACTER_BOX_SIZE exactly — it's the one thing this can't read directly
+ * off the DOM (getting a literal element's rendered size into a sibling's
+ * CSS isn't possible without a resize-observer, which would reintroduce a
+ * JS/CSS sync-drift risk of its own). `max(0px, ...)` is the only outer
+ * guard: on a viewport too narrow for the Room to fit the character plus
+ * safePadding at all, this simply stops moving instead of ever going
+ * negative (which would walk the character the wrong way). No upper clamp
+ * is needed — the Room's own width is already bounded by this app's
+ * max-w-3xl page layout, so this formula's ceiling is that layout's, same
+ * as it always was.
  */
-export const WALK_OFFSET_DISTANCE = 'clamp(100px, 30vw, 210px)'
+export const WALK_OFFSET_DISTANCE = 'max(0px, calc((100cqw - clamp(160px, 44vw, 270px)) / 2 - 12px))'
 
 /** Sign multiplier per zone — the actual distance comes from WALK_OFFSET_DISTANCE above; this only says which side. */
 export const ZONE_OFFSET_SIGN: Record<PetZone, -1 | 0 | 1> = { left: -1, center: 0, right: 1 }

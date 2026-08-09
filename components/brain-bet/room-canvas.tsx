@@ -45,7 +45,15 @@ export function RoomCanvas({
   return (
     <div
       ref={stageRef}
-      className={cn('relative aspect-square w-full overflow-hidden rounded-3xl bg-card', className)}
+      // `@container`: establishes THIS element's own actual rendered width
+      // (not the viewport's) as a container-query context, so descendants
+      // can size themselves off the Room's true bounds — see
+      // lib/config/pet-autonomy.config.ts's WALK_OFFSET_DISTANCE, the
+      // reason this was added (autonomous left/right movement needs the
+      // Room's real width, which is capped by this screen's own layout —
+      // e.g. max-w-70 below the sm breakpoint — and therefore isn't
+      // reliably a fixed fraction of the viewport the way vw assumes).
+      className={cn('relative aspect-square w-full overflow-hidden rounded-3xl bg-card @container', className)}
       onClick={(event) => {
         if (editable && event.target === event.currentTarget) onDeselectItem?.()
       }}
