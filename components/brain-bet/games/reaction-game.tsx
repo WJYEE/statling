@@ -213,7 +213,18 @@ export function ReactionGame({ index, mode, difficulty, onComplete }: ReactionGa
         const gameScore = calculateReactionScore(rawSummary, detectDevice().inputType)
         setStage('feedback')
         setMessage('측정이 끝났어요!')
-        onComplete({ trials: updatedTrials, rawSummary, gameScore })
+        // Deferred, not called synchronously inside this tap handler — every
+        // other mini-game already defers its own final onComplete this same
+        // way (see e.g. scheduleAttempt below). Calling it synchronously here
+        // mounted the next screen (CompleteScreen, with its own freshly-`src`'d
+        // radar-center egg image) inside the tap event's own call stack, which
+        // on mobile Safari/Chrome could leave that first paint unpainted until
+        // the next interaction — only ever visible on this very first First
+        // Play result screen, since reaction is always game 1.
+        window.setTimeout(
+          () => onComplete({ trials: updatedTrials, rawSummary, gameScore }),
+          REACTION_TRIAL_FEEDBACK_MS,
+        )
         return
       }
 
