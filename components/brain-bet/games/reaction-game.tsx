@@ -5,6 +5,7 @@ import { Hand, Save, Zap } from 'lucide-react'
 import { Logo } from '@/components/brain-bet/logo'
 import { ProgressTrack } from '@/components/brain-bet/progress-track'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
+import { FreePlayBadge } from '@/components/brain-bet/games/shared/free-play-badge'
 import { STATS } from '@/lib/brain-bet'
 import {
   REACTION_DELAY_MS_MAX,
@@ -33,6 +34,7 @@ interface ReactionGameProps {
     rawSummary: ReactionRawSummary
     gameScore: number
   }) => void
+  onBack: () => void
 }
 
 function randomDelay() {
@@ -92,7 +94,7 @@ export function recordFeedbackSubline(feedback: RecordFeedback): string {
  * Starts are excluded from that count and retried, but every attempt
  * (including false starts) is kept for the trial log.
  */
-export function ReactionGame({ index, mode, difficulty, onComplete }: ReactionGameProps) {
+export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: ReactionGameProps) {
   const stat = STATS.reaction
   const { play } = useSound()
   const realTrials = useMemo(() => getReactionRealTrialsForDifficulty(difficulty), [difficulty])
@@ -252,13 +254,7 @@ export function ReactionGame({ index, mode, difficulty, onComplete }: ReactionGa
         )}
         <div className="flex items-center justify-between gap-4">
           <Logo size="sm" />
-          {mode === 'first' ? (
-            <ProgressTrack current={index} />
-          ) : (
-            <span className="rounded-xl bg-secondary px-3 py-1.5 text-xs font-bold text-secondary-foreground toy-border">
-              FREE PLAY
-            </span>
-          )}
+          {mode === 'first' ? <ProgressTrack current={index} /> : <FreePlayBadge onBack={onBack} />}
         </div>
       </header>
 

@@ -14,6 +14,8 @@ interface GrowGameScreenProps {
   statId: StatId
   onSelect: (gameKey: string, difficulty: GameDifficulty) => void
   onBack: () => void
+  /** Set when arriving here via a mini-game's own back button (see game-flow.tsx#exitFreePlayGame) — seeds this screen straight to that game's difficulty view instead of its game-list step. Undefined on a fresh entry from GrowScreen. */
+  initialGameKey?: string
 }
 
 /**
@@ -31,10 +33,10 @@ interface GrowGameScreenProps {
  * — same as Easy/Normal, which are always unlocked and always show their
  * raw record. See lib/game/difficulty-unlock.ts.
  */
-export function GrowGameScreen({ statId, onSelect, onBack }: GrowGameScreenProps) {
+export function GrowGameScreen({ statId, onSelect, onBack, initialGameKey }: GrowGameScreenProps) {
   const stat = STATS[statId]
   const pool = GAME_POOL[statId]
-  const [selectedGameKey, setSelectedGameKey] = useState<string | null>(null)
+  const [selectedGameKey, setSelectedGameKey] = useState<string | null>(initialGameKey ?? null)
   const skill = loadPlayerSkillState()
 
   if (selectedGameKey) {

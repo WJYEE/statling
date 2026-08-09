@@ -26,6 +26,7 @@ interface StoryMemoryGameProps {
   mode: 'first' | 'free'
   difficulty: GameDifficulty
   onComplete: (payload: { answers: StoryMemoryAnswer[]; rawSummary: StoryMemoryRawSummary; gameScore: number }) => void
+  onBack: () => void
 }
 
 const TUTORIAL: TutorialContent = {
@@ -43,7 +44,7 @@ const TUTORIAL: TutorialContent = {
  * deliberately tight duration instead. Only the question-answering phase is
  * scored on speed.
  */
-export function StoryMemoryGame({ index, mode, difficulty, onComplete }: StoryMemoryGameProps) {
+export function StoryMemoryGame({ index, mode, difficulty, onComplete, onBack }: StoryMemoryGameProps) {
   const stat = STATS.memory
   const { play } = useSound()
   const questionTimeLimitMs = useMemo(
@@ -147,6 +148,7 @@ export function StoryMemoryGame({ index, mode, difficulty, onComplete }: StoryMe
           ) : undefined
         }
         onHelp={() => setTutorialOpen(true)}
+        onBack={onBack}
       />
       <p className="text-xs font-semibold text-muted-foreground">{GAME_DIFFICULTIES[difficulty].hint}</p>
 

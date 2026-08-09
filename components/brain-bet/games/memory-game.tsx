@@ -7,6 +7,7 @@ import { Logo } from '@/components/brain-bet/logo'
 import { ProgressTrack } from '@/components/brain-bet/progress-track'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { GameRuleReminder } from '@/components/brain-bet/games/shared/game-rule-reminder'
+import { FreePlayBadge } from '@/components/brain-bet/games/shared/free-play-badge'
 import { STATS } from '@/lib/brain-bet'
 import {
   MEMORY_CLICK_FEEDBACK_MS,
@@ -42,6 +43,7 @@ interface MemoryGameProps {
     rawSummary: MemoryRawSummary
     gameScore: number
   }) => void
+  onBack: () => void
 }
 
 const INSTRUCTION_TEXT = '분홍색으로 깜빡이는 타일의 위치를 기억해보세요.'
@@ -55,7 +57,7 @@ const INSTRUCTION_TEXT = '분홍색으로 깜빡이는 타일의 위치를 기�
  * discarded) then MEMORY_REAL_ROUNDS fixed-difficulty rounds; wrong/incomplete
  * rounds never end the session early (no Life system).
  */
-export function MemoryGame({ index, mode, difficulty: gameDifficulty, onComplete }: MemoryGameProps) {
+export function MemoryGame({ index, mode, difficulty: gameDifficulty, onComplete, onBack }: MemoryGameProps) {
   const stat = STATS.memory
   const { play } = useSound()
 
@@ -264,9 +266,7 @@ export function MemoryGame({ index, mode, difficulty: gameDifficulty, onComplete
           {mode === 'first' ? (
             <ProgressTrack current={index} />
           ) : (
-            <span className="rounded-xl bg-secondary px-3 py-1.5 text-xs font-bold text-secondary-foreground toy-border">
-              FREE PLAY
-            </span>
+            <FreePlayBadge onBack={onBack} />
           )}
         </div>
       </header>

@@ -50,11 +50,13 @@ export function DodgeObstacleGame({
   mode,
   difficulty,
   onComplete,
+  onBack,
 }: {
   index: number
   mode: 'first' | 'free'
   difficulty: GameDifficulty
   onComplete: (payload: { events: DodgeObstacleEvent[]; rawSummary: DodgeObstacleRawSummary; gameScore: number }) => void
+  onBack: () => void
 }) {
   const stat = STATS.reaction
   const { play } = useSound()
@@ -255,6 +257,7 @@ export function DodgeObstacleGame({
           ) : undefined
         }
         onHelp={() => setTutorialOpen(true)}
+        onBack={onBack}
       />
       <p className="-mt-2 text-xs font-semibold text-muted-foreground">{GAME_DIFFICULTIES[difficulty].hint}</p>
 

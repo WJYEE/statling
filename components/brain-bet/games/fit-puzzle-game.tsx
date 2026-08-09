@@ -35,6 +35,7 @@ interface FitPuzzleGameProps {
   mode: 'first' | 'free'
   difficulty: GameDifficulty
   onComplete: (payload: { rounds: FitPuzzleRoundResult[]; rawSummary: FitPuzzleRawSummary; gameScore: number }) => void
+  onBack: () => void
 }
 
 const TUTORIAL: TutorialContent = {
@@ -56,7 +57,7 @@ function renderedFootprint(piece: PieceState) {
 }
 
 /** "퍼즐 끼우기" — new Spatial-stat game (spec §8). Pointer-based drag (works uniformly for mouse + touch via Pointer Events + setPointerCapture), tap-to-select + rotate button, target-zone (not pixel-perfect) snap detection with generous tolerance. */
-export function FitPuzzleGame({ index, mode, difficulty, onComplete }: FitPuzzleGameProps) {
+export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: FitPuzzleGameProps) {
   const stat = STATS.spatial
   const { play } = useSound()
   const snapToleranceRef = useRef(getFitPuzzleSnapToleranceForDifficulty(difficulty))
@@ -238,6 +239,7 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete }: FitPuzzle
           ) : undefined
         }
         onHelp={() => setTutorialOpen(true)}
+        onBack={onBack}
       />
       <p className="-mt-2 text-xs font-semibold text-muted-foreground">{GAME_DIFFICULTIES[difficulty].hint}</p>
 

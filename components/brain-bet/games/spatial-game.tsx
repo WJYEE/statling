@@ -7,6 +7,7 @@ import { ProgressTrack } from '@/components/brain-bet/progress-track'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { SpatialShapeView } from '@/components/brain-bet/games/spatial-shape'
 import { GameRuleReminder } from '@/components/brain-bet/games/shared/game-rule-reminder'
+import { FreePlayBadge } from '@/components/brain-bet/games/shared/free-play-badge'
 import { STATS } from '@/lib/brain-bet'
 import {
   SPATIAL_FEEDBACK_MS,
@@ -40,6 +41,7 @@ interface SpatialGameProps {
     rawSummary: SpatialRawSummary
     gameScore: number
   }) => void
+  onBack: () => void
 }
 
 interface LastOutcome {
@@ -73,7 +75,7 @@ type QuestionOutcome = { kind: 'option'; optionIndex: number } | { kind: 'timeou
  * the time it fires. `hasResolvedRef` additionally guarantees a question is
  * resolved exactly once even if a timeout and a click land back-to-back.
  */
-export function SpatialGame({ index, mode, difficulty, onComplete }: SpatialGameProps) {
+export function SpatialGame({ index, mode, difficulty, onComplete, onBack }: SpatialGameProps) {
   const stat = STATS.spatial
   const { play } = useSound()
 
@@ -260,9 +262,7 @@ export function SpatialGame({ index, mode, difficulty, onComplete }: SpatialGame
           {mode === 'first' ? (
             <ProgressTrack current={index} />
           ) : (
-            <span className="rounded-xl bg-secondary px-3 py-1.5 text-xs font-bold text-secondary-foreground toy-border">
-              FREE PLAY
-            </span>
+            <FreePlayBadge onBack={onBack} />
           )}
         </div>
       </header>

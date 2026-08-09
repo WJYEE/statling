@@ -29,6 +29,7 @@ interface ColorTargetGameProps {
   mode: 'first' | 'free'
   difficulty: GameDifficulty
   onComplete: (payload: { events: ColorTargetClickEvent[]; rawSummary: ColorTargetRawSummary; gameScore: number }) => void
+  onBack: () => void
 }
 
 /** 16 fixed non-overlapping slot positions (percent coordinates, 4x4 layout) — avoids real collision math while still keeping objects visually scattered (spec §5 "겹치지 않도록 배치"). */
@@ -73,7 +74,7 @@ function randomObjects(targetColorId: string): ActiveObject[] {
 }
 
 /** "특정 색만 클릭" — new Focus-stat game (spec §5). */
-export function ColorTargetGame({ index, mode, difficulty, onComplete }: ColorTargetGameProps) {
+export function ColorTargetGame({ index, mode, difficulty, onComplete, onBack }: ColorTargetGameProps) {
   const stat = STATS.focus
   const { play } = useSound()
   const changeIntervalStagesMs = useMemo(
@@ -217,6 +218,7 @@ export function ColorTargetGame({ index, mode, difficulty, onComplete }: ColorTa
           ) : undefined
         }
         onHelp={() => setTutorialOpen(true)}
+        onBack={onBack}
       />
       <p className="text-xs font-semibold text-muted-foreground">{GAME_DIFFICULTIES[difficulty].hint}</p>
 

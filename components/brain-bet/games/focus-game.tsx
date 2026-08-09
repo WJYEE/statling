@@ -8,6 +8,7 @@ import { ProgressTrack } from '@/components/brain-bet/progress-track'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { FocusSymbolView } from '@/components/brain-bet/games/focus-symbol'
 import { GameRuleReminder } from '@/components/brain-bet/games/shared/game-rule-reminder'
+import { FreePlayBadge } from '@/components/brain-bet/games/shared/free-play-badge'
 import { STATS } from '@/lib/brain-bet'
 import {
   FOCUS_DIFFICULTY_SEQUENCE,
@@ -43,6 +44,7 @@ interface FocusGameProps {
     rawSummary: FocusRawSummary
     gameScore: number
   }) => void
+  onBack: () => void
 }
 
 interface LastOutcome {
@@ -100,7 +102,7 @@ export function computeFocusFeedbackMessage(
  * the time it fires. `hasResolvedRef` additionally guarantees a round is
  * resolved exactly once even if a timeout and a click land back-to-back.
  */
-export function FocusGame({ index, mode, difficulty, onComplete }: FocusGameProps) {
+export function FocusGame({ index, mode, difficulty, onComplete, onBack }: FocusGameProps) {
   const stat = STATS.focus
   const { play } = useSound()
 
@@ -326,9 +328,7 @@ export function FocusGame({ index, mode, difficulty, onComplete }: FocusGameProp
           {mode === 'first' ? (
             <ProgressTrack current={index} />
           ) : (
-            <span className="rounded-xl bg-secondary px-3 py-1.5 text-xs font-bold text-secondary-foreground toy-border">
-              FREE PLAY
-            </span>
+            <FreePlayBadge onBack={onBack} />
           )}
         </div>
       </header>

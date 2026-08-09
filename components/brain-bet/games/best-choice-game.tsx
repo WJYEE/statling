@@ -25,6 +25,7 @@ interface BestChoiceGameProps {
   mode: 'first' | 'free'
   difficulty: GameDifficulty
   onComplete: (payload: { answers: BestChoiceAnswer[]; rawSummary: BestChoiceRawSummary; gameScore: number }) => void
+  onBack: () => void
 }
 
 const TUTORIAL: TutorialContent = {
@@ -35,7 +36,7 @@ const TUTORIAL: TutorialContent = {
 }
 
 /** "무엇을 선택할까" — new Judgment-stat game (spec §7). */
-export function BestChoiceGame({ index, mode, difficulty, onComplete }: BestChoiceGameProps) {
+export function BestChoiceGame({ index, mode, difficulty, onComplete, onBack }: BestChoiceGameProps) {
   const stat = STATS.judgment
   const { play } = useSound()
   // Computed once at mount (lazy useState initializer) — at 'normal' (Load multiplier 1)
@@ -122,6 +123,7 @@ export function BestChoiceGame({ index, mode, difficulty, onComplete }: BestChoi
           ) : undefined
         }
         onHelp={() => setTutorialOpen(true)}
+        onBack={onBack}
       />
       <p className="mt-1 text-xs font-semibold text-muted-foreground">{GAME_DIFFICULTIES[difficulty].hint}</p>
 

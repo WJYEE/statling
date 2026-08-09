@@ -190,6 +190,15 @@ export function GameFlow() {
   const [activeGameKey, setActiveGameKey] = useState<string>(getClassicGameKey(PLAY_ORDER[0]))
   /** Which of the 4 tiers is currently active — always 'normal' for First Play (enterStatGame), player-chosen for Free Play (confirmFreePlayGame/GrowGameScreen). See lib/game/difficulty.ts. */
   const [activeDifficulty, setActiveDifficulty] = useState<GameDifficulty>('normal')
+  /**
+   * Set right before backing out of an in-progress Free Play round (see
+   * exitFreePlayGame) so GrowGameScreen's next mount seeds its difficulty
+   * view with the same game instead of resetting to its game-list step.
+   * Cleared (null) the moment a fresh Free Play run starts from GrowScreen
+   * (selectFreePlayGame) so a stale value never leaks into an unrelated
+   * stat's game list. Never read/written by Intro at all.
+   */
+  const [freePlayResumeGameKey, setFreePlayResumeGameKey] = useState<string | null>(null)
   const [statStatus, setStatStatus] = useState<StatStatusMap>(emptyStatStatusMap())
   const [lastResult, setLastResult] = useState<GameResult | null>(null)
   /**
@@ -1096,6 +1105,7 @@ export function GameFlow() {
   const selectFreePlayGame = (statId: StatId) => {
     setActiveStatId(statId)
     setFlowMode('free')
+    setFreePlayResumeGameKey(null) // fresh entry — GrowGameScreen starts at its game-list step, not a leftover game
     setPhase('grow-game')
   }
 
@@ -1105,6 +1115,22 @@ export function GameFlow() {
     setActiveDifficulty(difficulty)
     currentAttemptIdRef.current = generateSessionId() // new round starting — see the ref's own doc comment
     setPhase('game')
+  }
+
+  /**
+   * Free Play only — backs out of an in-progress round to the difficulty
+   * screen it was started from (see FreePlayBadge/GameHud's onBack, wired
+   * to every mini-game's Free Play header). Deliberately does nothing else:
+   * no on*Complete handler runs, so nothing is written to
+   * player-skill-storage/xp-ledger/missions/pet-care energy for this
+   * abandoned round — those only ever happen inside recordSkillCompletion,
+   * which a game can only reach by finishing and calling its own
+   * onComplete. Never reachable from Intro (mode 'first' never renders a
+   * back button at all).
+   */
+  const exitFreePlayGame = () => {
+    setFreePlayResumeGameKey(activeGameKey)
+    setPhase('grow-game')
   }
 
   const returnToRoom = () => setPhase('room')
@@ -1277,38 +1303,38 @@ export function GameFlow() {
         {phase === 'game' &&
           (activeStatId === 'reaction' ? (
             activeGameKey === 'reaction-dodge-run' ? (
-              <DodgeObstacleGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onDodgeObstacleComplete} />
+              <DodgeObstacleGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onDodgeObstacleComplete} onBack={exitFreePlayGame} />
             ) : (
-              <ReactionGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onReactionComplete} />
+              <ReactionGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onReactionComplete} onBack={exitFreePlayGame} />
             )
           ) : activeStatId === 'memory' ? (
             activeGameKey === 'memory-story-recall' ? (
-              <StoryMemoryGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onStoryMemoryComplete} />
+              <StoryMemoryGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onStoryMemoryComplete} onBack={exitFreePlayGame} />
             ) : (
-              <MemoryGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onMemoryComplete} />
+              <MemoryGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onMemoryComplete} onBack={exitFreePlayGame} />
             )
           ) : activeStatId === 'focus' ? (
             activeGameKey === 'focus-color-target' ? (
-              <ColorTargetGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onColorTargetComplete} />
+              <ColorTargetGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onColorTargetComplete} onBack={exitFreePlayGame} />
             ) : (
-              <FocusGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onFocusComplete} />
+              <FocusGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onFocusComplete} onBack={exitFreePlayGame} />
             )
           ) : activeStatId === 'judgment' ? (
             activeGameKey === 'decision-best-choice' ? (
-              <BestChoiceGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onBestChoiceComplete} />
+              <BestChoiceGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onBestChoiceComplete} onBack={exitFreePlayGame} />
             ) : (
-              <JudgmentGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onJudgmentComplete} />
+              <JudgmentGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onJudgmentComplete} onBack={exitFreePlayGame} />
             )
           ) : activeStatId === 'spatial' ? (
             activeGameKey === 'spatial-fit-puzzle' ? (
-              <FitPuzzleGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onFitPuzzleComplete} />
+              <FitPuzzleGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onFitPuzzleComplete} onBack={exitFreePlayGame} />
             ) : (
-              <SpatialGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onSpatialComplete} />
+              <SpatialGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onSpatialComplete} onBack={exitFreePlayGame} />
             )
           ) : activeGameKey === 'reasoning-number-pattern' ? (
-            <NumberPatternGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onNumberPatternComplete} />
+            <NumberPatternGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onNumberPatternComplete} onBack={exitFreePlayGame} />
           ) : (
-            <ReasoningGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onReasoningComplete} />
+            <ReasoningGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onReasoningComplete} onBack={exitFreePlayGame} />
           ))}
 
         {phase === 'complete' && lastResult && (
@@ -1446,6 +1472,7 @@ export function GameFlow() {
             statId={activeStatId}
             onSelect={confirmFreePlayGame}
             onBack={() => setPhase('grow')}
+            initialGameKey={freePlayResumeGameKey ?? undefined}
           />
         )}
       </div>

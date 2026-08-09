@@ -7,6 +7,7 @@ import { ProgressTrack } from '@/components/brain-bet/progress-track'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { ReasoningSymbolView } from '@/components/brain-bet/games/reasoning-symbol'
 import { GameRuleReminder } from '@/components/brain-bet/games/shared/game-rule-reminder'
+import { FreePlayBadge } from '@/components/brain-bet/games/shared/free-play-badge'
 import { STATS } from '@/lib/brain-bet'
 import {
   getReasoningTimeLimitForDifficulty,
@@ -41,6 +42,7 @@ interface ReasoningGameProps {
     rawSummary: ReasoningRawSummary
     gameScore: number
   }) => void
+  onBack: () => void
 }
 
 interface LastOutcome {
@@ -72,7 +74,7 @@ interface LastOutcome {
  * closures) with a `hasResolvedRef` guard — the same pattern already
  * stabilized in Focus and Spatial, applied here from the start.
  */
-export function ReasoningGame({ index, mode, difficulty, onComplete }: ReasoningGameProps) {
+export function ReasoningGame({ index, mode, difficulty, onComplete, onBack }: ReasoningGameProps) {
   const stat = STATS.reasoning
   const { play } = useSound()
 
@@ -261,9 +263,7 @@ export function ReasoningGame({ index, mode, difficulty, onComplete }: Reasoning
           {mode === 'first' ? (
             <ProgressTrack current={index} />
           ) : (
-            <span className="rounded-xl bg-secondary px-3 py-1.5 text-xs font-bold text-secondary-foreground toy-border">
-              FREE PLAY
-            </span>
+            <FreePlayBadge onBack={onBack} />
           )}
         </div>
       </header>

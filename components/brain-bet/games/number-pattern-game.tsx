@@ -27,6 +27,7 @@ interface NumberPatternGameProps {
   mode: 'first' | 'free'
   difficulty: GameDifficulty
   onComplete: (payload: { answers: NumberPatternAnswer[]; rawSummary: NumberPatternRawSummary; gameScore: number }) => void
+  onBack: () => void
 }
 
 const TUTORIAL: TutorialContent = {
@@ -37,7 +38,7 @@ const TUTORIAL: TutorialContent = {
 }
 
 /** "숫자 규칙" — new Reasoning-stat game (spec §9). Questions are drawn each session from a verified static bank (see lib/game/number-pattern-data.ts), never runtime-random-generated. */
-export function NumberPatternGame({ index, mode, difficulty, onComplete }: NumberPatternGameProps) {
+export function NumberPatternGame({ index, mode, difficulty, onComplete, onBack }: NumberPatternGameProps) {
   const stat = STATS.reasoning
   const { play } = useSound()
   const [questions] = useState(() => pickNumberPatternSession(NUMBER_PATTERN_QUESTION_COUNT))
@@ -121,6 +122,7 @@ export function NumberPatternGame({ index, mode, difficulty, onComplete }: Numbe
           ) : undefined
         }
         onHelp={() => setTutorialOpen(true)}
+        onBack={onBack}
       />
       <p className="text-xs font-semibold text-muted-foreground">{GAME_DIFFICULTIES[difficulty].hint}</p>
 

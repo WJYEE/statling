@@ -3,6 +3,7 @@ import { HelpCircle, Save } from 'lucide-react'
 import { Logo } from '@/components/brain-bet/logo'
 import { ProgressTrack } from '@/components/brain-bet/progress-track'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
+import { FreePlayBadge } from '@/components/brain-bet/games/shared/free-play-badge'
 import type { StatDef } from '@/lib/brain-bet'
 
 interface GameHudProps {
@@ -20,6 +21,8 @@ interface GameHudProps {
   /** Right-aligned status chip content — a timer, round counter, or score-in-progress. */
   statusSlot?: ReactNode
   onHelp: () => void
+  /** Free Play only (see FreePlayBadge) — Intro's `mode === 'first'` branch never reads this. */
+  onBack: () => void
 }
 
 /**
@@ -29,7 +32,7 @@ interface GameHudProps {
  * (Logo + ProgressTrack/FREE PLAY, then a stat/title row) so the new games
  * don't feel like a bolt-on.
  */
-export function GameHud({ stat, gameName, mode, index, objective, statusSlot, onHelp }: GameHudProps) {
+export function GameHud({ stat, gameName, mode, index, objective, statusSlot, onHelp, onBack }: GameHudProps) {
   return (
     <header className="flex flex-col gap-4">
       {mode === 'first' && (
@@ -43,13 +46,7 @@ export function GameHud({ stat, gameName, mode, index, objective, statusSlot, on
       )}
       <div className="flex items-center justify-between gap-4">
         <Logo size="sm" />
-        {mode === 'first' ? (
-          <ProgressTrack current={index} />
-        ) : (
-          <span className="rounded-xl bg-secondary px-3 py-1.5 text-xs font-bold text-secondary-foreground toy-border">
-            FREE PLAY
-          </span>
-        )}
+        {mode === 'first' ? <ProgressTrack current={index} /> : <FreePlayBadge onBack={onBack} />}
       </div>
 
       <div className="flex items-center justify-between gap-3">

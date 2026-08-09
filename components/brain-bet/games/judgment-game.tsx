@@ -8,6 +8,7 @@ import { ProgressTrack } from '@/components/brain-bet/progress-track'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { JudgmentSymbolView } from '@/components/brain-bet/games/judgment-symbol'
 import { GameRuleReminder } from '@/components/brain-bet/games/shared/game-rule-reminder'
+import { FreePlayBadge } from '@/components/brain-bet/games/shared/free-play-badge'
 import { STATS } from '@/lib/brain-bet'
 import {
   JUDGMENT_BLOCK_EXIT_MS,
@@ -96,6 +97,7 @@ interface JudgmentGameProps {
     rawSummary: JudgmentRawSummary
     gameScore: number
   }) => void
+  onBack: () => void
 }
 
 /** Per-rule "last mapping used" memory — lets a rule's re-shuffle avoid repeating its own previous permutation even though the other rule always plays in between. */
@@ -258,7 +260,7 @@ function buildTutorialBlocks(forcedRuleId: JudgmentRuleId | null): QueueBlock[] 
  * JUDGMENT_SEGMENT_LENGTH once full difficulty is reached. The whole session
  * runs against one global JUDGMENT_GAME_DURATION_MS timer.
  */
-export function JudgmentGame({ index, mode, difficulty, onComplete }: JudgmentGameProps) {
+export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: JudgmentGameProps) {
   const stat = STATS.judgment
   const { play } = useSound()
 
@@ -565,9 +567,7 @@ export function JudgmentGame({ index, mode, difficulty, onComplete }: JudgmentGa
           {mode === 'first' ? (
             <ProgressTrack current={index} />
           ) : (
-            <span className="rounded-xl bg-secondary px-3 py-1.5 text-xs font-bold text-secondary-foreground toy-border">
-              FREE PLAY
-            </span>
+            <FreePlayBadge onBack={onBack} />
           )}
         </div>
       </header>
