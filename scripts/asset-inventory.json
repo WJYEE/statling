@@ -4622,7 +4622,7 @@
   {
     "assetId": "egg-hatch-stage-1",
     "oldPath": "eggs/1알.png",
-    "newPath": "eggs/hatch-sequence/stage-01.png",
+    "newPath": "eggs/hatch-sequence/stage01.png",
     "category": "egg-hatch-stage",
     "width": 240,
     "height": 325,
@@ -4632,7 +4632,7 @@
   {
     "assetId": "egg-hatch-stage-2",
     "oldPath": "eggs/2알.png",
-    "newPath": "eggs/hatch-sequence/stage-02.png",
+    "newPath": "eggs/hatch-sequence/stage02.png",
     "category": "egg-hatch-stage",
     "width": 241,
     "height": 307,
@@ -4642,7 +4642,7 @@
   {
     "assetId": "egg-hatch-stage-3",
     "oldPath": "eggs/3알.png",
-    "newPath": "eggs/hatch-sequence/stage-03.png",
+    "newPath": "eggs/hatch-sequence/stage03.png",
     "category": "egg-hatch-stage",
     "width": 280,
     "height": 310,
@@ -4652,7 +4652,7 @@
   {
     "assetId": "egg-hatch-stage-4",
     "oldPath": "eggs/4알.png",
-    "newPath": "eggs/hatch-sequence/stage-04.png",
+    "newPath": "eggs/hatch-sequence/stage04.png",
     "category": "egg-hatch-stage",
     "width": 312,
     "height": 372,
@@ -4662,7 +4662,7 @@
   {
     "assetId": "egg-hatch-stage-5",
     "oldPath": "eggs/5알.png",
-    "newPath": "eggs/hatch-sequence/stage-05.png",
+    "newPath": "eggs/hatch-sequence/stage05.png",
     "category": "egg-hatch-stage",
     "width": 301,
     "height": 355,
@@ -4672,7 +4672,7 @@
   {
     "assetId": "egg-hatch-stage-6",
     "oldPath": "eggs/6알.png",
-    "newPath": "eggs/hatch-sequence/stage-06.png",
+    "newPath": "eggs/hatch-sequence/stage06.png",
     "category": "egg-hatch-stage",
     "width": 397,
     "height": 399,

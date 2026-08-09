@@ -1,13 +1,14 @@
 import { ROOM_ATTENTION_THRESHOLD } from '@/lib/config/pet-care.config'
+import {
+  DIRTY_THRESHOLD,
+  HAPPY_THRESHOLD,
+  HUNGRY_THRESHOLD,
+  JOYFUL_THRESHOLD,
+  LONELY_THRESHOLD,
+  SAD_THRESHOLD,
+  SLEEPY_THRESHOLD,
+} from '@/lib/config/character-state.config'
 import type { CareStatId, Mood, SecondaryTag } from '@/lib/pet-care/types'
-
-const HUNGRY_THRESHOLD = 30
-const DIRTY_THRESHOLD = 30
-const LONELY_THRESHOLD = 30
-const SLEEPY_THRESHOLD = 20
-const SAD_THRESHOLD = 30
-const JOYFUL_THRESHOLD = 85
-const HAPPY_THRESHOLD = 65
 
 /**
  * Priority order per spec — exactly one mood wins, evaluated top to bottom.

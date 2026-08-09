@@ -16,7 +16,7 @@ PNG's own header — never estimated).
 | Category | Count | Old layout | New layout |
 |---|---|---|---|
 | Characters | 461 | `characters/pet_NNN.png` | `characters/pet_NNN/idle.png` |
-| Egg hatch sequence (in use) | 7 | `eggs/{0-6}알.png` | `eggs/hatch-sequence/stage-0{0-6}.png` |
+| Egg hatch sequence (in use) | 7 | `eggs/{0-6}알.png` | `eggs/hatch-sequence/stage0{0-6}.png` |
 | Egg designs (unused inventory) | 480 | `eggs/egg_NNN.png` | `eggs/designs/egg-NNN.png` |
 | Deco items (unused inventory) | 240 | `characters/deco/accessory_NNN.png` | `characters/deco/unknown/accessory_NNN.png` |
 
