@@ -359,6 +359,33 @@ export function GameFlow() {
     if (user) trackFirstLogin()
   }, [user])
 
+  /**
+   * True once this session has actually observed a real signed-in `user` —
+   * distinguishes "just logged out" from "was a guest the whole time" so the
+   * effect below only fires on a genuine sign-out, never on ordinary mount
+   * (where `user` also starts null before AuthProvider resolves).
+   */
+  const wasSignedInRef = useRef(false)
+
+  // Sign-out immediately exits any post-hatch nav screen (Home/My
+  // Page/등) back to Landing — no refresh needed, since this reacts to
+  // useAuth()'s `user` going non-null -> null the instant MyPageScreen's
+  // signOut() resolves. Local pet/room/stat/XP data is untouched here (see
+  // resetAllPetData for the actual data wipe, a completely separate action);
+  // Landing itself then shows the "Statling 만나러 가기" / hidden-autosave
+  // returning-visitor state via isReturningLoggedOut below, since
+  // hasLoggedInEver was already set to true by trackFirstLogin above.
+  useEffect(() => {
+    if (user) {
+      wasSignedInRef.current = true
+      return
+    }
+    if (wasSignedInRef.current && NAV_PHASES.includes(phase)) {
+      wasSignedInRef.current = false
+      setPhase('landing')
+    }
+  }, [user, phase])
+
   // Auto-shows the onboarding card exactly once, the first time a first-visit
   // (never dismissed with "다시 보지 않기") user reaches any of the main tabs —
   // i.e. right after hatching, not on Landing/game screens.
