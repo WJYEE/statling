@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowRight, Check, PartyPopper, RotateCcw, Trophy } from 'lucide-react'
-import { EggImage } from '@/components/brain-bet/egg-image'
+import { AssetImage } from '@/components/brain-bet/asset-image'
 import { ProgressTrack } from '@/components/brain-bet/progress-track'
 import { RadarChart } from '@/components/brain-bet/radar-chart'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
@@ -10,9 +10,28 @@ import { ToyButton } from '@/components/brain-bet/toy-button'
 import { useSound } from '@/hooks/use-sound'
 import { PLAY_ORDER, STATS, TOTAL_GAMES, type RawRecord, type StatId } from '@/lib/brain-bet'
 import { EGG_STAGE_MESSAGE } from '@/lib/egg-growth'
+import { cn } from '@/lib/utils'
 
 /** Egg size (px) when nested at the radar chart's center — small on purpose, the chart is the focal point now. */
 const CENTER_EGG_SIZE = 56
+
+/**
+ * Art for the egg nested at the radar's center — deliberately separate from
+ * lib/egg-assets.ts's EGG_HATCH_SEQUENCE (drives EggImage/egg-image.tsx,
+ * which is what the Character Reveal hatch animation on EggScreen uses).
+ * That sequence is 0-6 (an uncracked "stage 0" before any game is played,
+ * never reached here — CompleteScreen only exists after at least 1 game is
+ * done) and must stay untouched. This one is exactly the 6 files the design
+ * asked for, 1:1 with eggStage (1/6 -> stage01.png ... 6/6 -> stage06.png).
+ */
+const RADAR_EGG_STAGE_SRC: Record<number, string> = {
+  1: '/assets/statling/eggs/hatch-sequence/stage01.png',
+  2: '/assets/statling/eggs/hatch-sequence/stage02.png',
+  3: '/assets/statling/eggs/hatch-sequence/stage03.png',
+  4: '/assets/statling/eggs/hatch-sequence/stage04.png',
+  5: '/assets/statling/eggs/hatch-sequence/stage05.png',
+  6: '/assets/statling/eggs/hatch-sequence/stage06.png',
+}
 
 interface CompleteScreenProps {
   statId: StatId
@@ -68,6 +87,17 @@ export function CompleteScreen({
   /** Stats discovered so far, in play order, through and including this round — drives the radar chart's progressive reveal. */
   const revealedStats = PLAY_ORDER.slice(0, index + 1)
   const { play } = useSound()
+
+  /**
+   * The center-egg's motion has two phases: a one-shot "reveal" shake (this
+   * stat just got measured — see animate-egg-reveal-shake(-strong) below),
+   * then an infinite idle breathing loop once that settles. `false` on every
+   * mount (GameFlow remounts this screen fresh each round via stepKey, so
+   * there's no stale state to reset here) and flipped by the shake's own
+   * onAnimationEnd — never a timer, so it can't drift out of sync with
+   * whatever duration the CSS actually ends up using.
+   */
+  const [eggSettled, setEggSettled] = useState(false)
 
   useEffect(() => {
     play('final-result')
@@ -131,11 +161,12 @@ export function CompleteScreen({
       {/* accumulated stat radar with the growing egg nested at its center.
           The radar reuses the same `finals` values MY STATUS shows later,
           revealing one axis per completed game (see revealedStats above);
-          the egg gives a very light one-shot wobble/shimmer each time a new
-          axis fills in (see RadarChart's centerSlot + the reveal-ray it
-          draws for `newlyRevealedStat`), instead of the old per-stage
-          glow/ring/sparkle set — those were tuned for a much larger egg off
-          to the side and would overwhelm this smaller, centered one. */}
+          the egg gives a very light one-shot glow + shake each time a new
+          axis fills in, then settles into a barely-there idle breathing loop
+          (see eggSettled above) so it never sits completely still — instead
+          of the old per-stage glow/ring/sparkle set, which was tuned for a
+          much larger egg off to the side and would overwhelm this smaller,
+          centered one. */}
       <div className="mt-6 flex w-full max-w-md flex-col items-center gap-2 rounded-2xl bg-card px-6 py-6 toy-border toy-shadow-sm sm:max-w-lg sm:px-8">
         <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">누적 스탯</p>
         <RadarChart
@@ -146,15 +177,33 @@ export function CompleteScreen({
           centerSlot={
             <div
               key={eggStage}
-              className="animate-egg-subtle-wobble relative"
+              className={cn(
+                'relative',
+                eggSettled
+                  ? eggStage >= 4
+                    ? 'animate-egg-breathe-restless'
+                    : 'animate-egg-breathe'
+                  : isLast
+                    ? 'animate-egg-reveal-shake-strong'
+                    : 'animate-egg-reveal-shake',
+              )}
               style={{ width: CENTER_EGG_SIZE, height: CENTER_EGG_SIZE }}
+              onAnimationEnd={(e) => {
+                // Ignore the shimmer <span>'s own animationend bubbling up —
+                // only this div's reveal-shake finishing should flip the phase.
+                if (e.target === e.currentTarget) setEggSettled(true)
+              }}
             >
               <span
                 className="animate-egg-subtle-shimmer pointer-events-none absolute inset-0 rounded-full"
                 style={{ boxShadow: '0 0 14px 5px var(--accent)' }}
                 aria-hidden="true"
               />
-              <EggImage stage={eggStage} size={CENTER_EGG_SIZE} />
+              <AssetImage
+                src={RADAR_EGG_STAGE_SRC[eggStage] ?? RADAR_EGG_STAGE_SRC[TOTAL_GAMES]}
+                alt={`알 성장 단계 ${eggStage}`}
+                size={CENTER_EGG_SIZE}
+              />
             </div>
           }
         />
