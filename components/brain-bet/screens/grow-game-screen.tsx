@@ -5,7 +5,7 @@ import { ArrowLeft, Lock } from 'lucide-react'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { STATS, type StatId } from '@/lib/brain-bet'
 import { GAME_DIFFICULTIES, GAME_DIFFICULTY_ORDER, type GameDifficulty } from '@/lib/game/difficulty'
-import { isDifficultyUnlocked } from '@/lib/game/difficulty-unlock'
+import { isDifficultyUnlocked, unlockHintFor } from '@/lib/game/difficulty-unlock'
 import { GAME_POOL } from '@/lib/game/game-registry'
 import { loadPlayerSkillState } from '@/lib/game/player-skill-storage'
 import { cn } from '@/lib/utils'
@@ -76,6 +76,9 @@ export function GrowGameScreen({ statId, onSelect, onBack }: GrowGameScreenProps
                   {!unlocked && <Lock size={14} strokeWidth={2.6} />}
                 </span>
                 <span className="text-xs text-muted-foreground">{def.hint}</span>
+                {!unlocked && (
+                  <span className="text-xs font-bold text-primary">{unlockHintFor(difficulty)}</span>
+                )}
               </button>
             )
           })}
