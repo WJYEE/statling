@@ -225,6 +225,15 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
         스티커를 눌러 붙이고, 드래그로 위치를 옮겨보세요. 선택하면 나오는 모서리를 당겨 크기를, 위쪽 손잡이를 돌려 각도를 바꿀 수 있어요.
         Statling 주변 정해진 범위 안에서만 움직일 수 있어요.
       </p>
+      {/* Small, unemphasized note (never a warning box) — DecoOverlay only
+          renders the placed stickers for the '기본'/'눈 깜빡임' character
+          states (see pet-mood-view.tsx), same labels dex-screen.tsx already
+          shows for those two states, never the internal idle/blink keys.
+          Placed right under the existing usage tip above, not the more
+          prominent SHOW_BETA_DECO_NOTICE card. */}
+      <p className="mt-1.5 whitespace-pre-line text-[11px] font-semibold text-muted-foreground/80">
+        {'현재 데코는 Statling이 기본 또는 눈 깜빡임 상태일 때만 표시돼요.\n다른 행동 중에는 잠시 보이지 않을 수 있어요.'}
+      </p>
 
       <DecoCanvas
         items={draftDeco.items}
