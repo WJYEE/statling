@@ -310,10 +310,13 @@ export function FocusGame({ index, mode, difficulty, onComplete, onBack }: Focus
   // Slightly smaller footprint on Real rounds than before (was 360px) —
   // compacts the cell/icon ratio without shrinking the search area's
   // difficulty. Icon size inside each cell is intentionally left unchanged.
-  const gridMaxWidthClass = round === 'real' ? 'max-w-[320px]' : 'max-w-[240px]'
+  // Mobile caps are smaller than the sm: (desktop) values so the grid +
+  // "없음" button always fit inside a short mobile viewport without
+  // scrolling — see the mobile-viewport audit that motivated this file.
+  const gridMaxWidthClass = round === 'real' ? 'max-w-45 sm:max-w-[320px]' : 'max-w-45 sm:max-w-[240px]'
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-6">
+    <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-3 sm:py-6">
       <header className="flex flex-col gap-2">
         {mode === 'first' && (
           <div className="flex justify-end">
@@ -334,7 +337,7 @@ export function FocusGame({ index, mode, difficulty, onComplete, onBack }: Focus
       </header>
 
       {/* Fixed-height row regardless of Tutorial vs Real. */}
-      <div className="mt-6 flex items-center justify-between gap-4">
+      <div className="mt-4 flex items-center justify-between gap-4 sm:mt-6">
         <div className="flex items-center gap-3">
           <StatBadge stat={stat} size="md" />
           <h1 className="font-display text-2xl font-extrabold leading-none text-foreground">{stat.name}</h1>
@@ -374,7 +377,7 @@ export function FocusGame({ index, mode, difficulty, onComplete, onBack }: Focus
           </div>
         </button>
       ) : (
-        <div className="mt-5 flex flex-1 flex-col items-center justify-center gap-3 rounded-3xl bg-card px-6 py-6 toy-border toy-shadow-lg">
+        <div className="mt-3 flex flex-1 flex-col items-center justify-center gap-2 rounded-3xl bg-card px-6 py-2 toy-border toy-shadow-lg sm:mt-5 sm:gap-3 sm:py-6">
           {/* Target Preview — always visible, never changes round to round. */}
           <div className="flex items-center gap-2 rounded-2xl bg-secondary px-4 py-2 toy-border">
             <span className="text-xs font-bold text-secondary-foreground">이 모양을 찾아주세요</span>
@@ -382,7 +385,7 @@ export function FocusGame({ index, mode, difficulty, onComplete, onBack }: Focus
           </div>
 
           {/* Fixed-height message + Tutorial caption slot. */}
-          <div className="flex min-h-14 flex-col items-center justify-center gap-1 text-center">
+          <div className="flex min-h-8 flex-col items-center justify-center gap-1 text-center sm:min-h-14">
             <p
               className={cn(
                 'text-pretty font-display text-base font-bold leading-snug',

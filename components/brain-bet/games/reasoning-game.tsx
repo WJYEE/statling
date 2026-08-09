@@ -248,7 +248,7 @@ export function ReasoningGame({ index, mode, difficulty, onComplete, onBack }: R
   const cellSymbolSize = isLongStrip ? 36 : 44
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-6">
+    <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-3 sm:py-6">
       <header className="flex flex-col gap-2">
         {mode === 'first' && (
           <div className="flex justify-end">
@@ -269,7 +269,7 @@ export function ReasoningGame({ index, mode, difficulty, onComplete, onBack }: R
       </header>
 
       {/* Fixed-height row regardless of Tutorial vs Real. */}
-      <div className="mt-6 flex items-center justify-between gap-4">
+      <div className="mt-4 flex items-center justify-between gap-4 sm:mt-6">
         <div className="flex items-center gap-3">
           <StatBadge stat={stat} size="md" />
           <h1 className="font-display text-2xl font-extrabold leading-none text-foreground">{stat.name}</h1>
@@ -310,7 +310,7 @@ export function ReasoningGame({ index, mode, difficulty, onComplete, onBack }: R
           </div>
         </button>
       ) : (
-        <div className="mt-5 flex flex-1 flex-col items-center justify-center gap-3 rounded-3xl bg-card px-6 py-6 toy-border toy-shadow-lg">
+        <div className="mt-3 flex flex-1 flex-col items-center justify-center gap-2 rounded-3xl bg-card px-6 py-3 toy-border toy-shadow-lg sm:mt-5 sm:gap-3 sm:py-6">
           {/* Sequence Strip — known cells + a visually distinct "?" slot. No rule hint is ever shown here. */}
           <div className="flex w-full items-center justify-center gap-2 overflow-x-auto py-1">
             {currentQuestion?.sequence.map((symbol, i) => (
@@ -332,7 +332,7 @@ export function ReasoningGame({ index, mode, difficulty, onComplete, onBack }: R
           </div>
 
           {/* Fixed-height message + Tutorial caption slot. */}
-          <div className="flex min-h-16 flex-col items-center justify-center gap-1 text-center">
+          <div className="flex min-h-9 flex-col items-center justify-center gap-1 text-center sm:min-h-16">
             <p
               className={cn(
                 'text-pretty font-display text-base font-bold leading-snug',
@@ -357,15 +357,17 @@ export function ReasoningGame({ index, mode, difficulty, onComplete, onBack }: R
           <GameRuleReminder text="앞의 패턴에서 숨은 규칙을 찾아 다음에 올 것을 골라보세요." />
 
           {/* Fixed-height time gauge slot — static full bar during Tutorial. */}
-          <div className="h-2 w-full max-w-xs overflow-hidden rounded-full bg-muted">
+          <div className="h-2 w-full max-w-50 overflow-hidden rounded-full bg-muted sm:max-w-xs">
             <div
               className={cn('h-full rounded-full transition-[width] duration-100', gaugeCritical ? 'bg-destructive' : 'bg-primary')}
               style={{ width: `${gaugePercent}%` }}
             />
           </div>
 
-          {/* Option Grid — always 2x2, always 4 candidates. */}
-          <div className="mx-auto grid w-full max-w-xs grid-cols-2 gap-3">
+          {/* Option Grid — always 2x2, always 4 candidates. Smaller footprint
+              on mobile (see the mobile-viewport audit) so all 4 candidates
+              stay tappable on screen without scrolling. */}
+          <div className="mx-auto grid w-full max-w-50 grid-cols-2 gap-2 sm:max-w-xs sm:gap-3">
             {currentQuestion?.options.map((option, optionIndex) => {
               const visual = optionVisual(optionIndex)
               return (

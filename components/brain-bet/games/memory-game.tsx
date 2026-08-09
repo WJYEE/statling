@@ -251,7 +251,7 @@ export function MemoryGame({ index, mode, difficulty: gameDifficulty, onComplete
   const cellCount = difficulty.gridSize * difficulty.gridSize
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-6">
+    <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-4 sm:py-6">
       <header className="flex flex-col gap-2">
         {mode === 'first' && (
           <div className="flex justify-end">
@@ -272,7 +272,7 @@ export function MemoryGame({ index, mode, difficulty: gameDifficulty, onComplete
       </header>
 
       {/* Fixed-height row regardless of Tutorial vs Real — no conditional lines here. */}
-      <div className="mt-6 flex items-center justify-between gap-4">
+      <div className="mt-4 flex items-center justify-between gap-4 sm:mt-6">
         <div className="flex items-center gap-3">
           <StatBadge stat={stat} size="md" />
           <h1 className="font-display text-2xl font-extrabold leading-none text-foreground">{stat.name}</h1>
@@ -310,10 +310,10 @@ export function MemoryGame({ index, mode, difficulty: gameDifficulty, onComplete
           </div>
         </button>
       ) : (
-        <div className="mt-5 flex flex-1 flex-col items-center justify-center gap-4 rounded-3xl bg-card px-6 py-8 toy-border toy-shadow-lg">
+        <div className="mt-3 flex flex-1 flex-col items-center justify-center gap-2 rounded-3xl bg-card px-6 py-4 toy-border toy-shadow-lg sm:mt-5 sm:gap-4 sm:py-8">
           {/* Fixed-height message slot — reserves space for the caption even
               when hidden, so Tutorial/Real never differ in height. */}
-          <div className="flex min-h-20 flex-col items-center justify-center gap-1 text-center">
+          <div className="flex min-h-10 flex-col items-center justify-center gap-1 text-center sm:min-h-20">
             <p
               className={cn(
                 'text-pretty font-display text-lg font-bold leading-snug',
