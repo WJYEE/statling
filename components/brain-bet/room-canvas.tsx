@@ -84,7 +84,15 @@ export function RoomCanvas({
               left: `${item.x * 100}%`,
               top: `${item.y * 100}%`,
               width: `${item.width * 100}%`,
-              zIndex: item.zIndex,
+              // Display-only clamp — the editor's 앞으로/뒤로 (bringToFront in
+              // theme-screen.tsx) can save a zIndex above STATLING_Z_INDEX so
+              // the item previews in front of the character while editing,
+              // but on Home (this non-editable branch) the Statling must
+              // always read as in front of every piece of furniture. The
+              // stored item.zIndex itself is untouched — only what's handed
+              // to this render is capped, so re-opening the editor still
+              // shows the item's real saved stacking.
+              zIndex: Math.min(item.zIndex, STATLING_Z_INDEX - 1),
               transform: `translate(-50%, -50%) rotate(${item.rotation ?? 0}deg) scaleX(${item.flipped ? -1 : 1})`,
             }}
           >
