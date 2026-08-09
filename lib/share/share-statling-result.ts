@@ -1,6 +1,5 @@
-import { buildShareText, buildShareTitle, buildShareUrl } from '@/lib/share/build-share-text'
 import { createShareImage } from '@/lib/share/create-share-image'
-import type { ShareOutcome, ShareStatlingInput } from '@/lib/share/share-types'
+import type { ShareCardContent, ShareOutcome } from '@/lib/share/share-types'
 
 function isAbortError(err: unknown): boolean {
   return (
@@ -30,13 +29,12 @@ function isAbortError(err: unknown): boolean {
  * produces 'error'.
  */
 export async function shareStatlingResult(
-  input: ShareStatlingInput,
+  content: ShareCardContent,
   imageElement?: HTMLElement,
+  imageFilename = 'my-statling.png',
 ): Promise<ShareOutcome> {
   try {
-    const title = buildShareTitle()
-    const text = buildShareText(input)
-    const url = buildShareUrl(input.url)
+    const { title, text, url } = content
 
     const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
 
@@ -44,7 +42,7 @@ export async function shareStatlingResult(
     if (canShare && imageElement) {
       const blob = await createShareImage(imageElement)
       if (blob) {
-        const file = new File([blob], 'my-statling.png', { type: 'image/png' })
+        const file = new File([blob], imageFilename, { type: 'image/png' })
         const canShareFiles =
           typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })
 

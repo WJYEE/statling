@@ -11,15 +11,15 @@ import { StatlingHero } from '@/components/brain-bet/result/statling-hero'
 import { Logo } from '@/components/brain-bet/logo'
 import { ShareFallbackModal } from '@/components/brain-bet/share-fallback-modal'
 import { ToyButton } from '@/components/brain-bet/toy-button'
-import { StatlingShareCard } from '@/components/share/statling-share-card'
+import { StatlingShareCard, type ShareTopStatEntry } from '@/components/share/statling-share-card'
 import { STATLING_TYPES, STATS, type StatId } from '@/lib/brain-bet'
-import { getStatCompatibility } from '@/lib/pets/compatibility'
+import { getStatCompatibility, getStatTypeLabel } from '@/lib/pets/compatibility'
 import { buildCoreTraitSummary } from '@/lib/pets/pet-analysis'
 import type { PetProfile } from '@/lib/pets/pet-profile'
+import { buildShareText, buildShareTitle, buildShareUrl } from '@/lib/share/build-share-text'
 import { createShareImage } from '@/lib/share/create-share-image'
 import { saveShareImage } from '@/lib/share/save-share-image'
 import { shareStatlingResult } from '@/lib/share/share-statling-result'
-import type { ShareStatlingInput } from '@/lib/share/share-types'
 import { buildDifferentRhythmCards, buildGoodMatchCards } from '@/lib/stats/stat-compatibility-copy'
 import { buildStatInsight } from '@/lib/stats/stat-insights'
 
@@ -51,19 +51,16 @@ export function RevealScreen({
   const [busyAction, setBusyAction] = useState<'share' | 'save' | null>(null)
   const [fallback, setFallback] = useState<{ title: string; text: string; url: string } | null>(null)
 
-  const buildShareInput = (): ShareStatlingInput => ({
-    petName: petProfile.name,
-    petImage: petProfile.imageSrc,
-    tagline: petProfile.tagline,
-    primaryStat: stat.name,
-    secondaryStat: secondary.name,
-  })
-
   const handleShare = async () => {
     if (busyAction) return // prevent double-clicks while an action is in flight
     setBusyAction('share')
     try {
-      const outcome = await shareStatlingResult(buildShareInput(), shareCardRef.current ?? undefined)
+      const content = {
+        title: buildShareTitle(),
+        text: buildShareText({ petName: petProfile.name, primaryStat: stat.name, secondaryStat: secondary.name }),
+        url: buildShareUrl(),
+      }
+      const outcome = await shareStatlingResult(content, shareCardRef.current ?? undefined)
 
       switch (outcome.status) {
         case 'shared':
@@ -122,6 +119,24 @@ export function RevealScreen({
   const insight = buildStatInsight(topStat, secondaryStat)
   const goodMatchCards = buildGoodMatchCards(compatibility.goodMatches)
   const differentRhythmCards = buildDifferentRhythmCards(compatibility.differentRhythms)
+
+  // Share-card content — TOP 2 from the *initial* diagnosis only (topStat/
+  // secondaryStat, never a later-grown stat), reusing the same
+  // STATLING_TYPES/getStatTypeLabel short tags already shown elsewhere on
+  // this screen rather than inventing new keyword copy. goodMatchCards[0]/
+  // differentRhythmCards[0] reuse the exact compatibility lists already
+  // computed above for StatlingCompatibility, just the first of each.
+  const buildTopStatEntry = (id: StatId): ShareTopStatEntry => ({
+    name: STATS[id].name,
+    keywords: [STATLING_TYPES[id].typeName, getStatTypeLabel(id)],
+    description: STATLING_TYPES[id].personality,
+  })
+  const shareTopStats: [ShareTopStatEntry, ShareTopStatEntry] = [
+    buildTopStatEntry(topStat),
+    buildTopStatEntry(secondaryStat),
+  ]
+  const shareGoodMatch = goodMatchCards[0]
+  const shareDifferentRhythm = differentRhythmCards[0]
 
   return (
     <div className="dot-grid-bg contain-[layout] mx-auto flex min-h-dvh w-full max-w-md flex-col items-center overflow-x-hidden px-5 py-6">
@@ -187,9 +202,9 @@ export function RevealScreen({
       <StatlingShareCard
         ref={shareCardRef}
         petProfile={petProfile}
-        primaryStatName={stat.name}
-        secondaryStatName={secondary.name}
-        serviceLabel="6개의 두뇌 능력을 분석하는 Statling"
+        topStats={shareTopStats}
+        goodMatch={shareGoodMatch}
+        differentRhythm={shareDifferentRhythm}
       />
 
       {fallback && (

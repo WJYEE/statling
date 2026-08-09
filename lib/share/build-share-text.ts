@@ -44,3 +44,30 @@ export function buildShareText(input: Partial<ShareStatlingInput>): string {
 
   return lines.join('\n')
 }
+
+/** Data for the MyPage "친구에게 공유" invite card's title/text — the currently-raised companion, never the initial diagnosis result (see build-friend-invite-text's sibling buildShareText above for that). */
+export interface FriendInviteTextInput {
+  statlingName: string
+  characterName: string
+  level: number
+}
+
+export function buildFriendInviteTitle(): string {
+  return '같이 Statling 키우고 미니게임 하자!'
+}
+
+/** The share body for MyPage's friend-invite card — mirrors buildShareText's optional-safe style, but introduces the currently-raised pet (name/species/level) instead of a diagnosis result. */
+export function buildFriendInviteText(input: Partial<FriendInviteTextInput>): string {
+  const statlingName = input.statlingName?.trim() || '내 스탯링'
+  const characterName = input.characterName?.trim()
+  const level = input.level
+
+  const lines = [
+    characterName ? `🐣 내가 키우는 '${statlingName}'(${characterName})이에요!` : `🐣 내가 키우는 '${statlingName}'이에요!`,
+    '',
+  ]
+  if (level != null) lines.push(`🌱 현재 Lv.${level}`)
+  lines.push('', '같이 Statling 키우고', '미니게임도 함께 해요!')
+
+  return lines.join('\n')
+}
