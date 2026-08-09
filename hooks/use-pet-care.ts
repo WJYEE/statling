@@ -389,6 +389,8 @@ export function usePetCare() {
     claimGift,
     registerTalkOpen,
     answerTalk,
+    /** Puts a line straight in the character's speech bubble with no stat/cooldown/exp effect — same direct showSpeech call claimGift uses for its own fixed thank-you line, just for an arbitrary caller-supplied line (room-screen.tsx uses it to show a 대화 question's prompt text). */
+    sayText: (text: string, holdMs?: number) => showSpeech(text, holdMs),
     /** Tap-to-dismiss support — lets room-screen close the bubble immediately instead of waiting out its auto-hide timer. */
     dismissSpeech: () => setSpeech(null),
   }

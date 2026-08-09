@@ -144,7 +144,16 @@ export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMi
     [],
   )
 
-  const talk = usePetTalk({ onOpen: care.registerTalkOpen, onAnswered: handleTalkAnswered })
+  const talk = usePetTalk({
+    // The question's own text is spoken here (not shown inside
+    // TalkQuestionCard) so it never appears twice on screen — the panel
+    // below only ever shows the choices/input for it.
+    onOpen: (question) => {
+      care.registerTalkOpen()
+      care.sayText(question.text)
+    },
+    onAnswered: handleTalkAnswered,
+  })
 
   // "들어왔을 때" — one occasional chirp on entering the Room, not on every
   // care-action press (see hooks/use-pet-care.ts's showSpeech doc comment
@@ -299,13 +308,13 @@ export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMi
             (STATLING_Z_INDEX is 50 — this sits above it) — not pushed down
             below the care-action row anymore, so answering doesn't require
             scrolling the character out of view. The ONLY talk popup on this
-            screen — question, choices, AND the answer all render inside
-            this one card (see talk-question-card.tsx), so there is never a
-            second one elsewhere on the page. */}
+            screen, and it only ever shows the choices/input — the question
+            text and the answer both go through the character's own speech
+            bubble instead (see usePetTalk's onOpen/onAnswered above), so
+            nothing is ever shown twice. */}
         {talk.activeQuestion && (
           <TalkQuestionCard
             question={talk.activeQuestion}
-            answerText={talk.answerText}
             onChoose={talk.chooseAnswer}
             onSubmitFreeText={talk.submitFreeText}
             onClose={talk.cancelQuestion}
