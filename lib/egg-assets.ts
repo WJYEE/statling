@@ -22,12 +22,12 @@ export interface EggHatchStageAsset {
 /** Index === growth stage (0-6), ascending — matches EGG_STAGE_MESSAGE/EGG_STAGE_MOTION in lib/egg-growth.ts. */
 export const EGG_HATCH_SEQUENCE: EggHatchStageAsset[] = [
   { stage: 0, src: `${EGGS_BASE}/hatch-sequence/stage-00.png`, canvasSize: { width: 267, height: 319 } },
-  { stage: 1, src: `${EGGS_BASE}/hatch-sequence/stage-01.png`, canvasSize: { width: 240, height: 325 } },
-  { stage: 2, src: `${EGGS_BASE}/hatch-sequence/stage-02.png`, canvasSize: { width: 241, height: 307 } },
-  { stage: 3, src: `${EGGS_BASE}/hatch-sequence/stage-03.png`, canvasSize: { width: 280, height: 310 } },
-  { stage: 4, src: `${EGGS_BASE}/hatch-sequence/stage-04.png`, canvasSize: { width: 312, height: 372 } },
-  { stage: 5, src: `${EGGS_BASE}/hatch-sequence/stage-05.png`, canvasSize: { width: 301, height: 355 } },
-  { stage: 6, src: `${EGGS_BASE}/hatch-sequence/stage-06.png`, canvasSize: { width: 397, height: 399 } },
+  { stage: 1, src: `${EGGS_BASE}/hatch-sequence/stage02.png`, canvasSize: { width: 240, height: 325 } },
+  { stage: 2, src: `${EGGS_BASE}/hatch-sequence/stage03.png`, canvasSize: { width: 241, height: 307 } },
+  { stage: 3, src: `${EGGS_BASE}/hatch-sequence/stage04.png`, canvasSize: { width: 280, height: 310 } },
+  { stage: 4, src: `${EGGS_BASE}/hatch-sequence/stage05.png`, canvasSize: { width: 312, height: 372 } },
+  { stage: 5, src: `${EGGS_BASE}/hatch-sequence/stage06.png`, canvasSize: { width: 301, height: 355 } },
+  { stage: 6, src: `${EGGS_BASE}/hatch-sequence/stage07.png`, canvasSize: { width: 397, height: 399 } },
 ]
 
 export interface EggDesignAsset {
