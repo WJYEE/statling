@@ -58,7 +58,11 @@ export function RevealScreen({
       const content = {
         title: buildShareTitle(),
         text: buildShareText({ petName: petProfile.name, primaryStat: stat.name, secondaryStat: secondary.name }),
-        url: buildShareUrl(),
+        // Real per-result landing page (see app/share/[petId]/[[...stats]]/)
+        // — carries TOP1/TOP2 as extra path segments so both the link
+        // preview card and the page itself can headline the same 2 stats,
+        // rather than sharing a generic site-root URL.
+        url: buildShareUrl(`${window.location.origin}/share/${encodeURIComponent(petProfile.id)}/${topStat}/${secondaryStat}`),
       }
       const outcome = await shareStatlingResult(content, shareCardRef.current ?? undefined)
 

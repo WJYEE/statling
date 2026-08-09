@@ -5,27 +5,39 @@ import Link from 'next/link'
 import { ArrowRight, Check } from 'lucide-react'
 import { AssetImage } from '@/components/brain-bet/asset-image'
 import { Logo } from '@/components/brain-bet/logo'
+import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { ToyButton } from '@/components/brain-bet/toy-button'
+import { STATS, type StatId } from '@/lib/brain-bet'
 import { getPetProfileById } from '@/lib/pets/pet-profile'
 import { addMetPet, hasMetPet } from '@/lib/pets/dex-storage'
 
 interface SharePageClientProps {
   petId: string
+  /** Both present together or both null — see resolve-share-params.ts. */
+  topStat: StatId | null
+  secondaryStat: StatId | null
 }
 
 /**
- * Public landing page for a friend's share link (see MyPageScreen's "공유
- * 링크" button — the URL is just `${origin}/share/{myPetId}`, no account or
- * server lookup involved: the character is fully determined by the id in
- * the URL itself). Clicking "내 도감에 기록하기" writes straight to the
- * *viewer's own* browser localStorage (lib/pets/dex-storage.ts) — this is
+ * Public landing page for a Statling share link — the real page a link
+ * preview card takes a visitor to when tapped, for both share surfaces this
+ * route serves (see page.tsx's generateMetadata doc comment):
+ *   - My Page's "공유 링크"/"친구에게 공유" (topStat/secondaryStat null): the
+ *     original behavior, introducing whichever pet the URL names on its own.
+ *   - Character Reveal's "공유하기" (topStat/secondaryStat set): leads with
+ *     the TOP 1/2 stats from that diagnosis, same character either way.
+ * No account or server lookup involved either way — the character (and, for
+ * the reveal variant, which 2 stats to headline) is fully determined by the
+ * URL itself. Clicking "내 도감에 기록하기" writes straight to the *viewer's
+ * own* browser localStorage (lib/pets/dex-storage.ts) — this is
  * intentionally one-way and local-only; it does not notify or update the
  * sender's dex in any way (that would need a real backend — see the
  * discussion this feature was scoped from).
  */
-export function SharePageClient({ petId }: SharePageClientProps) {
+export function SharePageClient({ petId, topStat, secondaryStat }: SharePageClientProps) {
   const pet = getPetProfileById(petId)
   const [recorded, setRecorded] = useState(() => hasMetPet(petId))
+  const isReveal = topStat != null && secondaryStat != null
 
   function handleRecord() {
     addMetPet(petId)
@@ -43,13 +55,30 @@ export function SharePageClient({ petId }: SharePageClientProps) {
       ) : (
         <>
           <p className="mt-8 text-center text-sm font-bold text-muted-foreground">
-            친구가 자신의 대표 Statling을 보여줬어요!
+            {isReveal ? '친구의 진단 결과, 이런 Statling이 태어났어요!' : '친구가 자신의 대표 Statling을 보여줬어요!'}
           </p>
 
           <div className="mt-4 flex w-full flex-col items-center rounded-3xl bg-card px-6 py-8 toy-border toy-shadow-lg">
             <AssetImage src={pet.imageSrc} alt={pet.name} size={200} />
             <h1 className="mt-3 font-display text-2xl font-extrabold text-foreground">{pet.name}</h1>
             <p className="mt-2 text-center text-xs font-bold leading-relaxed text-muted-foreground">{pet.tagline}</p>
+
+            {isReveal && (
+              <div className="mt-5 flex w-full flex-col gap-2">
+                {[topStat, secondaryStat].map((id, i) => (
+                  <div
+                    key={id}
+                    className="flex items-center gap-3 rounded-2xl bg-secondary px-4 py-3 text-left toy-border"
+                  >
+                    <span className="font-display text-xs font-extrabold text-primary">{i === 0 ? 'TOP1' : 'TOP2'}</span>
+                    <StatBadge stat={STATS[id]} size="sm" />
+                    <span className="font-display text-sm font-extrabold text-secondary-foreground">
+                      {STATS[id].name}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="mt-6 w-full">
