@@ -103,6 +103,21 @@ export const OVERPET_REACTION_HOLD_MS = 2_000
 
 export const TALK_INTIMACY_EXP = 1
 
+/**
+ * Energy cost of completing one Free Play (성장시키기) mini-game round —
+ * NOT the Initial Assessment's 6 diagnostic games, and NOT a mid-game
+ * abandon/restart (see game-flow.tsx#recordSkillCompletion, the single
+ * choke point every valid completion already flows through). Deliberately
+ * a flat per-round cost with no expGain, applied via
+ * lib/pet-care/actions.ts#buildDirectEffect — same "no cooldown, caller
+ * guards against re-applying" shape PLAY_EFFECT's own energy cost uses,
+ * just smaller since a mini-game round is a lighter beat than a full 놀기
+ * action. Temporary placeholder value — revisit once overall mini-game
+ * difficulty/normalizedScore balancing is done (see difficulty.config.ts's
+ * own "임시" note).
+ */
+export const FREE_PLAY_ENERGY_COST = 5
+
 export const REACTION_FEEDBACK_MS = 1600
 
 /**

@@ -39,6 +39,10 @@ import { PLAY_ORDER, TOTAL_GAMES, getSecondStat, getTopStat, type RawRecord, typ
 import { getRecommendedStat } from '@/lib/room'
 import { recordGameCompletion } from '@/lib/pet-care/pet-memory'
 import { loadPetMemory, savePetMemory, clearPetMemory } from '@/lib/pet-care/pet-memory-storage'
+import { loadPetCareState, savePetCareState } from '@/lib/pet-care/pet-care-storage'
+import { applyPetDecay } from '@/lib/pet-care/decay'
+import { buildDirectEffect } from '@/lib/pet-care/actions'
+import { FREE_PLAY_ENERGY_COST } from '@/lib/config/pet-care.config'
 import { clearPetCareState } from '@/lib/pet-care/pet-care-storage'
 import { beginPetAssignment, confirmPet, refreshGrowthData, resolveCurrentPetProfile } from '@/lib/pets/pet-flow'
 import { addMetPet, markAllPetsMet } from '@/lib/pets/dex-storage'
@@ -439,6 +443,18 @@ export function GameFlow() {
     if (applied) saveXpState(addXp(loadXpState(), gameScore))
     // Missions/achievements — same choke point, see lib/missions/mission-tracker.ts.
     if (applied) trackGamePlayed({ isFreePlay: flowMode === 'free', isPersonalBest })
+    // Free Play energy cost — Initial Assessment (flowMode 'first') never
+    // touches energy, only a genuinely completed Free Play round does (see
+    // FREE_PLAY_ENERGY_COST's own doc comment). Written straight to storage
+    // (not through usePetCare, which only exists while RoomScreen is
+    // mounted) so the very next time Room mounts it reads the already-
+    // updated state, same pattern XP/player-skill above already use.
+    if (applied && flowMode === 'free') {
+      const now = new Date()
+      const decayedPetState = applyPetDecay(loadPetCareState(), now)
+      const { petState } = buildDirectEffect(decayedPetState, { energy: -FREE_PLAY_ENERGY_COST }, 0, now)
+      savePetCareState(petState)
+    }
   }
 
   /**
