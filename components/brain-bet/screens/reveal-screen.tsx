@@ -16,8 +16,8 @@ import { STATLING_TYPES, STATS, type StatId } from '@/lib/brain-bet'
 import { getStatCompatibility } from '@/lib/pets/compatibility'
 import { buildCoreTraitSummary } from '@/lib/pets/pet-analysis'
 import type { PetProfile } from '@/lib/pets/pet-profile'
-import { buildShareImageFilename, downloadShareImage } from '@/lib/share/download-share-image'
 import { createShareImage } from '@/lib/share/create-share-image'
+import { saveShareImage } from '@/lib/share/save-share-image'
 import { shareStatlingResult } from '@/lib/share/share-statling-result'
 import type { ShareStatlingInput } from '@/lib/share/share-types'
 import { buildDifferentRhythmCards, buildGoodMatchCards } from '@/lib/stats/stat-compatibility-copy'
@@ -95,8 +95,21 @@ export function RevealScreen({
         toastManager.add({ title: '이미지를 만들지 못했어요. 다시 시도해주세요.', type: 'error' })
         return
       }
-      downloadShareImage(blob, buildShareImageFilename(petProfile.name))
-      toastManager.add({ title: '이미지가 저장되었어요.', type: 'success' })
+
+      const outcome = await saveShareImage(blob, petProfile.name)
+      switch (outcome.status) {
+        case 'shared':
+          toastManager.add({ title: '공유 시트에서 사진 앱에 저장할 수 있어요.', type: 'success' })
+          break
+        case 'downloaded':
+          toastManager.add({ title: '이미지가 저장되었어요.', type: 'success' })
+          break
+        case 'cancelled':
+          break // user backed out of the native share sheet — not an error
+        case 'error':
+          toastManager.add({ title: '이미지를 저장하지 못했어요. 다시 시도해주세요.', type: 'error' })
+          break
+      }
     } catch {
       toastManager.add({ title: '이미지를 만들지 못했어요. 다시 시도해주세요.', type: 'error' })
     } finally {
