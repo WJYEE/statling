@@ -5,9 +5,9 @@ import { ArrowLeft, Lock } from 'lucide-react'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { STATS, type StatId } from '@/lib/brain-bet'
 import { GAME_DIFFICULTIES, GAME_DIFFICULTY_ORDER, type GameDifficulty } from '@/lib/game/difficulty'
-import { isDifficultyUnlocked, unlockHintFor } from '@/lib/game/difficulty-unlock'
+import { isDifficultyUnlocked, unlockedBadgeFor, unlockHintFor, unlockProgressPercent } from '@/lib/game/difficulty-unlock'
 import { GAME_POOL } from '@/lib/game/game-registry'
-import { loadPlayerSkillState } from '@/lib/game/player-skill-storage'
+import { getRecordAtDifficulty, loadPlayerSkillState } from '@/lib/game/player-skill-storage'
 import { cn } from '@/lib/utils'
 
 interface GrowGameScreenProps {
@@ -22,9 +22,14 @@ interface GrowGameScreenProps {
  * (spec §17). Both pool entries are always shown; there is no auto-pick or
  * repeat-avoidance here, since the player is choosing directly (see
  * lib/game/game-registry.ts#getClassicGameKey for First Play's separate
- * always-Normal path). Hard/Extreme show locked (with the score needed to
- * unlock) until this exact game's own best score at the tier below clears
- * the bar — see lib/game/difficulty-unlock.ts.
+ * always-Normal path). Hard/Extreme show locked — with a plain-language
+ * unlock hint and a progress bar/percent, never the internal
+ * normalizedScore/threshold itself (players only ever see their own raw
+ * records) — until this exact game's own best score at the tier below
+ * clears the bar, at which point the card switches to a "Hard 해금!"/
+ * "Extreme 해금!" badge and its own real raw-record best (once one exists)
+ * — same as Easy/Normal, which are always unlocked and always show their
+ * raw record. See lib/game/difficulty-unlock.ts.
  */
 export function GrowGameScreen({ statId, onSelect, onBack }: GrowGameScreenProps) {
   const stat = STATS[statId]
@@ -60,6 +65,10 @@ export function GrowGameScreen({ statId, onSelect, onBack }: GrowGameScreenProps
           {GAME_DIFFICULTY_ORDER.map((difficulty) => {
             const def = GAME_DIFFICULTIES[difficulty]
             const unlocked = isDifficultyUnlocked(skill, game.key, difficulty)
+            const record = getRecordAtDifficulty(skill, game.key, difficulty)
+            const unlockedBadge = unlocked ? unlockedBadgeFor(difficulty) : null
+            const progressPercent = unlocked ? null : unlockProgressPercent(skill, game.key, difficulty)
+
             return (
               <button
                 key={difficulty}
@@ -76,8 +85,38 @@ export function GrowGameScreen({ statId, onSelect, onBack }: GrowGameScreenProps
                   {!unlocked && <Lock size={14} strokeWidth={2.6} />}
                 </span>
                 <span className="text-xs text-muted-foreground">{def.hint}</span>
-                {!unlocked && (
-                  <span className="text-xs font-bold text-primary">{unlockHintFor(difficulty)}</span>
+
+                {unlockedBadge && (
+                  <span className="rounded-full bg-accent px-2 py-0.5 text-[11px] font-bold text-accent-foreground">
+                    {unlockedBadge}
+                  </span>
+                )}
+
+                {/* Raw record only — never the internal normalizedScore/threshold a locked tier's unlock condition is actually checked against (see unlockHintFor/unlockProgressPercent). */}
+                {unlocked ? (
+                  record?.raw ? (
+                    <div className="text-xs font-semibold text-foreground">
+                      <p>최고 기록: {record.raw.primary}</p>
+                      {record.raw.secondary && <p className="text-muted-foreground">{record.raw.secondary}</p>}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">아직 기록이 없어요.</p>
+                  )
+                ) : (
+                  <div className="w-full">
+                    <p className="text-xs font-bold text-primary">{unlockHintFor(difficulty)}</p>
+                    {progressPercent !== null && (
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                          <div
+                            className="h-full rounded-full bg-primary transition-all"
+                            style={{ width: `${progressPercent}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] font-bold text-muted-foreground">{progressPercent}%</span>
+                      </div>
+                    )}
+                  </div>
                 )}
               </button>
             )

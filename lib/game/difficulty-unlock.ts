@@ -18,14 +18,41 @@ export function isDifficultyUnlocked(state: PlayerSkillState, gameId: string, di
 }
 
 /**
- * Player-facing "how to unlock" copy for a locked tier — reads the exact
- * same NORMAL_TO_HARD_SCORE/HARD_TO_EXTREME_SCORE constants
- * isDifficultyUnlocked checks against, so the number shown can never drift
- * from the real condition (no hardcoded "70"/"80" in the UI). Null for
- * Easy/Normal, which are never locked and need no hint.
+ * Player-facing "how to unlock" copy for a locked tier — deliberately plain
+ * natural language, never the internal normalizedScore/threshold numbers
+ * (players only ever see their own raw records — ms/accuracy/time — never
+ * this 0-100 composite, so a number here would be meaningless to them). See
+ * unlockProgressPercent below for the numeric side of this, shown only as a
+ * bar/percent, never as "70점"-style text. Null for Easy/Normal, which are
+ * never locked and need no hint.
  */
 export function unlockHintFor(difficulty: GameDifficulty): string | null {
-  if (difficulty === 'hard') return `Normal에서 ${NORMAL_TO_HARD_SCORE}점 이상 달성 시 해금`
-  if (difficulty === 'extreme') return `Hard에서 ${HARD_TO_EXTREME_SCORE}점 이상 달성 시 해금`
+  if (difficulty === 'hard') return 'Normal에서 좋은 기록을 달성하면 해금돼요.'
+  if (difficulty === 'extreme') return 'Hard에서 좋은 기록을 달성하면 해금돼요.'
+  return null
+}
+
+/**
+ * 0-100 progress toward unlocking `difficulty`, derived from the exact same
+ * score isDifficultyUnlocked checks against — for a locked-tier progress
+ * bar/percent that never has to render the internal normalizedScore or
+ * threshold itself. Null for Easy/Normal (nothing to unlock, no progress to
+ * show). Naturally reaches 100 exactly when isDifficultyUnlocked flips true,
+ * since both read the same underlying score/threshold pair.
+ */
+export function unlockProgressPercent(state: PlayerSkillState, gameId: string, difficulty: GameDifficulty): number | null {
+  if (difficulty === 'easy' || difficulty === 'normal') return null
+  const priorBest =
+    difficulty === 'hard'
+      ? (getBestScoreAtDifficulty(state, gameId, 'normal') ?? 0)
+      : (getBestScoreAtDifficulty(state, gameId, 'hard') ?? 0)
+  const target = difficulty === 'hard' ? NORMAL_TO_HARD_SCORE : HARD_TO_EXTREME_SCORE
+  return Math.min(100, Math.max(0, Math.round((priorBest / target) * 100)))
+}
+
+/** "Hard 해금!" / "Extreme 해금!" — the card's state once a previously-locked tier becomes playable, replacing the lock/hint UI. Null for Easy/Normal, which were never locked to begin with. */
+export function unlockedBadgeFor(difficulty: GameDifficulty): string | null {
+  if (difficulty === 'hard') return 'Hard 해금!'
+  if (difficulty === 'extreme') return 'Extreme 해금!'
   return null
 }
