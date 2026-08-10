@@ -1,6 +1,8 @@
 import type { CareActionId } from '@/lib/pet-care/types'
 import { loadPetCareState } from '@/lib/pet-care/pet-care-storage'
+import { loadPetMemory } from '@/lib/pet-care/pet-memory-storage'
 import { loadDex } from '@/lib/pets/dex-storage'
+import { totalMiniGamePlays } from '@/lib/pets/pet-growth-summary'
 import { audioManager } from '@/lib/audio/audio-manager'
 import { addXp, loadXpState, saveXpState } from '@/lib/ranking/xp-ledger'
 import {
@@ -47,12 +49,21 @@ function collectSyncMetricValues(counters: ActivityCounters): Partial<Record<Ach
   const attendance = loadAttendanceState()
   const petCare = loadPetCareState()
   const dex = loadDex()
+  // counters.totalGamesPlayed only started counting the day this missions
+  // system shipped — a player with real history from before that (tracked
+  // all along in PetMemory.gamePlayCountsByStat, see lib/pet-care/pet-memory.ts
+  // and lib/pets/pet-growth-summary.ts#totalMiniGamePlays, the same sum
+  // MyPage's share card already uses) would otherwise see "게임 판수" tiers
+  // sitting at a misleadingly low count. Both tallies increment together on
+  // every completion going forward, so PetMemory's is always >= the
+  // counter's — max() just picks whichever actually reflects reality.
+  const gamesPlayed = Math.max(counters.totalGamesPlayed, totalMiniGamePlays(loadPetMemory()))
   return {
     attendanceFirstVisit: attendance.totalDays >= 1 ? 1 : 0,
     firstLogin: counters.hasLoggedInEver ? 1 : 0,
     attendanceTotalDays: attendance.totalDays,
     attendanceStreak: attendance.longestStreak,
-    gamesPlayed: counters.totalGamesPlayed,
+    gamesPlayed,
     personalBestFirst: counters.totalPersonalBests >= 1 ? 1 : 0,
     personalBestCount: counters.totalPersonalBests,
     totalInteractions: counters.totalInteractions,
