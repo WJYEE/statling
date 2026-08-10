@@ -87,6 +87,7 @@ import {
   recordIntroGameCompletion,
   saveIntroProgress,
   startNewIntroProgress,
+  upgradeIntroGameCompletion,
   type IntroProgressState,
 } from '@/lib/game/intro-progress-storage'
 import { applyGameResult, emptyStatStatusMap } from '@/lib/game/stat-status'
@@ -249,6 +250,28 @@ export function GameFlow() {
    * that case either.
    */
   const currentAttemptIdRef = useRef<string>(generateSessionId())
+  /**
+   * Whether the stat currently staged for Initial Assessment (First Play)
+   * still has its 1 single-game retry unused — drives CompleteScreen's
+   * "한 번 더 해보기" CTA (see handleRetryCurrentGame below). Reset to `true`
+   * every time a genuinely new stat's game is staged (enterStatGame) and
+   * flipped to `false` the moment the player actually uses the retry, not
+   * merely offered it — so it never comes back for the same stat. Deliberately
+   * separate from onReplay's full 6-game restart and from MyPageScreen's
+   * resetAllPetData (a full account wipe) — neither of those touches this.
+   */
+  const [retryAvailable, setRetryAvailable] = useState(true)
+  /**
+   * True for exactly the one game-phase render that replays a stat's
+   * already-completed Initial Assessment game (set by
+   * handleRetryCurrentGame, read+cleared at the top of the matching
+   * on*Complete handler). Lets that one handler invocation skip every
+   * ranking/XP/mission/Intro-checkpoint side effect a normal completion
+   * triggers — see recordSkillCompletion's own doc comment — without
+   * threading a new parameter through 6 game components' onComplete payload
+   * shapes, which are fixed by the game components themselves.
+   */
+  const isRetryAttemptRef = useRef(false)
   /** A resumable Intro checkpoint found on mount (see lib/game/intro-progress-storage.ts) — non-null only while Landing can still offer "이어서 하기". Cleared the moment the player resumes, restarts, or the run finishes. */
   const [introResume, setIntroResume] = useState<IntroProgressState | null>(null)
   const [confirmingRestartIntro, setConfirmingRestartIntro] = useState(false)
@@ -440,6 +463,12 @@ export function GameFlow() {
     setActiveGameKey(getClassicGameKey(statId))
     setActiveDifficulty('normal')
     currentAttemptIdRef.current = generateSessionId() // new round starting — see the ref's own doc comment
+    // A brand-new stat always starts with its 1 Initial-Assessment retry
+    // unused — see retryAvailable's own doc comment. isRetryAttemptRef is
+    // reset here too, defensively (it's already consumed+reset inside the
+    // matching on*Complete handler right after a retry completes).
+    setRetryAvailable(true)
+    isRetryAttemptRef.current = false
   }
 
   /**
@@ -451,7 +480,10 @@ export function GameFlow() {
    * enterStatGame/confirmFreePlayGame call, which would change it, only
    * happens later from a user click on the Complete screen). See
    * lib/game/player-skill-storage.ts for the idempotency/averaging rules
-   * this delegates to.
+   * this delegates to. Every call site gates this behind `!isRetry` (see
+   * isRetryAttemptRef) — an Initial Assessment retry attempt never reaches
+   * here at all, so it can never earn extra XP, mission credit, or a
+   * player-skill best-record write on top of its original attempt's.
    */
   function recordSkillCompletion(
     statCategory: StatId,
@@ -502,13 +534,20 @@ export function GameFlow() {
    * Mode double-invoke, ...) is already a no-op inside
    * recordIntroGameCompletion, same idempotency shape as recordSkillCompletion
    * above.
+   *
+   * `isRetry` routes through upgradeIntroGameCompletion instead: a retry's
+   * completion must still update the checkpoint when it scored higher than
+   * the stat's first attempt (otherwise 이어서 하기 would resume from the
+   * *pre-retry* score even after the retry improved it — the same
+   * gameScore-so-far value `finals`/statStatus already keep the better of),
+   * but must never regress it, and must never create a second entry for the
+   * same stat.
    */
-  function recordIntroCheckpoint(statId: StatId, gameKey: string, gameScore: number) {
+  function recordIntroCheckpoint(statId: StatId, gameKey: string, gameScore: number, isRetry: boolean) {
     const progress = loadIntroProgress()
     if (!progress) return // no active checkpoint (e.g. already resumed to completion) — nothing to update
-    saveIntroProgress(
-      recordIntroGameCompletion(progress, { statId, gameKey, gameScore, completedAt: new Date().toISOString() }),
-    )
+    const entry = { statId, gameKey, gameScore, completedAt: new Date().toISOString() }
+    saveIntroProgress(isRetry ? upgradeIntroGameCompletion(progress, entry) : recordIntroGameCompletion(progress, entry))
   }
 
   /** Fresh Intro run — first-ever visit, "다시 하기" after a full completion, or "처음부터 다시 하기" from Landing. Always starts a brand-new checkpoint (see startNewIntroProgress). */
@@ -583,6 +622,27 @@ export function GameFlow() {
     setPhase('game')
   }
 
+  /**
+   * CompleteScreen's "한 번 더 해보기" — replays the exact stat/game just
+   * finished, at most once (no-ops if already used, see retryAvailable).
+   * Deliberately does NOT call enterStatGame: activeStatId/activeGameKey/
+   * activeDifficulty/index must stay exactly as they are (this is the same
+   * game, not a new one), only `phase` needs to flip back to 'game' — the
+   * outer stepKey (see the render below) already forces that render to fully
+   * remount the game component, so it starts from its own intro screen same
+   * as any other fresh attempt. The matching on*Complete handler reads
+   * isRetryAttemptRef to skip every ranking/XP/Intro-checkpoint side effect
+   * a normal completion triggers, and keeps whichever of the two attempts'
+   * gameScore is higher for `finals`/statStatus — see that handler.
+   */
+  const handleRetryCurrentGame = () => {
+    if (!retryAvailable) return
+    setRetryAvailable(false)
+    isRetryAttemptRef.current = true
+    currentAttemptIdRef.current = generateSessionId() // a genuinely new attempt, even though it replays the same game
+    setPhase('game')
+  }
+
   /** Completion path for the real Reaction game. */
   const onReactionComplete = ({
     trials,
@@ -593,6 +653,11 @@ export function GameFlow() {
     rawSummary: ReactionRawSummary
     gameScore: number
   }) => {
+    // Captured once, immediately, before anything else can touch the ref —
+    // see isRetryAttemptRef's own doc comment for why this one completion
+    // skips the ranking/XP/Intro-checkpoint side effects below.
+    const isRetry = isRetryAttemptRef.current
+    isRetryAttemptRef.current = false
     const { isValidAttempt, invalidReason } = evaluateReactionValidity(trials)
     // gameScore is on BaseGameResult, so this is safe regardless of which of
     // the stat's two games (신호 반응 vs 장애물 피하기) set the current best —
@@ -621,9 +686,9 @@ export function GameFlow() {
 
     setStatStatus((map) => applyGameResult('reaction', map, result))
     setLastResult(result)
-    if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('reaction', gameScore, result.raw, { medianReactionMs: rawSummary.medianReactionMs, consistency: rawSummary.consistency }, isPersonalBest)
-    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reaction', activeGameKey, gameScore)
+    if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+    if (result.isValidAttempt && !isRetry) recordSkillCompletion('reaction', gameScore, result.raw, { medianReactionMs: rawSummary.medianReactionMs, consistency: rawSummary.consistency }, isPersonalBest)
+    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reaction', activeGameKey, gameScore, isRetry)
     setFinals((f) => ({ ...f, reaction: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -638,6 +703,8 @@ export function GameFlow() {
     rawSummary: MemoryRawSummary
     gameScore: number
   }) => {
+    const isRetry = isRetryAttemptRef.current
+    isRetryAttemptRef.current = false
     // gameScore is on BaseGameResult, safe regardless of which of the stat's
     // two games (패턴 기억 vs 이야기 기억) set the current best.
     const prevBest = statStatus.memory.current
@@ -665,9 +732,9 @@ export function GameFlow() {
 
     setStatStatus((map) => applyGameResult('memory', map, result))
     setLastResult(result)
-    if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('memory', gameScore, result.raw, { weightedAccuracy: rawSummary.weightedAccuracy, averageAdjustedResponseTimeMs: rawSummary.averageAdjustedResponseTimeMs }, isPersonalBest)
-    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('memory', activeGameKey, gameScore)
+    if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+    if (result.isValidAttempt && !isRetry) recordSkillCompletion('memory', gameScore, result.raw, { weightedAccuracy: rawSummary.weightedAccuracy, averageAdjustedResponseTimeMs: rawSummary.averageAdjustedResponseTimeMs }, isPersonalBest)
+    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('memory', activeGameKey, gameScore, isRetry)
     setFinals((f) => ({ ...f, memory: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -682,6 +749,8 @@ export function GameFlow() {
     rawSummary: FocusRawSummary
     gameScore: number
   }) => {
+    const isRetry = isRetryAttemptRef.current
+    isRetryAttemptRef.current = false
     // gameScore is on BaseGameResult, safe regardless of which of the stat's
     // two games (표적 찾기 vs 특정 색만 클릭) set the current best.
     const prevBest = statStatus.focus.current
@@ -709,9 +778,9 @@ export function GameFlow() {
 
     setStatStatus((map) => applyGameResult('focus', map, result))
     setLastResult(result)
-    if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('focus', gameScore, result.raw, { weightedAccuracy: rawSummary.weightedAccuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
-    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('focus', activeGameKey, gameScore)
+    if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+    if (result.isValidAttempt && !isRetry) recordSkillCompletion('focus', gameScore, result.raw, { weightedAccuracy: rawSummary.weightedAccuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
+    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('focus', activeGameKey, gameScore, isRetry)
     setFinals((f) => ({ ...f, focus: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -726,6 +795,8 @@ export function GameFlow() {
     rawSummary: JudgmentRawSummary
     gameScore: number
   }) => {
+    const isRetry = isRetryAttemptRef.current
+    isRetryAttemptRef.current = false
     // gameScore is on BaseGameResult, safe regardless of which of the stat's
     // two games (규칙 전환 vs 무엇을 선택할까) set the current best.
     const prevBest = statStatus.judgment.current
@@ -753,9 +824,9 @@ export function GameFlow() {
 
     setStatStatus((map) => applyGameResult('judgment', map, result))
     setLastResult(result)
-    if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('judgment', gameScore, result.raw, { correctBlocks: rawSummary.correctBlocks, overallAccuracy: rawSummary.overallAccuracy }, isPersonalBest)
-    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('judgment', activeGameKey, gameScore)
+    if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+    if (result.isValidAttempt && !isRetry) recordSkillCompletion('judgment', gameScore, result.raw, { correctBlocks: rawSummary.correctBlocks, overallAccuracy: rawSummary.overallAccuracy }, isPersonalBest)
+    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('judgment', activeGameKey, gameScore, isRetry)
     setFinals((f) => ({ ...f, judgment: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -770,6 +841,8 @@ export function GameFlow() {
     rawSummary: SpatialRawSummary
     gameScore: number
   }) => {
+    const isRetry = isRetryAttemptRef.current
+    isRetryAttemptRef.current = false
     // gameScore is on BaseGameResult, safe regardless of which of the stat's
     // two games (회전 도형 찾기 vs 퍼즐 끼우기) set the current best.
     const prevBest = statStatus.spatial.current
@@ -797,9 +870,9 @@ export function GameFlow() {
 
     setStatStatus((map) => applyGameResult('spatial', map, result))
     setLastResult(result)
-    if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('spatial', gameScore, result.raw, { difficultyWeightedAccuracy: rawSummary.difficultyWeightedAccuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
-    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('spatial', activeGameKey, gameScore)
+    if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+    if (result.isValidAttempt && !isRetry) recordSkillCompletion('spatial', gameScore, result.raw, { difficultyWeightedAccuracy: rawSummary.difficultyWeightedAccuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
+    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('spatial', activeGameKey, gameScore, isRetry)
     setFinals((f) => ({ ...f, spatial: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -814,6 +887,8 @@ export function GameFlow() {
     rawSummary: ReasoningRawSummary
     gameScore: number
   }) => {
+    const isRetry = isRetryAttemptRef.current
+    isRetryAttemptRef.current = false
     // gameScore is on BaseGameResult, safe regardless of which of the stat's
     // two games (규칙 찾기 vs 숫자 규칙) set the current best.
     const prevBest = statStatus.reasoning.current
@@ -841,9 +916,9 @@ export function GameFlow() {
 
     setStatStatus((map) => applyGameResult('reasoning', map, result))
     setLastResult(result)
-    if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('reasoning', gameScore, result.raw, { difficultyWeightedAccuracy: rawSummary.difficultyWeightedAccuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
-    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reasoning', activeGameKey, gameScore)
+    if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+    if (result.isValidAttempt && !isRetry) recordSkillCompletion('reasoning', gameScore, result.raw, { difficultyWeightedAccuracy: rawSummary.difficultyWeightedAccuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
+    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reasoning', activeGameKey, gameScore, isRetry)
     setFinals((f) => ({ ...f, reasoning: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -896,7 +971,7 @@ export function GameFlow() {
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt) recordSkillCompletion('memory', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
-    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('memory', activeGameKey, gameScore)
+    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('memory', activeGameKey, gameScore, false)
     setFinals((f) => ({ ...f, memory: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -936,7 +1011,7 @@ export function GameFlow() {
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt) recordSkillCompletion('focus', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageReactionTimeMs: rawSummary.averageReactionTimeMs }, isPersonalBest)
-    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('focus', activeGameKey, gameScore)
+    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('focus', activeGameKey, gameScore, false)
     setFinals((f) => ({ ...f, focus: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -976,7 +1051,7 @@ export function GameFlow() {
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt) recordSkillCompletion('reaction', gameScore, result.raw, { survivedMs: rawSummary.survivedMs, obstaclesDodged: rawSummary.obstaclesDodged }, isPersonalBest)
-    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reaction', activeGameKey, gameScore)
+    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reaction', activeGameKey, gameScore, false)
     setFinals((f) => ({ ...f, reaction: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -1016,7 +1091,7 @@ export function GameFlow() {
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt) recordSkillCompletion('judgment', gameScore, result.raw, { averageChoiceQuality: rawSummary.averageChoiceQuality, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
-    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('judgment', activeGameKey, gameScore)
+    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('judgment', activeGameKey, gameScore, false)
     setFinals((f) => ({ ...f, judgment: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -1056,7 +1131,7 @@ export function GameFlow() {
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt) recordSkillCompletion('spatial', gameScore, result.raw, { totalCompletionMs: rawSummary.totalCompletionMs, misplacements: rawSummary.misplacements }, isPersonalBest)
-    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('spatial', activeGameKey, gameScore)
+    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('spatial', activeGameKey, gameScore, false)
     setFinals((f) => ({ ...f, spatial: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -1096,7 +1171,7 @@ export function GameFlow() {
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt) recordSkillCompletion('reasoning', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
-    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reasoning', activeGameKey, gameScore)
+    if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reasoning', activeGameKey, gameScore, false)
     setFinals((f) => ({ ...f, reasoning: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -1346,6 +1421,8 @@ export function GameFlow() {
             finals={finals}
             personalBestScore={currentBestScore}
             isNewRecord={lastResult.isPersonalBest}
+            canRetry={retryAvailable}
+            onRetry={handleRetryCurrentGame}
             onNext={goNextFirst}
             onMeetStatling={() => {
               // The run is fully done — nothing left to resume. Only reached

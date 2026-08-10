@@ -123,6 +123,31 @@ export function recordIntroGameCompletion(
   return { ...state, completedGames: [...state.completedGames, entry], updatedAt: entry.completedAt }
 }
 
+/**
+ * Retry-aware counterpart to recordIntroGameCompletion — used only for a
+ * stat's 1 Initial-Assessment retry (see game-flow.tsx's
+ * handleRetryCurrentGame/recordIntroCheckpoint). A plain
+ * recordIntroGameCompletion call would silently no-op here (the stat's entry
+ * already exists from its first attempt), which would leave 이어서 하기
+ * resuming from the *pre-retry* score even after a retry improved it — this
+ * instead replaces the existing entry, but only when the retry's gameScore
+ * is actually higher, so a worse or missing-checkpoint retry never
+ * regresses (or fabricates) a checkpoint. Never creates a second entry for
+ * the same stat — still exactly one entry per stat, same invariant as
+ * recordIntroGameCompletion.
+ */
+export function upgradeIntroGameCompletion(
+  state: IntroProgressState,
+  entry: IntroCompletedGame,
+): IntroProgressState {
+  const index = state.completedGames.findIndex((g) => g.statId === entry.statId)
+  if (index === -1) return recordIntroGameCompletion(state, entry) // defensive — no prior entry to upgrade, behaves like a normal first record
+  if (entry.gameScore <= state.completedGames[index].gameScore) return state
+  const completedGames = [...state.completedGames]
+  completedGames[index] = entry
+  return { ...state, completedGames, updatedAt: entry.completedAt }
+}
+
 /** Wipes the checkpoint — called once the full 6-game run finishes (goNextFirst) and from the real user-facing "펫 초기화" reset, so a stale partial run never lingers past either. */
 export function clearIntroProgress(): void {
   if (typeof window === 'undefined') return

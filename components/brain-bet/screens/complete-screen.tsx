@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ArrowRight, Check, PartyPopper, RotateCcw, Trophy } from 'lucide-react'
+import { ArrowRight, Check, PartyPopper, Repeat, RotateCcw, Trophy } from 'lucide-react'
 import { AssetImage } from '@/components/brain-bet/asset-image'
 import { ProgressTrack } from '@/components/brain-bet/progress-track'
 import { RadarChart } from '@/components/brain-bet/radar-chart'
@@ -65,6 +65,20 @@ interface CompleteScreenProps {
   onMeetStatling: () => void
   /** Secondary CTA on the last (6th) result screen only — restarts the 6-game Intro from game 1. */
   onReplay: () => void
+  /**
+   * Whether this stat still has its 1 single-game retry unused (see
+   * game-flow.tsx's retryAvailable/handleRetryCurrentGame) — shows/hides
+   * "한 번 더 해보기" below. Always determined purely by "has this stat's
+   * retry been used yet", never by this round's score — every player sees
+   * the same offer regardless of how well they did.
+   */
+  canRetry: boolean
+  /**
+   * "한 번 더 해보기" — replays just this one game, at most once. Deliberately
+   * a distinct action/icon from onReplay's "다시 하기" (restarts all 6 games)
+   * so the two are never visually or functionally confused.
+   */
+  onRetry: () => void
 }
 
 export function CompleteScreen({
@@ -78,6 +92,8 @@ export function CompleteScreen({
   onNext,
   onMeetStatling,
   onReplay,
+  canRetry,
+  onRetry,
 }: CompleteScreenProps) {
   const stat = STATS[statId]
   const isLast = index === TOTAL_GAMES - 1
@@ -216,12 +232,28 @@ export function CompleteScreen({
         <ProgressTrack current={index + 1} />
       </div>
 
+      {/* Secondary "재도전" CTA — offered identically to every player
+          regardless of this round's score (never hidden just because the
+          score was low), at most once per stat. Deliberately its own block
+          with its own icon (Repeat), never merged into or styled like
+          onReplay's "다시 하기" below (a full 6-game restart) so the two
+          can't be confused for one another. */}
+      {canRetry && (
+        <div className="mt-5 flex w-full max-w-md flex-col items-center gap-1.5">
+          <ToyButton className="w-full" variant="secondary" onClick={onRetry}>
+            <Repeat size={18} strokeWidth={2.6} />
+            한 번 더 해보기
+          </ToyButton>
+          <p className="text-[11px] font-semibold text-muted-foreground">재도전은 1회만 가능해요</p>
+        </div>
+      )}
+
       {/* continue CTA — the last (6th) result screen is now the final result
           page (MY STATUS's own screen no longer appears in this flow), so it
           shows MY STATUS's two actions instead of "다음"; every earlier
           screen keeps the single "다음" CTA unchanged. */}
       {isLast ? (
-        <div className="mt-8 flex w-full max-w-md flex-col items-center justify-center gap-3 sm:max-w-lg sm:flex-row">
+        <div className="mt-4 flex w-full max-w-md flex-col items-center justify-center gap-3 sm:max-w-lg sm:flex-row">
           <ToyButton className="w-full sm:w-auto" onClick={onMeetStatling}>
             나의 Statling 만나러 가기
             <ArrowRight size={20} strokeWidth={2.8} />
@@ -235,7 +267,7 @@ export function CompleteScreen({
         <button
           type="button"
           onClick={onNext}
-          className="group mt-8 inline-flex w-full max-w-md items-center justify-center gap-2 rounded-2xl bg-primary px-6 py-4 font-display text-lg font-extrabold text-primary-foreground toy-border toy-shadow-lg transition-transform duration-150 hover:-translate-y-0.5 active:translate-x-1 active:translate-y-1 active:shadow-none"
+          className="group mt-4 inline-flex w-full max-w-md items-center justify-center gap-2 rounded-2xl bg-primary px-6 py-4 font-display text-lg font-extrabold text-primary-foreground toy-border toy-shadow-lg transition-transform duration-150 hover:-translate-y-0.5 active:translate-x-1 active:translate-y-1 active:shadow-none"
         >
           다음: {nextStat?.name}
           <ArrowRight
