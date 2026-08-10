@@ -85,9 +85,9 @@ import {
   clearIntroProgress,
   loadIntroProgress,
   recordIntroGameCompletion,
+  replaceIntroGameCompletion,
   saveIntroProgress,
   startNewIntroProgress,
-  upgradeIntroGameCompletion,
   type IntroProgressState,
 } from '@/lib/game/intro-progress-storage'
 import { applyGameResult, emptyStatStatusMap } from '@/lib/game/stat-status'
@@ -253,7 +253,7 @@ export function GameFlow() {
   /**
    * Whether the stat currently staged for Initial Assessment (First Play)
    * still has its 1 single-game retry unused — drives CompleteScreen's
-   * "한 번 더 해보기" CTA (see handleRetryCurrentGame below). Reset to `true`
+   * "다시 도전하기" CTA (see handleRetryCurrentGame below). Reset to `true`
    * every time a genuinely new stat's game is staged (enterStatGame) and
    * flipped to `false` the moment the player actually uses the retry, not
    * merely offered it — so it never comes back for the same stat. Deliberately
@@ -263,15 +263,39 @@ export function GameFlow() {
   const [retryAvailable, setRetryAvailable] = useState(true)
   /**
    * True for exactly the one game-phase render that replays a stat's
-   * already-completed Initial Assessment game (set by
-   * handleRetryCurrentGame, read+cleared at the top of the matching
-   * on*Complete handler). Lets that one handler invocation skip every
-   * ranking/XP/mission/Intro-checkpoint side effect a normal completion
-   * triggers — see recordSkillCompletion's own doc comment — without
-   * threading a new parameter through 6 game components' onComplete payload
-   * shapes, which are fixed by the game components themselves.
+   * already-completed Initial Assessment game (set by startRetry, read+
+   * cleared at the top of the matching on*Complete handler). Lets that one
+   * handler invocation skip every ranking/XP/mission/Intro-checkpoint side
+   * effect a normal completion triggers — see recordSkillCompletion's own
+   * doc comment — without threading a new parameter through 6 game
+   * components' onComplete payload shapes, which are fixed by the game
+   * components themselves. Also what makes that one completion's gameScore
+   * unconditionally replace the stat's record (see each handler's
+   * isPersonalBest line) rather than only on improvement.
    */
   const isRetryAttemptRef = useRef(false)
+  /**
+   * Every shape id Spatial's first Initial Assessment attempt showed this
+   * run (reference + every option, correct or distractor) — set from
+   * onSpatialComplete's own `trials` payload whenever that completion is
+   * NOT a retry, read back out as the `avoidShapeIds` prop for the one
+   * retry render so its shape sampling can lean away from what the player
+   * just saw (see spatial-problems.ts's generateSpatialSession). Null until
+   * Spatial's first attempt actually finishes; irrelevant to every other
+   * stat.
+   */
+  const spatialFirstAttemptShapeIdsRef = useRef<Set<string> | null>(null)
+  /**
+   * Whether the player has confirmed the "재도전 시 이번 결과가 최종 기록으로
+   * 반영돼요" retry notice at least once during the CURRENT Initial
+   * Assessment run (see handleRetryCurrentGame/confirmRetryNotice below).
+   * Reset only by start() (a genuinely new run) — never by enterStatGame —
+   * so once shown for one stat, it never shows again for any of the other 5
+   * within the same run.
+   */
+  const [hasSeenRetryNotice, setHasSeenRetryNotice] = useState(false)
+  /** Gates the retry notice popup — see hasSeenRetryNotice. */
+  const [confirmingRetryNotice, setConfirmingRetryNotice] = useState(false)
   /** A resumable Intro checkpoint found on mount (see lib/game/intro-progress-storage.ts) — non-null only while Landing can still offer "이어서 하기". Cleared the moment the player resumes, restarts, or the run finishes. */
   const [introResume, setIntroResume] = useState<IntroProgressState | null>(null)
   const [confirmingRestartIntro, setConfirmingRestartIntro] = useState(false)
@@ -469,6 +493,7 @@ export function GameFlow() {
     // matching on*Complete handler right after a retry completes).
     setRetryAvailable(true)
     isRetryAttemptRef.current = false
+    if (statId === 'spatial') spatialFirstAttemptShapeIdsRef.current = null
   }
 
   /**
@@ -535,19 +560,19 @@ export function GameFlow() {
    * recordIntroGameCompletion, same idempotency shape as recordSkillCompletion
    * above.
    *
-   * `isRetry` routes through upgradeIntroGameCompletion instead: a retry's
-   * completion must still update the checkpoint when it scored higher than
-   * the stat's first attempt (otherwise 이어서 하기 would resume from the
-   * *pre-retry* score even after the retry improved it — the same
-   * gameScore-so-far value `finals`/statStatus already keep the better of),
-   * but must never regress it, and must never create a second entry for the
-   * same stat.
+   * `isRetry` routes through replaceIntroGameCompletion instead: a retry's
+   * completion must always overwrite the checkpoint with its own score
+   * (otherwise 이어서 하기 would resume from the *pre-retry* score even after
+   * the retry replaced it — see each on*Complete handler's isPersonalBest
+   * line, which `finals`/statStatus follow the same way), regardless of
+   * whether it's higher or lower, and must never create a second entry for
+   * the same stat.
    */
   function recordIntroCheckpoint(statId: StatId, gameKey: string, gameScore: number, isRetry: boolean) {
     const progress = loadIntroProgress()
     if (!progress) return // no active checkpoint (e.g. already resumed to completion) — nothing to update
     const entry = { statId, gameKey, gameScore, completedAt: new Date().toISOString() }
-    saveIntroProgress(isRetry ? upgradeIntroGameCompletion(progress, entry) : recordIntroGameCompletion(progress, entry))
+    saveIntroProgress(isRetry ? replaceIntroGameCompletion(progress, entry) : recordIntroGameCompletion(progress, entry))
   }
 
   /** Fresh Intro run — first-ever visit, "다시 하기" after a full completion, or "처음부터 다시 하기" from Landing. Always starts a brand-new checkpoint (see startNewIntroProgress). */
@@ -558,6 +583,7 @@ export function GameFlow() {
     setFinals(emptyFinals())
     startNewIntroProgress()
     setIntroResume(null)
+    setHasSeenRetryNotice(false) // a genuinely new run gets the retry notice again on its first retry
     setPhase('game')
   }
 
@@ -623,24 +649,52 @@ export function GameFlow() {
   }
 
   /**
-   * CompleteScreen's "한 번 더 해보기" — replays the exact stat/game just
-   * finished, at most once (no-ops if already used, see retryAvailable).
-   * Deliberately does NOT call enterStatGame: activeStatId/activeGameKey/
-   * activeDifficulty/index must stay exactly as they are (this is the same
-   * game, not a new one), only `phase` needs to flip back to 'game' — the
-   * outer stepKey (see the render below) already forces that render to fully
-   * remount the game component, so it starts from its own intro screen same
-   * as any other fresh attempt. The matching on*Complete handler reads
-   * isRetryAttemptRef to skip every ranking/XP/Intro-checkpoint side effect
-   * a normal completion triggers, and keeps whichever of the two attempts'
-   * gameScore is higher for `finals`/statStatus — see that handler.
+   * The actual replay mechanics, factored out of handleRetryCurrentGame so
+   * both the "notice already seen" fast path and confirmRetryNotice's
+   * onConfirm share it. Deliberately does NOT call enterStatGame:
+   * activeStatId/activeGameKey/activeDifficulty/index must stay exactly as
+   * they are (this is the same game, not a new one), only `phase` needs to
+   * flip back to 'game' — the outer stepKey (see the render below) already
+   * forces that render to fully remount the game component, so it starts
+   * from its own intro screen same as any other fresh attempt. The matching
+   * on*Complete handler reads isRetryAttemptRef to skip every ranking/XP/
+   * Intro-checkpoint side effect a normal completion triggers, and
+   * unconditionally replaces the stat's record with this attempt's own
+   * gameScore (win or lose) — see that handler's isPersonalBest line.
+   *
+   * GA4 hook point: a future `mini_game_retry` event (stat: activeStatId,
+   * gameId: activeGameKey) belongs right here — this is the one place a
+   * retry actually begins, for all 6 stats.
    */
-  const handleRetryCurrentGame = () => {
-    if (!retryAvailable) return
+  const startRetry = () => {
     setRetryAvailable(false)
     isRetryAttemptRef.current = true
     currentAttemptIdRef.current = generateSessionId() // a genuinely new attempt, even though it replays the same game
     setPhase('game')
+  }
+
+  /** ConfirmDialog's onConfirm for the retry notice — marks it seen for the rest of this run (see hasSeenRetryNotice) and then actually starts the replay. */
+  const confirmRetryNotice = () => {
+    setHasSeenRetryNotice(true)
+    startRetry()
+  }
+
+  /**
+   * CompleteScreen's "다시 도전하기". No-ops if this stat's 1 retry is
+   * already used (see retryAvailable). The very first time this is clicked
+   * in the current Initial Assessment run, it shows a confirmation notice
+   * ("재도전 시 이번 결과가 최종 기록으로 반영돼요") instead of retrying
+   * immediately — see hasSeenRetryNotice/confirmRetryNotice. Every later
+   * click, for any of the other 5 stats, skips straight to startRetry once
+   * that notice has been acknowledged once.
+   */
+  const handleRetryCurrentGame = () => {
+    if (!retryAvailable) return
+    if (hasSeenRetryNotice) {
+      startRetry()
+    } else {
+      setConfirmingRetryNotice(true)
+    }
   }
 
   /** Completion path for the real Reaction game. */
@@ -664,7 +718,12 @@ export function GameFlow() {
     // unlike a rawSummary-shaped comparator, which would assume the wrong
     // shape whenever the sibling game set the record.
     const prevBest = statStatus.reaction.current
-    const isPersonalBest = isValidAttempt && isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
+    // A retry's score always becomes the record, win or lose (product
+    // policy — see startRetry's doc comment) — isRetry short-circuits the
+    // usual "only if better" comparison rather than replacing it, so a
+    // Free Play/first-attempt completion (isRetry always false there) keeps
+    // the exact original best-of comparison.
+    const isPersonalBest = isValidAttempt && (isRetry || isBetterByGameScore(gameScore, prevBest?.gameScore ?? null))
 
     const result: ReactionGameResult = {
       sessionId: generateSessionId(),
@@ -680,6 +739,7 @@ export function GameFlow() {
       isPersonalBest,
       isValidAttempt,
       invalidReason,
+      attempt: isRetry ? 2 : 1,
       trials,
       rawSummary,
     }
@@ -708,7 +768,9 @@ export function GameFlow() {
     // gameScore is on BaseGameResult, safe regardless of which of the stat's
     // two games (패턴 기억 vs 이야기 기억) set the current best.
     const prevBest = statStatus.memory.current
-    const isPersonalBest = isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
+    // A retry's score always becomes the record, win or lose — see
+    // onReactionComplete's isPersonalBest doc comment.
+    const isPersonalBest = isRetry || isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
 
     const result: MemoryGameResult = {
       sessionId: generateSessionId(),
@@ -726,6 +788,7 @@ export function GameFlow() {
       // cheat criteria) — every completed attempt is valid for now.
       isValidAttempt: true,
       invalidReason: null,
+      attempt: isRetry ? 2 : 1,
       rounds,
       rawSummary,
     }
@@ -754,7 +817,9 @@ export function GameFlow() {
     // gameScore is on BaseGameResult, safe regardless of which of the stat's
     // two games (표적 찾기 vs 특정 색만 클릭) set the current best.
     const prevBest = statStatus.focus.current
-    const isPersonalBest = isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
+    // A retry's score always becomes the record, win or lose — see
+    // onReactionComplete's isPersonalBest doc comment.
+    const isPersonalBest = isRetry || isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
 
     const result: FocusGameResult = {
       sessionId: generateSessionId(),
@@ -772,6 +837,7 @@ export function GameFlow() {
       // cheat criteria) — every completed attempt is valid for now.
       isValidAttempt: true,
       invalidReason: null,
+      attempt: isRetry ? 2 : 1,
       rounds,
       rawSummary,
     }
@@ -800,7 +866,9 @@ export function GameFlow() {
     // gameScore is on BaseGameResult, safe regardless of which of the stat's
     // two games (규칙 전환 vs 무엇을 선택할까) set the current best.
     const prevBest = statStatus.judgment.current
-    const isPersonalBest = isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
+    // A retry's score always becomes the record, win or lose — see
+    // onReactionComplete's isPersonalBest doc comment.
+    const isPersonalBest = isRetry || isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
 
     const result: JudgmentGameResult = {
       sessionId: generateSessionId(),
@@ -818,6 +886,7 @@ export function GameFlow() {
       // Judgment cheat criteria) — every completed attempt is valid for now.
       isValidAttempt: true,
       invalidReason: null,
+      attempt: isRetry ? 2 : 1,
       trials,
       rawSummary,
     }
@@ -846,7 +915,9 @@ export function GameFlow() {
     // gameScore is on BaseGameResult, safe regardless of which of the stat's
     // two games (회전 도형 찾기 vs 퍼즐 끼우기) set the current best.
     const prevBest = statStatus.spatial.current
-    const isPersonalBest = isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
+    // A retry's score always becomes the record, win or lose — see
+    // onReactionComplete's isPersonalBest doc comment.
+    const isPersonalBest = isRetry || isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
 
     const result: SpatialGameResult = {
       sessionId: generateSessionId(),
@@ -864,6 +935,7 @@ export function GameFlow() {
       // Spatial cheat criteria) — every completed attempt is valid for now.
       isValidAttempt: true,
       invalidReason: null,
+      attempt: isRetry ? 2 : 1,
       trials,
       rawSummary,
     }
@@ -873,6 +945,19 @@ export function GameFlow() {
     if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt && !isRetry) recordSkillCompletion('spatial', gameScore, result.raw, { difficultyWeightedAccuracy: rawSummary.difficultyWeightedAccuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('spatial', activeGameKey, gameScore, isRetry)
+    // Snapshot every shape this attempt showed (reference + all 4 options,
+    // per question) ONLY from a genuine first attempt — see
+    // spatialFirstAttemptShapeIdsRef's own doc comment. Never overwritten by
+    // the retry's own completion, so it always reflects "what the 1st
+    // attempt showed," exactly what avoidShapeIds is supposed to dodge.
+    if (!isRetry) {
+      const shownShapeIds = new Set<string>()
+      for (const trial of trials) {
+        shownShapeIds.add(trial.shapeId)
+        for (const option of trial.options) shownShapeIds.add(option.shapeId)
+      }
+      spatialFirstAttemptShapeIdsRef.current = shownShapeIds
+    }
     setFinals((f) => ({ ...f, spatial: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -892,7 +977,9 @@ export function GameFlow() {
     // gameScore is on BaseGameResult, safe regardless of which of the stat's
     // two games (규칙 찾기 vs 숫자 규칙) set the current best.
     const prevBest = statStatus.reasoning.current
-    const isPersonalBest = isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
+    // A retry's score always becomes the record, win or lose — see
+    // onReactionComplete's isPersonalBest doc comment.
+    const isPersonalBest = isRetry || isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
 
     const result: ReasoningGameResult = {
       sessionId: generateSessionId(),
@@ -910,6 +997,7 @@ export function GameFlow() {
       // Reasoning cheat criteria) — every completed attempt is valid for now.
       isValidAttempt: true,
       invalidReason: null,
+      attempt: isRetry ? 2 : 1,
       trials,
       rawSummary,
     }
@@ -1404,7 +1492,14 @@ export function GameFlow() {
             activeGameKey === 'spatial-fit-puzzle' ? (
               <FitPuzzleGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onFitPuzzleComplete} onBack={exitFreePlayGame} />
             ) : (
-              <SpatialGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onSpatialComplete} onBack={exitFreePlayGame} />
+              <SpatialGame
+                index={index}
+                mode={flowMode}
+                difficulty={activeDifficulty}
+                onComplete={onSpatialComplete}
+                onBack={exitFreePlayGame}
+                avoidShapeIds={spatialFirstAttemptShapeIdsRef.current ?? undefined}
+              />
             )
           ) : activeGameKey === 'reasoning-number-pattern' ? (
             <NumberPatternGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onNumberPatternComplete} onBack={exitFreePlayGame} />
@@ -1588,6 +1683,20 @@ export function GameFlow() {
         confirmLabel="다시 하기"
         cancelLabel="취소"
         onConfirm={start}
+      />
+
+      {/* Shown once per Initial Assessment run, the first time any stat's
+          "다시 도전하기" is clicked — see hasSeenRetryNotice/
+          confirmRetryNotice. Canceling here leaves retryAvailable untouched,
+          so the player can click "다시 도전하기" again with no penalty. */}
+      <ConfirmDialog
+        open={confirmingRetryNotice}
+        onOpenChange={setConfirmingRetryNotice}
+        title="재도전 안내"
+        description="재도전 시 이번 결과가 최종 기록으로 반영돼요."
+        confirmLabel="재도전하기"
+        cancelLabel="취소"
+        onConfirm={confirmRetryNotice}
       />
     </main>
   )

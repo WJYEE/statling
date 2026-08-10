@@ -42,6 +42,17 @@ export interface BaseGameResult {
    * Only present once a stat has more than one registered game.
    */
   variant?: string
+  /**
+   * 1 for a stat's first Initial Assessment attempt at a game, 2 for its one
+   * allowed retry (see game-flow.tsx's handleRetryCurrentGame/isRetryAttemptRef)
+   * — undefined for Free Play (retry is Initial-Assessment-only) and for the
+   * 6 alt-game handlers, which never route through the retry flow. Kept
+   * purely as data (never read by any scoring/storage decision here) so a
+   * future `mini_game_retry` GA4 event, or any other analytics on
+   * statStatus[stat].history, can distinguish attempt 1 from attempt 2
+   * without re-deriving it.
+   */
+  attempt?: 1 | 2
 }
 
 export interface ReactionTrial {

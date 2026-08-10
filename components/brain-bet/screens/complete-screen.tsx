@@ -68,14 +68,18 @@ interface CompleteScreenProps {
   /**
    * Whether this stat still has its 1 single-game retry unused (see
    * game-flow.tsx's retryAvailable/handleRetryCurrentGame) — shows/hides
-   * "한 번 더 해보기" below. Always determined purely by "has this stat's
+   * "다시 도전하기" below. Always determined purely by "has this stat's
    * retry been used yet", never by this round's score — every player sees
-   * the same offer regardless of how well they did.
+   * the same offer regardless of how well they did. Same CTA label for all
+   * 6 stats, including Spatial — no stat gets special-cased copy here.
    */
   canRetry: boolean
   /**
-   * "한 번 더 해보기" — replays just this one game, at most once. Deliberately
-   * a distinct action/icon from onReplay's "다시 하기" (restarts all 6 games)
+   * "다시 도전하기" — replays just this one game, at most once. The first
+   * click of any Initial Assessment run shows a one-time notice before
+   * actually retrying (see game-flow.tsx's hasSeenRetryNotice) — that gating
+   * lives entirely in game-flow.tsx, invisible from here. Deliberately a
+   * distinct action/icon from onReplay's "다시 하기" (restarts all 6 games)
    * so the two are never visually or functionally confused.
    */
   onRetry: () => void
@@ -242,7 +246,7 @@ export function CompleteScreen({
         <div className="mt-5 flex w-full max-w-md flex-col items-center gap-1.5">
           <ToyButton className="w-full" variant="secondary" onClick={onRetry}>
             <Repeat size={18} strokeWidth={2.6} />
-            한 번 더 해보기
+            다시 도전하기
           </ToyButton>
           <p className="text-[11px] font-semibold text-muted-foreground">재도전은 1회만 가능해요</p>
         </div>

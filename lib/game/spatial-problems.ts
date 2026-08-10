@@ -45,6 +45,20 @@ function shuffled<T>(items: T[]): T[] {
   return result
 }
 
+/**
+ * Reorders an already-shuffled id list so ids NOT in `avoid` sort before ids
+ * that are — used by generateSpatialSession's `avoidShapeIds` param to bias
+ * a retry's shape sampling away from whatever the stat's first Initial
+ * Assessment attempt already showed, without ever making a shape flat-out
+ * unavailable (the whole pool is only 12 shapes — a hard exclusion could
+ * easily leave too few candidates for a level, especially the 2-shape
+ * 'simple' tier). A stable partition, not a re-sort: relative order within
+ * each half is left exactly as `shuffled` produced it.
+ */
+function preferUnseen(ids: string[], avoid: ReadonlySet<string>): string[] {
+  return [...ids.filter((id) => !avoid.has(id)), ...ids.filter((id) => avoid.has(id))]
+}
+
 /** The correct option's rotation is always one of 90/180/270 — a 0° "already matching" card would let the user solve by simple visual comparison instead of Mental Rotation. */
 function pickCorrectRotation(): SpatialRotationAngle {
   const angles: SpatialRotationAngle[] = [90, 180, 270]
@@ -176,16 +190,32 @@ function buildQuestion(
  * (pentomino) shapes without replacement across the whole session per each
  * Level's own SPATIAL_QUESTIONS_PER_LEVEL count — no base shape is ever the
  * correct answer twice in one session.
+ *
+ * `avoidShapeIds` — used only for a stat's 1 Initial-Assessment retry (see
+ * game-flow.tsx's spatialFirstAttemptShapeIdsRef): every shape id (reference
+ * AND every option, correct or distractor) the player's first attempt
+ * already showed. Biases both which shapes get picked as this retry's
+ * correct answers (via preferUnseen) and which shapes pickDistractorShapeId
+ * reaches for (by seeding usedShapeIds below) — a soft preference, not a
+ * hard exclusion, since the pool is only 12 shapes total and the 'simple'
+ * tier alone has just 2, so "avoid everything already seen" could easily be
+ * infeasible. Defaults to empty (a normal first attempt has nothing to avoid).
  */
-export function generateSpatialSession(): GeneratedSpatialQuestion[] {
-  const simpleShapeIds = shuffled(shapeIdsInTier('simple'))
+export function generateSpatialSession(avoidShapeIds: ReadonlySet<string> = new Set()): GeneratedSpatialQuestion[] {
+  const simpleShapeIds = preferUnseen(shuffled(shapeIdsInTier('simple')), avoidShapeIds)
   const totalComplexNeeded = SPATIAL_LEVELS.filter((level) => level !== 1).reduce(
     (sum, level) => sum + SPATIAL_QUESTIONS_PER_LEVEL[level],
     0,
   )
-  const complexShapeIds = shuffled(shapeIdsInTier('complex')).slice(0, totalComplexNeeded)
+  const complexShapeIds = preferUnseen(shuffled(shapeIdsInTier('complex')), avoidShapeIds).slice(
+    0,
+    totalComplexNeeded,
+  )
 
-  const usedShapeIds = new Set<string>()
+  // Seeded with avoidShapeIds so pickDistractorShapeId's own usedInSession
+  // soft-preference (see its doc comment) also leans away from whatever the
+  // first attempt already showed, not just the correct/reference shapes above.
+  const usedShapeIds = new Set<string>(avoidShapeIds)
   const questions: GeneratedSpatialQuestion[] = []
   let complexCursor = 0
 

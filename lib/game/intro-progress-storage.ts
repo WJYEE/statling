@@ -129,20 +129,20 @@ export function recordIntroGameCompletion(
  * handleRetryCurrentGame/recordIntroCheckpoint). A plain
  * recordIntroGameCompletion call would silently no-op here (the stat's entry
  * already exists from its first attempt), which would leave 이어서 하기
- * resuming from the *pre-retry* score even after a retry improved it — this
- * instead replaces the existing entry, but only when the retry's gameScore
- * is actually higher, so a worse or missing-checkpoint retry never
- * regresses (or fabricates) a checkpoint. Never creates a second entry for
- * the same stat — still exactly one entry per stat, same invariant as
- * recordIntroGameCompletion.
+ * resuming from the *pre-retry* score forever — this instead always
+ * REPLACES the existing entry with the retry's own result, regardless of
+ * whether it scored higher or lower (product policy: a retry's score always
+ * becomes the stat's final Initial Assessment record, never a best-of-two —
+ * see the matching isPersonalBest computation in game-flow.tsx's on*Complete
+ * handlers). Never creates a second entry for the same stat — still exactly
+ * one entry per stat, same invariant as recordIntroGameCompletion.
  */
-export function upgradeIntroGameCompletion(
+export function replaceIntroGameCompletion(
   state: IntroProgressState,
   entry: IntroCompletedGame,
 ): IntroProgressState {
   const index = state.completedGames.findIndex((g) => g.statId === entry.statId)
-  if (index === -1) return recordIntroGameCompletion(state, entry) // defensive — no prior entry to upgrade, behaves like a normal first record
-  if (entry.gameScore <= state.completedGames[index].gameScore) return state
+  if (index === -1) return recordIntroGameCompletion(state, entry) // defensive — no prior entry to replace, behaves like a normal first record
   const completedGames = [...state.completedGames]
   completedGames[index] = entry
   return { ...state, completedGames, updatedAt: entry.completedAt }

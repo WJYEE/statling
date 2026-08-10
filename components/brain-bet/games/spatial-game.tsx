@@ -42,6 +42,15 @@ interface SpatialGameProps {
     gameScore: number
   }) => void
   onBack: () => void
+  /**
+   * Every shape id the stat's first Initial Assessment attempt already
+   * showed (see game-flow.tsx's spatialFirstAttemptShapeIdsRef) — passed
+   * only when this mount IS that stat's 1 retry, so generateSpatialSession
+   * can bias its sampling away from shapes the player just saw. Undefined
+   * on a normal first attempt (nothing to avoid yet) and always undefined
+   * for Free Play.
+   */
+  avoidShapeIds?: ReadonlySet<string>
 }
 
 interface LastOutcome {
@@ -75,7 +84,7 @@ type QuestionOutcome = { kind: 'option'; optionIndex: number } | { kind: 'timeou
  * the time it fires. `hasResolvedRef` additionally guarantees a question is
  * resolved exactly once even if a timeout and a click land back-to-back.
  */
-export function SpatialGame({ index, mode, difficulty, onComplete, onBack }: SpatialGameProps) {
+export function SpatialGame({ index, mode, difficulty, onComplete, onBack, avoidShapeIds }: SpatialGameProps) {
   const stat = STATS.spatial
   const { play } = useSound()
 
@@ -223,7 +232,7 @@ export function SpatialGame({ index, mode, difficulty, onComplete, onBack }: Spa
   const startGame = () => {
     play('game-start')
     clearScheduled()
-    realQuestionsRef.current = generateSpatialSession()
+    realQuestionsRef.current = generateSpatialSession(avoidShapeIds)
     trialsRef.current = []
     beginQuestion('tutorial-1', 0)
   }
