@@ -2,6 +2,7 @@ import { Analytics } from '@vercel/analytics/next'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 import type { Metadata, Viewport } from 'next'
 import { Baloo_2, Nunito } from 'next/font/google'
+import { GoogleAnalytics } from '@/components/analytics/google-analytics'
 import { AppToastProvider } from '@/components/brain-bet/toast-provider'
 import { AudioProvider } from '@/components/brain-bet/audio-provider'
 import { AuthProvider } from '@/lib/auth/auth-provider'
@@ -102,6 +103,7 @@ export default function RootLayout({
             <AudioProvider>{children}</AudioProvider>
           </AuthProvider>
         </AppToastProvider>
+        <GoogleAnalytics />
         {process.env.NODE_ENV === 'production' && <Analytics />}
         {process.env.NODE_ENV === 'production' && <SpeedInsights />}
       </body>
