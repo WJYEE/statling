@@ -1579,6 +1579,7 @@ export function GameFlow() {
           <RoomScreen
             statlingName={statlingName}
             topStat={topStat}
+            secondaryStat={secondaryStat}
             petProfile={displayedPetProfile}
             onGrow={() => setPhase('grow')}
             onOpenMission={() => setPhase('mission')}

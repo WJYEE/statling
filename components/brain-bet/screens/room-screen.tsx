@@ -32,7 +32,10 @@ import { TALK_EXPRESSION_HOLD_MS } from '@/lib/config/talk.config'
 
 interface RoomScreenProps {
   statlingName: string
+  /** Initial Assessment's TOP 1 stat (see game-flow.tsx's `topStat` — frozen at pet assignment via petRecord.topStat, never recomputed from live/Free-Play-shifted `finals`). */
   topStat: StatId
+  /** Initial Assessment's TOP 2 stat (game-flow.tsx's `secondaryStat` — same frozen-at-assignment source, petRecord.secondStat). Shown alongside topStat, TOP1 → TOP2 order, never recomputed either. */
+  secondaryStat: StatId
   /**
    * The confirmed representative pet — same resolver (and same value) as
    * every other post-hatch screen (see lib/pets/pet-flow.ts
@@ -61,7 +64,7 @@ interface RoomScreenProps {
  * feeds back into the hooks that produced it" dependency; `mode` itself
  * (computed last, from everyone's output) is a pure display-only value.
  */
-export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMission, testerFolder }: RoomScreenProps) {
+export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, onGrow, onOpenMission, testerFolder }: RoomScreenProps) {
   const care = usePetCare()
   const toastManager = Toast.useToastManager()
   const { play, playCharacterVoice } = useSound()
@@ -249,9 +252,9 @@ export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMi
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col px-5 pb-24 pt-4 sm:pb-28 sm:pt-8" data-interaction-mode={mode}>
       <header className="flex items-center justify-between gap-3">
-        <h1 className="flex items-baseline gap-1.5 font-display text-lg font-extrabold text-foreground sm:text-xl">
-          <span className="text-xs font-bold text-muted-foreground sm:text-sm">우리 방 ·</span>
-          {statlingName}
+        <h1 className="flex min-w-0 items-baseline gap-1.5 font-display text-lg font-extrabold text-foreground sm:text-xl">
+          <span className="shrink-0 text-xs font-bold text-muted-foreground sm:text-sm">우리 방 ·</span>
+          <span className="truncate">{statlingName}</span>
         </h1>
         <div className="flex shrink-0 items-center gap-2">
           <button
@@ -262,7 +265,18 @@ export function RoomScreen({ statlingName, topStat, petProfile, onGrow, onOpenMi
           >
             <Crosshair size={18} strokeWidth={2.4} />
           </button>
-          <StatBadge stat={STATS[topStat]} size="sm" />
+          {/* Initial Assessment's TOP1 -> TOP2 (see RoomScreenProps' doc
+              comments) — a compact icon+name pill each, sized down from the
+              single badge this replaces so both fit next to the mission
+              button without wrapping on a narrow phone. */}
+          <div className="flex items-center gap-1">
+            <StatBadge stat={STATS[topStat]} size="xs" />
+            <span className="text-[10px] font-bold leading-none text-foreground">{STATS[topStat].name}</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <StatBadge stat={STATS[secondaryStat]} size="xs" />
+            <span className="text-[10px] font-bold leading-none text-foreground">{STATS[secondaryStat].name}</span>
+          </div>
         </div>
       </header>
 
