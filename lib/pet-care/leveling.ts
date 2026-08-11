@@ -8,6 +8,24 @@
 /** exp required to go from level N to N+1 — index 0 is Lv1→2. Uncapped levels beyond the table fall back to a formula. */
 const EXP_TO_NEXT_LEVEL_TABLE = [20, 40, 70, 110, 160, 220, 290, 370, 460]
 
+/**
+ * Hard ceiling on `intimacyLevel` — a future evolve system may key off
+ * specific levels, but nothing about evolution is implemented here; this
+ * only stops the level number itself from climbing forever. XP is
+ * deliberately NOT capped: `applyExpGain` keeps accumulating `intimacyExp`
+ * past this point (see its loop guard below), it just stops converting that
+ * XP into further levels once MAX_LEVEL is reached. Display code should use
+ * `formatLevelLabel` rather than reading `intimacyLevel` directly, so
+ * pre-existing saved data that (hypothetically) already exceeds this still
+ * reads as "Lv.100 MAX" instead of an over-cap number.
+ */
+export const MAX_LEVEL = 100
+
+/** `Lv.42`, or `Lv.100 MAX` once `level` reaches/exceeds MAX_LEVEL — the one place every "Lv.N" display should go through, so a stray pre-cap save value never renders past the cap. */
+export function formatLevelLabel(level: number): string {
+  return level >= MAX_LEVEL ? `Lv.${MAX_LEVEL} MAX` : `Lv.${level}`
+}
+
 export function expRequiredForLevel(level: number): number {
   const index = level - 1
   if (index < EXP_TO_NEXT_LEVEL_TABLE.length) return EXP_TO_NEXT_LEVEL_TABLE[index]
@@ -31,7 +49,7 @@ export function applyExpGain(current: { intimacyLevel: number; intimacyExp: numb
   const levelsGained: number[] = []
 
   let needed = expRequiredForLevel(level)
-  while (exp >= needed) {
+  while (level < MAX_LEVEL && exp >= needed) {
     exp -= needed
     level += 1
     levelsGained.push(level)

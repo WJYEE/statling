@@ -1,5 +1,6 @@
 import { forwardRef } from 'react'
 import { ShareCardFooter, ShareCardHeader, ShareCardHidden } from '@/components/share/share-card-common'
+import { formatLevelLabel } from '@/lib/pet-care/leveling'
 import type { PetProfile } from '@/lib/pets/pet-profile'
 
 export interface StatlingFriendCardProps {
@@ -43,7 +44,7 @@ export const StatlingFriendCard = forwardRef<HTMLDivElement, StatlingFriendCardP
 
       <div className="grid w-full grid-cols-3 gap-4">
         <div className="flex flex-col items-center gap-1 rounded-2xl bg-card px-4 py-6 toy-border toy-shadow-sm">
-          <span className="font-display text-4xl font-extrabold text-foreground">Lv.{level}</span>
+          <span className="font-display text-4xl font-extrabold text-foreground">{formatLevelLabel(level)}</span>
           <span className="text-xl font-bold text-muted-foreground">레벨</span>
         </div>
         <div className="flex flex-col items-center gap-1 rounded-2xl bg-card px-4 py-6 toy-border toy-shadow-sm">

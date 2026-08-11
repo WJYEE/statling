@@ -1,3 +1,4 @@
+import { formatLevelLabel } from '@/lib/pet-care/leveling'
 import type { ShareStatlingInput } from '@/lib/share/share-types'
 
 /** Dev-only placeholder — only reached if NEXT_PUBLIC_APP_URL is unset AND window.location is unavailable (e.g. this ran during SSR), which real callers (always client-side, inside a click handler) should never hit. */
@@ -66,7 +67,7 @@ export function buildFriendInviteText(input: Partial<FriendInviteTextInput>): st
     characterName ? `🐣 내가 키우는 '${statlingName}'(${characterName})이에요!` : `🐣 내가 키우는 '${statlingName}'이에요!`,
     '',
   ]
-  if (level != null) lines.push(`🌱 현재 Lv.${level}`)
+  if (level != null) lines.push(`🌱 현재 ${formatLevelLabel(level)}`)
   lines.push('', '같이 Statling 키우고', '미니게임도 함께 해요!')
 
   return lines.join('\n')

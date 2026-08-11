@@ -29,6 +29,7 @@ import { computeInteractionMode } from '@/lib/pet-care/interaction-mode'
 import type { PetAnimation } from '@/lib/pet-care/types'
 import { RECONNECT_ANGRY_HOLD_MS } from '@/lib/config/character-state.config'
 import { TALK_EXPRESSION_HOLD_MS } from '@/lib/config/talk.config'
+import { formatLevelLabel } from '@/lib/pet-care/leveling'
 
 interface RoomScreenProps {
   statlingName: string
@@ -172,7 +173,7 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
 
   useEffect(() => {
     if (!care.levelUpEvent) return
-    toastManager.add({ title: `Lv.${care.levelUpEvent.level} 달성!`, type: 'success' })
+    toastManager.add({ title: `${formatLevelLabel(care.levelUpEvent.level)} 달성!`, type: 'success' })
     care.levelUpEvent.unlocks.forEach((reward) => {
       toastManager.add({ title: reward.title, description: reward.description, type: 'success' })
     })

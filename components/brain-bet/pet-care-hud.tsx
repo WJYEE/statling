@@ -4,6 +4,7 @@ import type { FloatingDelta } from '@/hooks/use-pet-care'
 import { ATTENTION_THRESHOLD } from '@/lib/config/pet-care.config'
 import { BowlIcon, BubbleIcon, HeartIcon, type RoomIconProps } from '@/components/brain-bet/room-icons'
 import type { CareStatId } from '@/lib/pet-care/types'
+import { formatLevelLabel, MAX_LEVEL } from '@/lib/pet-care/leveling'
 import { cn } from '@/lib/utils'
 
 const STAT_ICON: Record<CareStatId, (props: RoomIconProps) => React.ReactElement> = {
@@ -49,23 +50,24 @@ interface PetCareHudProps {
 }
 
 export function PetCareHud({ stats, intimacyLevel, intimacyExp, expToNext, floatingDeltas }: PetCareHudProps) {
+  const isMaxLevel = intimacyLevel >= MAX_LEVEL
   return (
     <div className="mt-2 space-y-1.5 sm:mt-3 sm:space-y-2">
       <div className="flex items-center gap-2 rounded-xl bg-secondary/60 px-2.5 py-1 toy-border sm:px-3 sm:py-1.5">
-        <span className="font-display text-xs font-extrabold text-secondary-foreground">Lv.{intimacyLevel}</span>
+        <span className="font-display text-xs font-extrabold text-secondary-foreground">{formatLevelLabel(intimacyLevel)}</span>
         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-card">
           <div
             role="progressbar"
             aria-label="친밀도 레벨 진행도"
             aria-valuemin={0}
-            aria-valuemax={expToNext}
-            aria-valuenow={intimacyExp}
+            aria-valuemax={isMaxLevel ? 1 : expToNext}
+            aria-valuenow={isMaxLevel ? 1 : intimacyExp}
             className="h-full rounded-full bg-accent transition-[width] duration-300"
-            style={{ width: `${Math.min(100, (intimacyExp / expToNext) * 100)}%` }}
+            style={{ width: isMaxLevel ? '100%' : `${Math.min(100, (intimacyExp / expToNext) * 100)}%` }}
           />
         </div>
         <span className="text-[10px] font-bold text-muted-foreground">
-          {intimacyExp}/{expToNext}
+          {isMaxLevel ? 'MAX' : `${intimacyExp}/${expToNext}`}
         </span>
       </div>
 
