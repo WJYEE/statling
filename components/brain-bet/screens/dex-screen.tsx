@@ -1,11 +1,14 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { Dialog } from '@base-ui/react/dialog'
 import { ChevronDown, ChevronLeft, ChevronUp, X } from 'lucide-react'
 import { AssetImage } from '@/components/brain-bet/asset-image'
+import { ToyButton } from '@/components/brain-bet/toy-button'
 import { buildCharacterStateFolder, CHARACTER_STATE_SEQUENCE } from '@/lib/character-state-assets'
 import { CHARACTER_CATALOG } from '@/lib/pets/pet-profile'
 import { loadDex } from '@/lib/pets/dex-storage'
+import { useSound } from '@/hooks/use-sound'
 import { cn } from '@/lib/utils'
 
 interface DexScreenProps {
@@ -23,6 +26,7 @@ interface DexScreenProps {
 export function DexScreen({ onBack }: DexScreenProps) {
   const metIds = useMemo(() => new Set(loadDex().metPetIds), [])
   const [openId, setOpenId] = useState<string | null>(null)
+  const [showUndiscovered, setShowUndiscovered] = useState(false)
 
   const openPet = openId ? CHARACTER_CATALOG.find((pet) => pet.id === openId) : null
 
@@ -57,8 +61,7 @@ export function DexScreen({ onBack }: DexScreenProps) {
             <button
               key={pet.id}
               type="button"
-              onClick={() => met && setOpenId(pet.id)}
-              disabled={!met}
+              onClick={() => (met ? setOpenId(pet.id) : setShowUndiscovered(true))}
               className={cn(
                 'flex flex-col items-center gap-1 rounded-2xl bg-card p-2 toy-border',
                 met ? 'active:translate-y-0.5' : 'cursor-not-allowed opacity-70',
@@ -82,7 +85,41 @@ export function DexScreen({ onBack }: DexScreenProps) {
       </div>
 
       {openPet && <DexDetailCard pet={openPet} onClose={() => setOpenId(null)} />}
+      <UndiscoveredPetDialog open={showUndiscovered} onOpenChange={setShowUndiscovered} />
     </div>
+  )
+}
+
+/** Shown instead of entering the detail screen when an unmet Statling's card is tapped — a single acknowledgement, no extra copy, no way to see the real detail view for a pet that hasn't actually been met yet. */
+function UndiscoveredPetDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const { play } = useSound()
+
+  useEffect(() => {
+    if (open) play('modal-open')
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire only on the open:false->true transition
+  }, [open])
+
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Backdrop className="fixed inset-0 z-[110] bg-black/40 transition-opacity duration-200 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
+        <Dialog.Popup className="fixed left-1/2 top-1/2 z-[120] w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-3xl bg-card p-5 text-center toy-border toy-shadow-lg transition-all duration-200 data-[starting-style]:scale-95 data-[starting-style]:opacity-0 data-[ending-style]:scale-95 data-[ending-style]:opacity-0">
+          <Dialog.Title className="font-display text-base font-extrabold text-foreground">
+            아직 발견하지 못했어요!
+          </Dialog.Title>
+          <ToyButton
+            className="mt-4 w-full px-4 py-2.5 text-sm"
+            data-sfx-skip
+            onClick={() => {
+              play('confirm')
+              onOpenChange(false)
+            }}
+          >
+            확인
+          </ToyButton>
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
   )
 }
 
