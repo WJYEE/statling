@@ -80,6 +80,21 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
   const boardWidthPx = level.boardCols * FIT_PUZZLE_CELL_SIZE_PX
   const boardHeightPx = level.boardRows * FIT_PUZZLE_CELL_SIZE_PX
   const trayTopPx = boardHeightPx + 24
+  /**
+   * The tallest a tray piece can render — a piece can be rotated while still
+   * sitting in the tray (see rotateSelected, not gated to "after placement"),
+   * which swaps its width/height, so the row must reserve enough height for
+   * whichever of a piece's two dimensions ends up "tall," not just its
+   * resting rotation-0 height. Mirrors layoutPieces' own `Math.max(w, h)`
+   * horizontal-spacing logic just below, applied to the vertical axis
+   * instead — previously this was a flat `90` regardless of piece size,
+   * which clipped any piece (or in-tray rotation) taller than ~82px.
+   */
+  const trayPieceMaxSpanPx = Math.max(
+    FIT_PUZZLE_CELL_SIZE_PX,
+    ...level.pieces.map((p) => Math.max(p.widthCells, p.heightCells) * FIT_PUZZLE_CELL_SIZE_PX),
+  )
+  const arenaHeightPx = trayTopPx + 8 + trayPieceMaxSpanPx + 16
 
   const layoutPieces = (lvl: typeof level): PieceState[] => {
     let trayX = 8
@@ -262,12 +277,17 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
             {/* Board + tray are laid out with absolute-pixel geometry (see layoutPieces/footprintPx)
                 that can exceed a 375px-wide screen once several pieces are queued in the tray —
                 wrapping in a horizontally scrollable strip keeps every piece reachable on mobile
-                instead of silently rendering off-canvas. Inert on desktop, where content already fits. */}
+                instead of silently rendering off-canvas. Inert on desktop, where content already fits.
+                Setting overflow-x here also computes this element's overflow-y to 'auto' per the CSS
+                spec (an x/y overflow pair can't mix 'visible' with anything else) — arenaHeightPx
+                above is sized to the tallest piece the current level can ever render (any rotation
+                included), so that vertical auto-scroll is never actually needed; it exists purely as
+                a safety net, not the primary fit mechanism. */}
             <div className="w-full overflow-x-auto">
               <div
                 ref={arenaRef}
                 className="relative mx-auto"
-                style={{ width: Math.max(boardWidthPx, 280), height: trayTopPx + 90 }}
+                style={{ width: Math.max(boardWidthPx, 280), height: arenaHeightPx }}
               >
                 {/* board */}
                 <div
