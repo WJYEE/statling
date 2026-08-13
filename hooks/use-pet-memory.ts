@@ -50,14 +50,18 @@ export function usePetMemory(applyEffect: (deltas: Partial<Record<CareStatId, nu
     return resetAutonomyBonusIfNewDay(updateVisitMemory(loadPetMemory(now), now), now)
   })
   const [gameReaction, setGameReaction] = useState<GameReactionView>({ active: false, speech: null, animation: null })
+  /** Bumped whenever a new reaction is shown — exposed as `gameReactionId` so room-screen.tsx can build a React key that still changes across (extremely unlikely, but possible) identical-text reactions. */
+  const [gameReactionId, setGameReactionId] = useState(0)
 
   const memoryRef = useRef(memory)
   memoryRef.current = memory
   const timeoutsRef = useRef<number[]>([])
+  const gameReactionTimeoutIdRef = useRef<number | null>(null)
 
   function schedule(fn: () => void, ms: number) {
     const id = window.setTimeout(fn, ms)
     timeoutsRef.current.push(id)
+    return id
   }
 
   // Persist the mount-time visit update right away.
@@ -84,7 +88,11 @@ export function usePetMemory(applyEffect: (deltas: Partial<Record<CareStatId, nu
       const resolution = resolveGameReaction(pending)
       applyEffect({ ...resolution.deltas, energy: energyDeltaFor(pending) }, resolution.intimacyExp)
       setGameReaction({ active: true, speech: resolution.dialogue, animation: resolution.animation })
-      schedule(() => setGameReaction({ active: false, speech: null, animation: null }), GAME_REACTION_HOLD_MS)
+      setGameReactionId((n) => n + 1)
+      gameReactionTimeoutIdRef.current = schedule(
+        () => setGameReaction({ active: false, speech: null, animation: null }),
+        GAME_REACTION_HOLD_MS,
+      )
     }, delay)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount only
   }, [])
@@ -153,11 +161,18 @@ export function usePetMemory(applyEffect: (deltas: Partial<Record<CareStatId, nu
     visitContext,
     hasPendingGameReaction: memory.pendingGameReaction !== null,
     gameReaction,
+    gameReactionId,
     recordCareAction,
     onInitiatedDialogueShown,
     onMemoryCommentShown,
     onAutonomyBonus,
-    /** Tap-to-dismiss support. */
-    dismissGameReaction: () => setGameReaction({ active: false, speech: null, animation: null }),
+    /** Tap-to-dismiss / preempted-by-a-higher-priority-source support — also cancels the pending auto-hide timeout, not just the visible state (see hooks/use-pet-care.ts's dismissSpeech for the same fix). */
+    dismissGameReaction: () => {
+      if (gameReactionTimeoutIdRef.current !== null) {
+        window.clearTimeout(gameReactionTimeoutIdRef.current)
+        gameReactionTimeoutIdRef.current = null
+      }
+      setGameReaction({ active: false, speech: null, animation: null })
+    },
   }
 }

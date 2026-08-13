@@ -52,19 +52,26 @@ export const ATTENTION_THRESHOLD: Record<CareStatId, number> = {
 }
 
 /**
- * Care-action cooldowns — unified to a short 5-10s band (previously
- * 3s-90s, wildly inconsistent) so no action ever blocks play for long.
- * Each action's cooldown is tracked independently (see
- * PetCareState['cooldowns'] / getCooldownStatus in lib/pet-care/actions.ts),
- * and the countdown badge (CareActionButton) already reads whichever action
- * is on cooldown without affecting the others.
+ * Care-action cooldowns — how soon the PLAYER may press the same button
+ * again, tracked independently per action (see PetCareState['cooldowns'] /
+ * getCooldownStatus in lib/pet-care/actions.ts; the countdown badge on
+ * CareActionButton already reads whichever action is on cooldown without
+ * affecting the others). Deliberately short and uniform (~1.8s) so it lines
+ * up with REACTION_FEEDBACK_MS's own 1600ms action-animation hold — long
+ * enough that a repeat press always lands after that animation has actually
+ * finished, short enough that the player is never left waiting. This is
+ * intentionally a different (much shorter) timer from
+ * lib/config/pet-autonomy.config.ts's pauseAfterUserActionMs/
+ * postActionDialoguePauseMs/significantEventTailMs, which all gate the
+ * *character's own* autonomous motion/dialogue instead of the player's next
+ * button press.
  */
-export const FEED_COOLDOWN_MS = 8_000
-export const SHOWER_COOLDOWN_MS = 8_000
-export const CLEAN_COOLDOWN_MS = 8_000
-export const PLAY_COOLDOWN_MS = 10_000
-export const PET_COOLDOWN_MS = 5_000
-export const TALK_COOLDOWN_MS = 5_000
+export const FEED_COOLDOWN_MS = 1_800
+export const SHOWER_COOLDOWN_MS = 1_800
+export const CLEAN_COOLDOWN_MS = 1_800
+export const PLAY_COOLDOWN_MS = 1_800
+export const PET_COOLDOWN_MS = 1_800
+export const TALK_COOLDOWN_MS = 1_800
 
 export const FEED_SATIETY_MAX_THRESHOLD = 95
 export const SHOWER_CLEANLINESS_MAX_THRESHOLD = 90

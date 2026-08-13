@@ -11,8 +11,10 @@ interface PetSpeechBubbleProps {
  * Speech bubble shown above the pet — covers ambient mood lines
  * ("배에서 꼬르륵 소리가 나요…"), 대화 button responses, entry greetings,
  * autonomous requests, and minigame reactions alike (whichever the caller's
- * priority chain currently has active). `key={text}` at the call site
- * re-triggers the pop-in on every new line, including repeats.
+ * priority chain currently has active). The call site keys this by message
+ * *instance* (source + generation id), not by its text, so the pop-in
+ * re-triggers on every new line — including a repeat of the same text from
+ * a different instance.
  */
 export function PetSpeechBubble({ text, className, onDismiss }: PetSpeechBubbleProps) {
   return (

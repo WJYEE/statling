@@ -77,6 +77,8 @@ interface PetMoodViewProps {
   mood: Mood
   animation: PetAnimation
   speech: string | null
+  /** React key for the speech bubble — identifies a distinct message *instance*, not just its text, so two different sources/lines that happen to render identical text still remount/replay the pop-in instead of looking like the same bubble. Falls back to `speech` itself if omitted. See room-screen.tsx's `speechKey`. */
+  speechKey?: string | null
   playVariantId?: string
   /** Which horizontal zone the autonomous scheduler currently has the Statling in — -1 left / 0 centered / 1 right — see hooks/use-pet-autonomy.ts's `offsetSign`. The actual distance is WALK_OFFSET_DISTANCE (lib/config/pet-autonomy.config.ts), applied below via translateX(calc(sign * distance)). */
   offsetSign?: -1 | 0 | 1
@@ -131,6 +133,7 @@ export function PetMoodView({
   mood,
   animation,
   speech,
+  speechKey,
   playVariantId,
   offsetSign = 0,
   tiltDeg = 0,
@@ -259,7 +262,7 @@ export function PetMoodView({
       style={{ transform: `translateX(calc(${offsetSign} * ${WALK_OFFSET_DISTANCE})) rotate(${tiltDeg}deg)` }}
     >
       {speech && (
-        <PetSpeechBubble key={speech} text={speech} onDismiss={onDismissSpeech} className="absolute -top-16 z-10" />
+        <PetSpeechBubble key={speechKey ?? speech} text={speech} onDismiss={onDismissSpeech} className="absolute -top-16 z-10" />
       )}
 
       {/* Facing flip — separate from the outer zone-move transform above, its

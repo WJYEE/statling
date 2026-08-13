@@ -1,11 +1,24 @@
 import { PET_REACTION_THRESHOLDS } from '@/lib/config/pet-care.config'
 import type { AutonomousActionId, CareStatId, PetAnimation, PetZone } from '@/lib/pet-care/types'
 
+/**
+ * `idle` weighted noticeably higher than the small look/hop/walk motions
+ * (previously 3 vs 2/2/1.5/1.5) so that whenever a tick does fire while the
+ * pet is otherwise stable, it's more likely to resolve to plain stillness
+ * than to yet another fidget — see PET_AUTONOMY_CONFIG.minIntervalMs/
+ * maxIntervalMs (also widened) for the matching change on the *how often a
+ * tick fires at all* side. Together these make idle/blink the clearly
+ * dominant thing shown on Home when nothing urgent is going on, with
+ * autonomous gestures reading as an occasional beat rather than constant
+ * fidgeting — mood-driven asks (askFood/askPlay/askAttention/sleep) are
+ * untouched here since those already only spike via the `low*`/`highHappiness`
+ * multipliers below, not this base pool.
+ */
 const BASE_WEIGHTS: Record<AutonomousActionId, number> = {
-  idle: 3,
-  lookLeft: 2,
-  lookRight: 2,
-  smallHop: 2,
+  idle: 4,
+  lookLeft: 1.5,
+  lookRight: 1.5,
+  smallHop: 1.5,
   walkLeft: 1.5,
   walkRight: 1.5,
   sleep: 1,

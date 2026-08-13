@@ -97,6 +97,8 @@ export function usePetCare() {
   const [roomState, setRoomState] = useState<RoomCareState>(() => applyRoomDecay(loadRoomCareState(), new Date()))
   const [animationOverride, setAnimationOverride] = useState<PetAnimation | null>(null)
   const [speech, setSpeech] = useState<string | null>(null)
+  /** Bumped on every showSpeech/dismissSpeech call — see showSpeech's doc comment. Exposed as `speechId` so room-screen.tsx can build a React key that still changes when two different messages happen to render identical text. */
+  const [speechId, setSpeechId] = useState(0)
   const [floatingDeltas, setFloatingDeltas] = useState<FloatingDelta[]>([])
   const [levelUpEvent, setLevelUpEvent] = useState<LevelUpEvent | null>(null)
   const [lastUserActionAt, setLastUserActionAt] = useState<number | null>(null)
@@ -124,6 +126,8 @@ export function usePetCare() {
   const roomStateRef = useRef(roomState)
   roomStateRef.current = roomState
   const timeoutsRef = useRef<number[]>([])
+  const speechGenRef = useRef(0)
+  const speechTimeoutIdRef = useRef<number | null>(null)
 
   const mood = computeMood(petState.stats)
   const secondaryTags = computeSecondaryTags(roomState.cleanliness)
@@ -199,6 +203,7 @@ export function usePetCare() {
   function schedule(fn: () => void, ms: number) {
     const id = window.setTimeout(fn, ms)
     timeoutsRef.current.push(id)
+    return id
   }
 
   function showFloatingDeltas(deltas: Partial<Record<CareStatId, number>>) {
@@ -221,9 +226,20 @@ export function usePetCare() {
   // specific occasional moments instead (room entry, gift-ready, level-up —
   // see room-screen.tsx's playCharacterVoice call sites); this bubble still
   // shows its text either way.
+  //
+  // Cancels any still-pending auto-hide timer from a PREVIOUS message before
+  // scheduling this one's, and the scheduled callback only clears `speech`
+  // if `speechGenRef` still matches the generation it captured — see
+  // hooks/use-pet-initiated-dialogue.ts's showSpeech for why a generation
+  // counter (not text-content equality) is what guards this now.
   function showSpeech(text: string, holdMs = 2400) {
+    if (speechTimeoutIdRef.current !== null) window.clearTimeout(speechTimeoutIdRef.current)
+    const generation = ++speechGenRef.current
     setSpeech(text)
-    schedule(() => setSpeech((cur) => (cur === text ? null : cur)), holdMs)
+    setSpeechId(generation)
+    speechTimeoutIdRef.current = schedule(() => {
+      if (speechGenRef.current === generation) setSpeech(null)
+    }, holdMs)
   }
 
   function finalizeAction(result: ActionResult, room?: RoomCareState) {
@@ -453,6 +469,7 @@ export function usePetCare() {
     /** True only while a real action/level-up override is playing — lets room-screen tell "genuinely reacting right now" apart from "just the idle/mood fallback" when composing with autonomy/gameReaction. */
     reactionActive: animationOverride !== null,
     speech,
+    speechId,
     floatingDeltas,
     levelUpEvent,
     isOverPetted,
@@ -471,7 +488,20 @@ export function usePetCare() {
     answerTalk,
     /** Puts a line straight in the character's speech bubble with no stat/cooldown/exp effect — same direct showSpeech call finalizeAction's speech handling uses internally, just for an arbitrary caller-supplied line (room-screen.tsx uses it to show a 대화 question's prompt text). */
     sayText: (text: string, holdMs?: number) => showSpeech(text, holdMs),
-    /** Tap-to-dismiss support — lets room-screen close the bubble immediately instead of waiting out its auto-hide timer. */
-    dismissSpeech: () => setSpeech(null),
+    /**
+     * Tap-to-dismiss / preempted-by-a-higher-priority-source support — lets
+     * room-screen close the bubble immediately instead of waiting out its
+     * auto-hide timer, and (unlike the old `setSpeech(null)`-only version)
+     * actually cancels that pending timer too, so it can never later fire
+     * and clear a different, newer message.
+     */
+    dismissSpeech: () => {
+      if (speechTimeoutIdRef.current !== null) {
+        window.clearTimeout(speechTimeoutIdRef.current)
+        speechTimeoutIdRef.current = null
+      }
+      speechGenRef.current += 1
+      setSpeech(null)
+    },
   }
 }

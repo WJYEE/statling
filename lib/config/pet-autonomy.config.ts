@@ -2,9 +2,32 @@ import type { AutonomousActionId, PetZone } from '@/lib/pet-care/types'
 
 /** All timing knobs for the autonomous behavior scheduler — see hooks/use-pet-autonomy.ts. */
 export const PET_AUTONOMY_CONFIG = {
-  minIntervalMs: 8_000,
-  maxIntervalMs: 20_000,
+  // Widened from 8-20s so the calm idle/blink gap between autonomous ticks
+  // dominates screen time more clearly (see autonomous-action-selector.ts's
+  // BASE_WEIGHTS for the matching per-tick weighting change).
+  minIntervalMs: 10_000,
+  maxIntervalMs: 24_000,
+  /** How long *autonomous motion* (usePetAutonomy) stays fully paused after any user care action. Distinct from postActionDialoguePauseMs/userCooldownMs below — this one is intentionally the longest of the three. */
   pauseAfterUserActionMs: 5_000,
+  /**
+   * How long *random/ambient dialogue* (usePetInitiatedDialogue, via
+   * room-screen.tsx's `inEventTail`) stays quiet right after an ordinary
+   * care-action reply (feed/wash/play/pet/talk-answer) finishes — short on
+   * purpose: just enough of a beat that a random line never seems to cut
+   * off or immediately pile on top of the action's own reply. Separate from
+   * pauseAfterUserActionMs (which is about autonomous *motion*, stays much
+   * longer) and from pet-care.config.ts's per-action button cooldowns
+   * (which are about how soon the *player* may press the same button again).
+   */
+  postActionDialoguePauseMs: 1_300,
+  /**
+   * Same idea as postActionDialoguePauseMs, but for the bigger moments —
+   * a minigame reaction, a level-up, or claiming a Level Gift — which
+   * deserve a slightly longer settle beat before autonomous motion/random
+   * dialogue resume. Never applies to gift itself while still unclaimed;
+   * that state has no timer at all (see PetCareState.giftReadyLevel).
+   */
+  significantEventTailMs: 1_800,
   initiatedDialogueCooldownMs: 90_000,
   requestDialogueCooldownMs: 300_000,
   longAbsenceHours: 24,
@@ -75,6 +98,15 @@ export const ZONE_TRANSITION_MS = 1400
 
 /** How far the character leans into a walkLeft/walkRight move (degrees, signed by travel direction) — see pet-mood-view.tsx's `tiltDeg`. Reset to 0 once the walk's hold ends, same timer as the animation itself. */
 export const WALK_TILT_DEG = 20
+
+/**
+ * Direct button-press cooldowns (how soon the PLAYER may press the same
+ * care-action button again) live in lib/config/pet-care.config.ts
+ * (FEED_COOLDOWN_MS etc) — deliberately kept short (~1.5-2s, matched to
+ * REACTION_FEEDBACK_MS's own 1600ms action-animation length) and separate
+ * from every pause constant on this file, which all gate the *character's
+ * own* autonomous behavior instead.
+ */
 
 /** Autonomous actions never move the needle much — and never past these daily totals (reset when the calendar date changes). */
 export const AUTONOMY_DAILY_ENERGY_CAP = 5

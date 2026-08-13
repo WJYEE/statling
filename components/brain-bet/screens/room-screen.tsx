@@ -30,6 +30,7 @@ import { isConsistentPlayer } from '@/lib/pet-care/pet-memory'
 import { computeInteractionMode } from '@/lib/pet-care/interaction-mode'
 import type { PetAnimation } from '@/lib/pet-care/types'
 import { RECONNECT_ANGRY_HOLD_MS } from '@/lib/config/character-state.config'
+import { PET_AUTONOMY_CONFIG } from '@/lib/config/pet-autonomy.config'
 import { TALK_EXPRESSION_HOLD_MS } from '@/lib/config/talk.config'
 import { formatLevelLabel } from '@/lib/pet-care/leveling'
 import { LEVEL_GIFT_LEVELS, type SupportedDecoAsset } from '@/lib/deco-supported-assets'
@@ -86,6 +87,19 @@ interface RoomScreenProps {
  * vanish. This avoids any circular "mode feeds back into the hooks that
  * produced it" dependency; `mode` itself (computed last, from everyone's
  * output) is a pure display-only value.
+ *
+ * Two more mechanisms sit on top of that ordering, both added to close a
+ * "random dialogue flashes back on screen and immediately disappears" bug:
+ * (1) a `useEffect` right after `autonomy` is declared actively dismisses
+ * (state AND pending timer both) any lower-priority speech hook that's
+ * currently masked by a higher-priority one, so a masked hook's own
+ * auto-hide timer can never resurface it once whatever was covering it
+ * clears; (2) `inEventTail` extends `suppressForDialogue`/
+ * `suppressForAutonomy` for a short beat (PET_AUTONOMY_CONFIG.
+ * postActionDialoguePauseMs/significantEventTailMs) after a care-action
+ * reply / minigame reaction / level-up / gift-claim actually finishes, so
+ * autonomous motion and random dialogue never pick up again the instant
+ * something else stops rather than a moment later.
  */
 export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, onGrow, onOpenMission, testerFolder }: RoomScreenProps) {
   const care = usePetCare()
@@ -157,14 +171,71 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
   })
 
   /**
+   * A brief hush after something that just spoke/reacted actually finishes —
+   * layered on top of the instant `suppressed` flags below (levelUp/
+   * reactionActive/gameReaction.active/talk.isActive/isGiftReady), which
+   * only cover the moment itself. Two durations: a short one
+   * (postActionDialoguePauseMs) right after an ordinary care-action reply
+   * (feed/wash/play/pet/talk-answer) clears, and a longer one
+   * (significantEventTailMs) after a minigame reaction, a level-up, or
+   * claiming a Level Gift ends — see PET_AUTONOMY_CONFIG's doc comments.
+   * `startEventTail` is called from the effects below (on each source's own
+   * active->inactive transition) and from handleRewardPopupConfirm further
+   * down; whichever fires last simply re-arms the single shared timer with
+   * its own duration.
+   */
+  const [inEventTail, setInEventTail] = useState(false)
+  const eventTailTimeoutRef = useRef<number | null>(null)
+  const prevCareSpeechRef = useRef(care.speech)
+  const prevGameReactionActiveRef = useRef(memory.gameReaction.active)
+  const prevLevelUpActiveRef = useRef(!!care.levelUpEvent)
+
+  function startEventTail(ms: number) {
+    if (eventTailTimeoutRef.current !== null) window.clearTimeout(eventTailTimeoutRef.current)
+    setInEventTail(true)
+    eventTailTimeoutRef.current = window.setTimeout(() => setInEventTail(false), ms)
+  }
+
+  useEffect(() => {
+    const had = prevCareSpeechRef.current
+    prevCareSpeechRef.current = care.speech
+    if (had && !care.speech) startEventTail(PET_AUTONOMY_CONFIG.postActionDialoguePauseMs)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only reacting to care.speech's own null transition
+  }, [care.speech])
+
+  useEffect(() => {
+    const wasActive = prevGameReactionActiveRef.current
+    prevGameReactionActiveRef.current = memory.gameReaction.active
+    if (wasActive && !memory.gameReaction.active) startEventTail(PET_AUTONOMY_CONFIG.significantEventTailMs)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only reacting to the active flag's own transition
+  }, [memory.gameReaction.active])
+
+  useEffect(() => {
+    const wasActive = prevLevelUpActiveRef.current
+    const isActive = !!care.levelUpEvent
+    prevLevelUpActiveRef.current = isActive
+    if (wasActive && !isActive) startEventTail(PET_AUTONOMY_CONFIG.significantEventTailMs)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only reacting to levelUpEvent's own transition
+  }, [care.levelUpEvent])
+
+  useEffect(
+    () => () => {
+      if (eventTailTimeoutRef.current !== null) window.clearTimeout(eventTailTimeoutRef.current)
+    },
+    [],
+  )
+
+  /**
    * `talk.isActive` and `isGiftReady` are both included here (and,
    * transitively, in suppressForAutonomy below) so an open question or a
    * pending gift can never be preempted by an autonomous "말 걸기" line or
    * motion — those used to be able to fire while either waited on the
    * player, which is exactly what let their bubble appear to "change to
-   * something else" underneath them.
+   * something else" underneath them. `inEventTail` adds the settle beat
+   * described above on top of that.
    */
-  const suppressForDialogue = !!care.levelUpEvent || care.reactionActive || memory.gameReaction.active || talk.isActive || isGiftReady
+  const suppressForDialogue =
+    !!care.levelUpEvent || care.reactionActive || memory.gameReaction.active || talk.isActive || isGiftReady || inEventTail
   const initiatedDialogue = usePetInitiatedDialogue({
     memory: memory.memory,
     visitContext: memory.visitContext,
@@ -191,6 +262,34 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
     onRequestDialogue: initiatedDialogue.trigger,
     onBonus: memory.onAutonomyBonus,
   })
+
+  /**
+   * The moment a higher-priority speech source starts (talk question /
+   * gift-ready / minigame reaction / care-action reply), immediately clear
+   * any lower-priority speech merely hidden behind it — not just its
+   * displayed text but that hook's own pending auto-hide timer too (via
+   * each hook's dismiss/dismissSpeech/dismissGameReaction). Without this, a
+   * masked bubble's timer keeps running out of sight and can pop back into
+   * view for a sliver of its remaining hold the instant whatever was
+   * covering it clears, then vanish again a moment later — this is what
+   * made a random line occasionally look like it "appeared and immediately
+   * disappeared".
+   */
+  useEffect(() => {
+    if (talk.activeQuestion || isGiftReady) {
+      if (memory.gameReaction.speech) memory.dismissGameReaction()
+      if (care.speech) care.dismissSpeech()
+      if (initiatedDialogue.speech) initiatedDialogue.dismiss()
+      return
+    }
+    if (memory.gameReaction.speech) {
+      if (care.speech) care.dismissSpeech()
+      if (initiatedDialogue.speech) initiatedDialogue.dismiss()
+      return
+    }
+    if (care.speech && initiatedDialogue.speech) initiatedDialogue.dismiss()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- dismiss fns close over each hook's own stable setState; only the signal values below should retrigger this
+  }, [talk.activeQuestion, isGiftReady, memory.gameReaction.speech, care.speech, initiatedDialogue.speech])
 
   // Loaded once per mount — GameFlow remounts this screen (via stepKey) on
   // every phase switch, so returning from 테마 after a save always reflects
@@ -262,6 +361,27 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
             ? initiatedDialogue.dismiss
             : undefined
 
+  /**
+   * A React key for the speech bubble that changes on every new *instance*
+   * of a message, even across different sources that happen to render
+   * identical text (see hooks/use-pet-care.ts's/use-pet-initiated-dialogue.ts's
+   * `speechId` and use-pet-memory.ts's `gameReactionId`) — `key={speech}`
+   * used to key off the displayed string itself, which meant two different
+   * lines with the same text never remounted/replayed the pop-in animation
+   * into each other.
+   */
+  const speechKey = talk.activeQuestion
+    ? `talk-${talk.activeQuestion.id}`
+    : isGiftReady
+      ? 'gift'
+      : memory.gameReaction.active
+        ? `game-${memory.gameReactionId}`
+        : care.speech
+          ? `care-${care.speechId}`
+          : initiatedDialogue.speech
+            ? `dialogue-${initiatedDialogue.speechId}`
+            : 'none'
+
   const animation: PetAnimation =
     memory.gameReaction.active && memory.gameReaction.animation
       ? memory.gameReaction.animation
@@ -322,6 +442,7 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
   function handleRewardPopupConfirm() {
     care.dismissGiftClaim()
     setRewardPopup(null)
+    startEventTail(PET_AUTONOMY_CONFIG.significantEventTailMs)
   }
 
   /** Blocks 성장시키기(and therefore every minigame it leads to) while the Statling is asleep — the only entry point into Grow/minigames from Room. */
@@ -396,6 +517,7 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
               mood={care.mood}
               animation={animation}
               speech={speech}
+              speechKey={speechKey}
               playVariantId={care.petState.lastPlayVariantId}
               offsetSign={autonomy.offsetSign}
               tiltDeg={autonomy.walkTiltDeg}

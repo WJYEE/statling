@@ -43,9 +43,13 @@ export interface UsePetInitiatedDialogueInput {
  */
 export function usePetInitiatedDialogue(input: UsePetInitiatedDialogueInput) {
   const [speech, setSpeech] = useState<string | null>(null)
+  /** Bumped on every showSpeech/dismiss call — see showSpeech's doc comment for why this (not text equality) is what an auto-hide timer checks before clearing. Also exposed as `speechId` so room-screen.tsx can build a React key that changes even when two different lines happen to render identical text. */
+  const [speechId, setSpeechId] = useState(0)
 
   const speechRef = useRef<string | null>(null)
   speechRef.current = speech
+  const speechGenRef = useRef(0)
+  const speechTimeoutIdRef = useRef<number | null>(null)
   const memoryRef = useRef(input.memory)
   memoryRef.current = input.memory
   const suppressedRef = useRef(input.suppressed)
@@ -66,14 +70,30 @@ export function usePetInitiatedDialogue(input: UsePetInitiatedDialogueInput) {
   function schedule(fn: () => void, ms: number) {
     const id = window.setTimeout(fn, ms)
     timeoutsRef.current.push(id)
+    return id
   }
 
   // No SFX here either — see hooks/use-pet-care.ts's showSpeech doc comment;
   // the room-entry chirp now happens once via room-screen.tsx's
   // playCharacterVoice on mount, not on every ambient/greeting line.
+  //
+  // Cancels any still-pending auto-hide timer from a PREVIOUS line before
+  // scheduling this one's, and the scheduled callback only ever clears
+  // `speech` if `speechGenRef` still matches the generation it captured —
+  // i.e. this exact call's own instance is still the live one. Text-content
+  // equality (`cur === text`) used to be the only guard here, which meant a
+  // stale timer from an earlier, already-dismissed line could wrongly clear
+  // a brand-new line whenever the two happened to render identical text
+  // (see lib/pet-care/initiated-dialogue.ts's duplicate lines across
+  // different categories) — a generation counter can never collide that way.
   function showSpeech(text: string, holdMs: number) {
+    if (speechTimeoutIdRef.current !== null) window.clearTimeout(speechTimeoutIdRef.current)
+    const generation = ++speechGenRef.current
     setSpeech(text)
-    schedule(() => setSpeech((cur) => (cur === text ? null : cur)), holdMs)
+    setSpeechId(generation)
+    speechTimeoutIdRef.current = schedule(() => {
+      if (speechGenRef.current === generation) setSpeech(null)
+    }, holdMs)
   }
 
   // One-shot entry greeting.
@@ -175,5 +195,21 @@ export function usePetInitiatedDialogue(input: UsePetInitiatedDialogueInput) {
     onDialogueShownRef.current(line.id, 'stateRequest')
   }
 
-  return { active: speech !== null, speech, trigger, dismiss: () => setSpeech(null) }
+  /**
+   * Tap-to-dismiss / preempted-by-a-higher-priority-source support — cancels
+   * the pending auto-hide timeout (not just the visible state) so an early
+   * dismiss can never let that timer clear a *different*, later line that
+   * happens to reuse the same generation-adjacent slot. See showSpeech's doc
+   * comment for the matching generation-counter half of this fix.
+   */
+  function dismiss() {
+    if (speechTimeoutIdRef.current !== null) {
+      window.clearTimeout(speechTimeoutIdRef.current)
+      speechTimeoutIdRef.current = null
+    }
+    speechGenRef.current += 1
+    setSpeech(null)
+  }
+
+  return { active: speech !== null, speech, speechId, trigger, dismiss }
 }
