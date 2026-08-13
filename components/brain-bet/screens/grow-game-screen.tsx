@@ -78,7 +78,7 @@ export function GrowGameScreen({ statId, onSelect, onBack, initialGameKey }: Gro
                 disabled={!unlocked}
                 onClick={() => onSelect(game.key, difficulty)}
                 className={cn(
-                  'flex flex-col items-start gap-1.5 rounded-2xl bg-card px-5 py-5 text-left toy-border transition-transform',
+                  'flex flex-col items-start gap-2 rounded-2xl bg-card px-5 py-5 text-left toy-border transition-transform',
                   unlocked ? 'hover:-translate-y-0.5 active:translate-y-0.5' : 'cursor-not-allowed opacity-50',
                 )}
               >
@@ -86,7 +86,7 @@ export function GrowGameScreen({ statId, onSelect, onBack, initialGameKey }: Gro
                   {def.label}
                   {!unlocked && <Lock size={14} strokeWidth={2.6} />}
                 </span>
-                <span className="text-xs text-muted-foreground">{def.hint}</span>
+                <span className="text-xs leading-snug text-muted-foreground">{def.hint}</span>
 
                 {unlockedBadge && (
                   <span className="rounded-full bg-accent px-2 py-0.5 text-[11px] font-bold text-accent-foreground">
@@ -97,7 +97,7 @@ export function GrowGameScreen({ statId, onSelect, onBack, initialGameKey }: Gro
                 {/* record.raw only — the player's own actual measured record (ms/accuracy/time), never the internal normalizedScore composite it maps to. The locked-tier hint below (unlockHintFor) does state the config threshold itself, since that's the real bar to clear. */}
                 {unlocked ? (
                   record?.raw ? (
-                    <div className="text-xs font-semibold text-foreground">
+                    <div className="text-xs font-semibold leading-snug text-foreground">
                       <p>최고 기록: {record.raw.primary}</p>
                       {record.raw.secondary && <p className="text-muted-foreground">{record.raw.secondary}</p>}
                     </div>
@@ -106,9 +106,14 @@ export function GrowGameScreen({ statId, onSelect, onBack, initialGameKey }: Gro
                   )
                 ) : (
                   <div className="w-full">
-                    <p className="text-xs font-bold text-primary">{unlockHintFor(difficulty)}</p>
+                    {/* leading-snug (not the default leading-normal) so a wrapped 2-line
+                        unlock hint (now stating the real "Normal에서 70점 이상..." threshold,
+                        longer than the old vague copy) keeps its own lines close without
+                        crowding the def.hint/badge above it — the `gap-2` on the button
+                        already provides that separation. */}
+                    <p className="text-xs font-bold leading-snug text-primary">{unlockHintFor(difficulty)}</p>
                     {progressPercent !== null && (
-                      <div className="mt-1.5 flex items-center gap-2">
+                      <div className="mt-2 flex items-center gap-2">
                         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
                           <div
                             className="h-full rounded-full bg-primary transition-all"

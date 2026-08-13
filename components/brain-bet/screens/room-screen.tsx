@@ -372,17 +372,6 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
         {secondaryLabel && <span className="text-[11px] font-semibold text-muted-foreground sm:text-xs">· {secondaryLabel}</span>}
       </div>
 
-      {/* Separate from (and in addition to) the character's own GIFT_READY_SPEECH
-          speech bubble above `speech` — that one is the Statling "talking"
-          ("선물이야!"), this one is the actual instruction. Both persist for
-          as long as isGiftReady stays true (unclaimed across remounts too,
-          see PetCareState.giftReadyLevel), so neither can be missed. */}
-      {isGiftReady && (
-        <p className="mt-1 text-center text-xs font-bold text-accent-foreground">
-          Statling을 눌러 선물을 받아보세요!
-        </p>
-      )}
-
       {/* room canvas — the focal point of this screen. Read-only: no drag/resize handles, no selection outlines, just the saved room state.
           Capped narrower on mobile (still centered, still a perfect square so
           the background art is never cropped/distorted) — full edge-to-edge
@@ -446,6 +435,23 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
           />
         )}
       </div>
+
+      {/* Moved below the room canvas (was above it, sandwiched between the
+          header and mood line, where it collided with the mission
+          button/TOP1-TOP2 badges — see the bug report this addresses).
+          Anchored to the Room's own content flow, not a viewport-wide fixed
+          footer, so it never overlaps the header/mood UI above and never
+          covers the Statling/room decor since it sits entirely outside the
+          canvas box. One step up from the old text-xs, and font-semibold
+          (was font-bold) per the requested "not a title" toning down. Purely
+          the instruction — the character's own GIFT_READY_SPEECH bubble
+          ("선물이야!") above `speech` is the Statling "talking"; both persist
+          for as long as isGiftReady stays true. */}
+      {isGiftReady && (
+        <p className="mx-auto mt-2 w-fit rounded-full bg-secondary/60 px-3 py-1 text-center text-sm font-semibold text-accent-foreground">
+          Statling을 눌러 선물을 받아보세요!
+        </p>
+      )}
 
       <PetCareHud
         stats={care.petState.stats}

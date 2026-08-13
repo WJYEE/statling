@@ -76,12 +76,38 @@ export function createDefaultPlayerSkillState(): PlayerSkillState {
   return { version: 2, gameDifficultyBestRecords: {}, processedCompletionIds: [], updatedAt: new Date(0).toISOString() }
 }
 
+/** Structural check for a parsed `RawRecord` — `raw`/`metrics` below are untrusted JSON, same defensive-parse posture as every other field in this function. */
+function isValidRaw(value: unknown): value is RawRecord {
+  if (!value || typeof value !== 'object') return false
+  const v = value as Record<string, unknown>
+  if (typeof v.primary !== 'string') return false
+  return v.secondary === undefined || typeof v.secondary === 'string'
+}
+
+function isValidMetrics(value: unknown): value is Record<string, number> {
+  if (!value || typeof value !== 'object') return false
+  return Object.values(value as Record<string, unknown>).every((n) => typeof n === 'number')
+}
+
 /**
  * v1 (pre-difficulty) records had no `difficulty` field and were keyed
  * directly by gameId. Every real v1 record came from what is now called
  * 'normal' (the only tier that existed), so migration re-keys each one to
  * `${gameId}:normal` and stamps difficulty:'normal' — a real player's
  * existing best score is preserved exactly, not reset to zero.
+ *
+ * Despite the name, this runs on EVERY load (see loadPlayerSkillState below
+ * — there's no `parsed.version === 2` short-circuit), not just a real v1->v2
+ * upgrade, so it doubles as this file's general load-time reconstruction/
+ * validation pass. That's exactly why `raw`/`metrics` must be carried
+ * through here rather than left off the rebuilt `record` object: dropping
+ * them was a real bug — every record's own raw display (grow-game-screen.tsx's
+ * "최고 기록: ...") silently went back to "아직 기록이 없어요." the very next
+ * time this ran, even though `savePlayerSkillState` had written them
+ * correctly and they were sitting right there in the parsed JSON. Unlock
+ * detection (isDifficultyUnlocked/getBestScoreAtDifficulty) was never
+ * affected — it only ever reads `normalizedScore`, which this function did
+ * already carry through.
  */
 function migrateToV2(parsed: Record<string, unknown>): PlayerSkillState {
   const fallback = createDefaultPlayerSkillState()
@@ -104,6 +130,8 @@ function migrateToV2(parsed: Record<string, unknown>): PlayerSkillState {
       difficulty,
       normalizedScore: clampScore(v.normalizedScore),
       completedAt: typeof v.completedAt === 'string' ? v.completedAt : fallback.updatedAt,
+      raw: isValidRaw(v.raw) ? v.raw : undefined,
+      metrics: isValidMetrics(v.metrics) ? v.metrics : undefined,
     }
     gameDifficultyBestRecords[recordKey(record.gameId, record.difficulty)] = record
   }
