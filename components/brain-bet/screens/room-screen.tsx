@@ -70,12 +70,17 @@ interface RoomScreenProps {
  * and the "living companion" layer on top: autonomous idle behavior,
  * pet-initiated greetings/requests, visit memory, and minigame reactions.
  *
- * The 4 hooks below are called in a deliberate priority order — care ->
- * memory -> initiatedDialogue -> autonomy — so each only ever needs the
- * *already-computed* output of a higher-priority hook to decide whether it
- * may start something new (`suppressed`). This avoids any circular "mode
- * feeds back into the hooks that produced it" dependency; `mode` itself
- * (computed last, from everyone's output) is a pure display-only value.
+ * The hooks below are called in a deliberate priority order — care ->
+ * memory -> talk -> initiatedDialogue -> autonomy — so each only ever needs
+ * the *already-computed* output of a higher-priority hook to decide whether
+ * it may start something new (`suppressed`). `talk` sits ahead of
+ * initiatedDialogue/autonomy specifically so `talk.isActive` can suppress
+ * both of them for as long as a question is open (see suppressForDialogue
+ * below) — otherwise an autonomous line/motion could fire mid-question and
+ * make the question bubble appear to change or vanish. This avoids any
+ * circular "mode feeds back into the hooks that produced it" dependency;
+ * `mode` itself (computed last, from everyone's output) is a pure
+ * display-only value.
  */
 export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, onGrow, onOpenMission, testerFolder }: RoomScreenProps) {
   const care = usePetCare()
@@ -84,7 +89,64 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
 
   const memory = usePetMemory(care.applyEffect)
 
-  const suppressForDialogue = !!care.levelUpEvent || care.reactionActive || memory.gameReaction.active
+  // A picked 대화 answer's own expression (happy/thinking/embarrassed/love/
+  // tired/...), held for TALK_EXPRESSION_HOLD_MS regardless of what mood/
+  // animation would otherwise show — see character-state-assets.ts's
+  // `forcedStateKey`. A plain useRef (not the `schedule` pattern usePetCare
+  // uses internally) since this is the only timeout room-screen.tsx itself owns.
+  // Declared here (ahead of initiatedDialogue/autonomy below) only because
+  // handleTalkAnswered/usePetTalk need it and usePetTalk itself must be
+  // declared early enough for `talk.isActive` to gate those two hooks'
+  // `suppressed` props — see suppressForDialogue's comment below.
+  const [talkExpressionKey, setTalkExpressionKey] = useState<CharacterStateKey | null>(null)
+  const talkExpressionTimeoutRef = useRef<number | null>(null)
+
+  function handleTalkAnswered(responseText: string, expression?: CharacterStateKey) {
+    care.answerTalk(responseText)
+    // Deferred past this tick's paint — recordCareAction's savePetMemory
+    // write has no bearing on what the Statling shows right now (care.answerTalk
+    // above already triggered that synchronously), see handleCareAction's
+    // identical deferral below for the same reasoning.
+    window.setTimeout(() => memory.recordCareAction('talk'), 0)
+    if (talkExpressionTimeoutRef.current !== null) window.clearTimeout(talkExpressionTimeoutRef.current)
+    if (expression) {
+      setTalkExpressionKey(expression)
+      talkExpressionTimeoutRef.current = window.setTimeout(() => setTalkExpressionKey(null), TALK_EXPRESSION_HOLD_MS)
+    } else {
+      setTalkExpressionKey(null)
+    }
+  }
+
+  useEffect(
+    () => () => {
+      if (talkExpressionTimeoutRef.current !== null) window.clearTimeout(talkExpressionTimeoutRef.current)
+    },
+    [],
+  )
+
+  /**
+   * Only registers the over-talk streak now — no longer also speaks the
+   * question text via care.sayText (that used showSpeech's default 2.4s
+   * auto-hide timer, so a player who hadn't answered yet within that window
+   * saw the question vanish, sometimes replaced by an unrelated autonomous
+   * line once care.speech cleared). The question's text is now read
+   * directly from `talk.activeQuestion` at render time instead (see
+   * `speech` below), so it has no timer and can't be preempted — it only
+   * ever goes away via chooseAnswer/submitFreeText/cancelQuestion.
+   */
+  const talk = usePetTalk({
+    onOpen: () => care.registerTalkOpen(),
+    onAnswered: handleTalkAnswered,
+  })
+
+  /**
+   * `talk.isActive` is included here (and, transitively, in
+   * suppressForAutonomy below) so a question staying open can never be
+   * preempted by an autonomous "말 걸기" line or motion — those used to be
+   * able to fire while a question waited for an answer, which is exactly
+   * what let the bubble appear to "change to something else" mid-question.
+   */
+  const suppressForDialogue = !!care.levelUpEvent || care.reactionActive || memory.gameReaction.active || talk.isActive
   const initiatedDialogue = usePetInitiatedDialogue({
     memory: memory.memory,
     visitContext: memory.visitContext,
@@ -133,48 +195,6 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
   const isGiftReady = care.petState.giftReadyLevel !== null
   const isConsistentPlayerNow = isConsistentPlayer(memory.memory)
 
-  // A picked 대화 answer's own expression (happy/thinking/embarrassed/love/
-  // tired/...), held for TALK_EXPRESSION_HOLD_MS regardless of what mood/
-  // animation would otherwise show — see character-state-assets.ts's
-  // `forcedStateKey`. A plain useRef (not the `schedule` pattern usePetCare
-  // uses internally) since this is the only timeout room-screen.tsx itself owns.
-  const [talkExpressionKey, setTalkExpressionKey] = useState<CharacterStateKey | null>(null)
-  const talkExpressionTimeoutRef = useRef<number | null>(null)
-
-  function handleTalkAnswered(responseText: string, expression?: CharacterStateKey) {
-    care.answerTalk(responseText)
-    // Deferred past this tick's paint — recordCareAction's savePetMemory
-    // write has no bearing on what the Statling shows right now (care.answerTalk
-    // above already triggered that synchronously), see handleCareAction's
-    // identical deferral below for the same reasoning.
-    window.setTimeout(() => memory.recordCareAction('talk'), 0)
-    if (talkExpressionTimeoutRef.current !== null) window.clearTimeout(talkExpressionTimeoutRef.current)
-    if (expression) {
-      setTalkExpressionKey(expression)
-      talkExpressionTimeoutRef.current = window.setTimeout(() => setTalkExpressionKey(null), TALK_EXPRESSION_HOLD_MS)
-    } else {
-      setTalkExpressionKey(null)
-    }
-  }
-
-  useEffect(
-    () => () => {
-      if (talkExpressionTimeoutRef.current !== null) window.clearTimeout(talkExpressionTimeoutRef.current)
-    },
-    [],
-  )
-
-  const talk = usePetTalk({
-    // The question's own text is spoken here (not shown inside
-    // TalkQuestionCard) so it never appears twice on screen — the panel
-    // below only ever shows the choices/input for it.
-    onOpen: (question) => {
-      care.registerTalkOpen()
-      care.sayText(question.text)
-    },
-    onAnswered: handleTalkAnswered,
-  })
-
   // "들어왔을 때" — one occasional chirp on entering the Room, not on every
   // care-action press (see hooks/use-pet-care.ts's showSpeech doc comment
   // for why those stopped playing a sound on every message).
@@ -197,18 +217,29 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
     hasLevelUp: !!care.levelUpEvent,
     hasGameReaction: memory.gameReaction.active,
     hasUserAction: care.reactionActive,
-    hasSpeaking: initiatedDialogue.active,
+    hasSpeaking: initiatedDialogue.active || talk.isActive,
     hasAutonomousMotion: autonomy.active,
   })
 
-  const speech = memory.gameReaction.speech ?? care.speech ?? initiatedDialogue.speech ?? null
-  const dismissSpeech = memory.gameReaction.active
-    ? memory.dismissGameReaction
-    : care.speech
-      ? care.dismissSpeech
-      : initiatedDialogue.speech
-        ? initiatedDialogue.dismiss
-        : undefined
+  /**
+   * An open talk question wins unconditionally, ahead of every other speech
+   * source — it has no auto-hide timer of its own (see usePetTalk's onOpen
+   * above), so once shown it can only ever be replaced by choosing an
+   * answer (chooseAnswer/submitFreeText clear `talk.activeQuestion` and
+   * `handleTalkAnswered` immediately puts the reply in `care.speech`,
+   * naturally taking over here the very next render) or backing out
+   * (cancelQuestion, which shows nothing until something else speaks).
+   */
+  const speech = talk.activeQuestion?.text ?? memory.gameReaction.speech ?? care.speech ?? initiatedDialogue.speech ?? null
+  const dismissSpeech = talk.activeQuestion
+    ? undefined // tap-to-dismiss is only via TalkQuestionCard's own close button (cancelQuestion), never the bubble itself
+    : memory.gameReaction.active
+      ? memory.dismissGameReaction
+      : care.speech
+        ? care.dismissSpeech
+        : initiatedDialogue.speech
+          ? initiatedDialogue.dismiss
+          : undefined
 
   const animation: PetAnimation =
     memory.gameReaction.active && memory.gameReaction.animation
@@ -360,9 +391,11 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
             below the care-action row anymore, so answering doesn't require
             scrolling the character out of view. The ONLY talk popup on this
             screen, and it only ever shows the choices/input — the question
-            text and the answer both go through the character's own speech
-            bubble instead (see usePetTalk's onOpen/onAnswered above), so
-            nothing is ever shown twice. */}
+            text goes through the character's own speech bubble instead (read
+            directly from talk.activeQuestion in `speech` above, so it never
+            auto-hides before an answer is picked), and the reply does too
+            once answered (handleTalkAnswered -> care.answerTalk), so nothing
+            is ever shown twice. */}
         {talk.activeQuestion && (
           <TalkQuestionCard
             question={talk.activeQuestion}

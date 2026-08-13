@@ -94,7 +94,7 @@ export function GrowGameScreen({ statId, onSelect, onBack, initialGameKey }: Gro
                   </span>
                 )}
 
-                {/* Raw record only — never the internal normalizedScore/threshold a locked tier's unlock condition is actually checked against (see unlockHintFor/unlockProgressPercent). */}
+                {/* record.raw only — the player's own actual measured record (ms/accuracy/time), never the internal normalizedScore composite it maps to. The locked-tier hint below (unlockHintFor) does state the config threshold itself, since that's the real bar to clear. */}
                 {unlocked ? (
                   record?.raw ? (
                     <div className="text-xs font-semibold text-foreground">

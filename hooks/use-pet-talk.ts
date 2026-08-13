@@ -13,7 +13,17 @@ import { saveUserNote } from '@/lib/pet-care/user-notes-storage'
 import type { CharacterStateKey } from '@/lib/character-state-assets'
 
 export interface UsePetTalkInput {
-  /** Called the instant a question opens, with the question itself — room-screen.tsx uses it to both register the over-talk streak (hooks/use-pet-care.ts's `registerTalkOpen`) AND speak the question's own text into the character's speech bubble (`care.sayText`), so the prompt is never duplicated in the choice panel below. */
+  /**
+   * Called the instant a question opens, with the question itself —
+   * room-screen.tsx uses it to register the over-talk streak
+   * (hooks/use-pet-care.ts's `registerTalkOpen`). The question's own text
+   * is NOT spoken here anymore (that used to go through `care.sayText`,
+   * which auto-hides after a few seconds regardless of whether an answer
+   * has been picked yet) — room-screen.tsx instead reads it straight from
+   * `activeQuestion.text` (this hook's own return value) for as long as it
+   * stays open, so the prompt is never duplicated in the choice panel below
+   * AND never disappears/gets preempted before the player answers.
+   */
   onOpen: (question: TalkQuestion) => void
   /** Called once an answer is actually given (a choice picked, or — for the one isFreeText question — text submitted) — applies cooldown/exp/speech via hooks/use-pet-care.ts's `answerTalk`, which puts the reply in the same character speech bubble. `expression`, when given, is what room-screen.tsx holds the character art on for a few seconds. */
   onAnswered: (responseText: string, expression?: CharacterStateKey) => void

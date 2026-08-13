@@ -18,17 +18,17 @@ export function isDifficultyUnlocked(state: PlayerSkillState, gameId: string, di
 }
 
 /**
- * Player-facing "how to unlock" copy for a locked tier — deliberately plain
- * natural language, never the internal normalizedScore/threshold numbers
- * (players only ever see their own raw records — ms/accuracy/time — never
- * this 0-100 composite, so a number here would be meaningless to them). See
- * unlockProgressPercent below for the numeric side of this, shown only as a
- * bar/percent, never as "70점"-style text. Null for Easy/Normal, which are
- * never locked and need no hint.
+ * Player-facing "how to unlock" copy for a locked tier — states the actual
+ * NORMAL_TO_HARD_SCORE/HARD_TO_EXTREME_SCORE threshold directly (read from
+ * lib/config/difficulty.config.ts, never hardcoded here), so the number in
+ * this copy always matches whatever isDifficultyUnlocked actually checks
+ * against. Still never the player's own normalizedScore composite itself —
+ * see unlockProgressPercent below for that, shown only as a bar/percent.
+ * Null for Easy/Normal, which are never locked and need no hint.
  */
 export function unlockHintFor(difficulty: GameDifficulty): string | null {
-  if (difficulty === 'hard') return 'Normal에서 좋은 기록을 달성하면 해금돼요.'
-  if (difficulty === 'extreme') return 'Hard에서 좋은 기록을 달성하면 해금돼요.'
+  if (difficulty === 'hard') return `Normal에서 ${NORMAL_TO_HARD_SCORE}점 이상 달성 시 해금`
+  if (difficulty === 'extreme') return `Hard에서 ${HARD_TO_EXTREME_SCORE}점 이상 달성 시 해금`
   return null
 }
 

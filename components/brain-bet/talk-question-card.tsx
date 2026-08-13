@@ -18,10 +18,10 @@ interface TalkQuestionCardProps {
  * isFreeText question, a short text field), plus a close affordance for
  * backing out without answering. Deliberately does NOT repeat the
  * question's own text here — that's already spoken in the character's
- * speech bubble the instant the question opens (see
- * hooks/use-pet-talk.ts#UsePetTalkInput.onOpen and room-screen.tsx's
- * `care.sayText` call), and the chosen answer goes there too (`onAnswered`
- * -> `care.answerTalk` -> the same speech bubble). Keeping this panel to
+ * speech bubble the instant the question opens, read directly from
+ * `talk.activeQuestion.text` for as long as it stays unanswered (see
+ * room-screen.tsx's `speech`), and the chosen answer goes there too
+ * (`onAnswered` -> `care.answerTalk` -> the same speech bubble). Keeping this panel to
  * "just the thing you tap" instead of restating what the Statling already
  * said is what avoids showing the same line twice on screen. Rendered by
  * room-screen.tsx as an absolute overlay INSIDE the room canvas wrapper
