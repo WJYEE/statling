@@ -235,10 +235,11 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
     // — see lib/audio/character-voice.ts's doc comment.
   }
 
-  /** "선물 주려고 할 때" — the Statling tap that actually hands over an unclaimed gift (see care.claimGift/isGiftReady above). */
+  /** "선물 주려고 할 때" — the Statling tap that actually hands over an unclaimed gift (see care.claimGift/isGiftReady above). Reveals the granted Statling Decoration via a toast, same pattern as the level-up toasts above. */
   function handleClaimGift() {
-    care.claimGift()
+    const reward = care.claimGift()
     playCharacterVoice(petProfile?.id)
+    if (reward) toastManager.add({ title: `${reward.name} 획득!`, type: 'success' })
   }
 
   /** Blocks 성장시키기(and therefore every minigame it leads to) while the Statling is asleep — the only entry point into Grow/minigames from Room. */
@@ -285,6 +286,16 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
         <span className="font-display text-xs font-bold text-foreground sm:text-sm">현재 기분: {MOOD_LABEL[care.mood]}</span>
         {secondaryLabel && <span className="text-[11px] font-semibold text-muted-foreground sm:text-xs">· {secondaryLabel}</span>}
       </div>
+
+      {/* Persists for as long as isGiftReady stays true (unclaimed across
+          remounts too, see PetCareState.giftReadyLevel) — not a transient
+          speech-bubble line, so it can't be missed even if the character's
+          own speech bubble is showing something else at the same moment. */}
+      {isGiftReady && (
+        <p className="mt-1 text-center text-xs font-bold text-accent-foreground">
+          Statling을 눌러 선물을 받아보세요!
+        </p>
+      )}
 
       {/* room canvas — the focal point of this screen. Read-only: no drag/resize handles, no selection outlines, just the saved room state.
           Capped narrower on mobile (still centered, still a perfect square so

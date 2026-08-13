@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Toast } from '@base-ui/react/toast'
-import { BookOpen, ChevronLeft, Palette, Save, Sparkles, Undo2 } from 'lucide-react'
+import { BookOpen, ChevronLeft, Lock, Palette, Save, Sparkles, Undo2 } from 'lucide-react'
 import { AssetImage } from '@/components/brain-bet/asset-image'
 import { CharacterImage } from '@/components/brain-bet/character-image'
 import { ConfirmDialog } from '@/components/brain-bet/confirm-dialog'
@@ -17,7 +17,8 @@ import { resolveCharacterAnchors } from '@/lib/character-anchor.config'
 import { applyDecoReanchor, spawnDefaultDecoItem } from '@/lib/deco-placement-layout'
 import { deepCloneDecoPlacementState, decoPlacementStatesEqual, type DecoPlacementItem, type DecoPlacementState } from '@/lib/deco-placement-state'
 import { loadSavedDecoPlacementState, saveDecoPlacementState } from '@/lib/deco-placement-storage'
-import { getSupportedDecoAssetById, SUPPORTED_DECO_ASSETS } from '@/lib/deco-supported-assets'
+import { getSupportedDecoAssetById, isDecoUnlocked, SUPPORTED_DECO_ASSETS, type SupportedDecoAsset } from '@/lib/deco-supported-assets'
+import { loadDecoInventoryState } from '@/lib/deco-inventory-storage'
 import type { PetProfile } from '@/lib/pets/pet-profile'
 import { cn } from '@/lib/utils'
 import { trackStatlingDecorSaved } from '@/lib/missions/mission-tracker'
@@ -52,6 +53,11 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
 
   const [savedDeco, setSavedDeco] = useState<DecoPlacementState>(() => loadSavedDecoPlacementState())
   const [draftDeco, setDraftDeco] = useState<DecoPlacementState>(() => deepCloneDecoPlacementState(savedDeco))
+  // Loaded once per mount, same "remount on tab switch reflects latest storage"
+  // idiom savedDeco/decoItems already use elsewhere — a level-gift claimed in
+  // Room (hooks/use-pet-care.ts#claimGift) always shows up unlocked here the
+  // next time this screen mounts.
+  const [unlockedLevelGiftIds] = useState<string[]>(() => loadDecoInventoryState().unlockedIds)
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [confirmingDeleteDeco, setConfirmingDeleteDeco] = useState(false)
@@ -107,6 +113,12 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
     const newItem = spawnDefaultDecoItem(asset, draftDeco.items, anchors)
     setDraftDeco((prev) => ({ ...prev, items: [...prev.items, newItem] }))
     setSelectedInstanceId(newItem.instanceId)
+  }
+
+  /** Tapping a not-yet-claimed level_gift item — never places it, just names the level it unlocks at. No further detail (see the grid's lock UI below). */
+  function handleLockedTap(asset: SupportedDecoAsset) {
+    if (asset.unlockSource.type !== 'level_gift') return
+    toastManager.add({ title: `Lv.${asset.unlockSource.level} 달성 보상` })
   }
 
   function confirmDeleteSelected() {
@@ -190,14 +202,14 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
         <h1 className="font-display text-xl font-extrabold text-foreground">{statlingName || '내 Statling'}</h1>
       </header>
 
-      {/* Sets expectations up front, mirrors theme-screen.tsx's identical beta notice —
-          every deco sticker below is unlocked and free right now, no shop/currency/unlock
-          system exists yet, so this is simply true, not a promotional claim. */}
+      {/* Sets expectations up front, mirrors theme-screen.tsx's identical beta notice.
+          Updated for the level-gift lock system below — no longer claims every
+          sticker is free, since the 10 level_gift items aren't. */}
       {SHOW_BETA_DECO_NOTICE && (
         <div className="mt-4 flex items-start gap-2 rounded-2xl bg-secondary px-4 py-3 text-secondary-foreground toy-border">
           <Sparkles size={18} className="mt-0.5 shrink-0" strokeWidth={2.4} />
           <p className="text-xs font-bold leading-relaxed">
-            지금은 기본 데코를 전부 무료로 제공하고 있어요. 마음껏 자유롭게 Statling을 꾸며보세요!
+            기본 데코는 지금 바로 무료로 사용할 수 있어요. 잠긴 데코는 Statling 레벨업 선물로 받아보세요!
           </p>
         </div>
       )}
@@ -272,22 +284,36 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
       <div className="mt-4 grid grid-cols-5 gap-2 sm:grid-cols-6">
         {SUPPORTED_DECO_ASSETS.map((asset) => {
           const inUse = draftDeco.items.some((item) => item.itemId === asset.id)
+          const unlocked = isDecoUnlocked(asset, unlockedLevelGiftIds)
           return (
             <button
               key={asset.id}
               type="button"
-              onClick={() => handleAssetTap(asset.id)}
-              aria-label={`${asset.name} 붙이기`}
+              onClick={() => (unlocked ? handleAssetTap(asset.id) : handleLockedTap(asset))}
+              aria-label={unlocked ? `${asset.name} 붙이기` : `${asset.name} — 잠김`}
               aria-pressed={inUse}
               className={cn(
                 'flex flex-col items-center gap-1 rounded-2xl bg-card p-2 toy-border transition-transform active:translate-y-0.5',
                 inUse && 'ring-2 ring-primary',
+                !unlocked && 'opacity-70',
               )}
             >
-              <span className="grid h-12 w-12 place-items-center overflow-hidden rounded-xl bg-secondary">
+              <span className="relative grid h-12 w-12 place-items-center overflow-hidden rounded-xl bg-secondary">
                 {/* eslint-disable-next-line @next/next/no-img-element -- thumbnail of a pre-authored static PNG, matches theme-screen.tsx's convention */}
-                <img src={asset.src} alt="" loading="lazy" className="max-h-full max-w-full object-contain" draggable={false} />
+                <img
+                  src={asset.src}
+                  alt=""
+                  loading="lazy"
+                  className={cn('max-h-full max-w-full object-contain', !unlocked && 'grayscale')}
+                  draggable={false}
+                />
+                {!unlocked && (
+                  <span className="absolute inset-0 grid place-items-center bg-background/60">
+                    <Lock size={16} strokeWidth={2.6} className="text-foreground" />
+                  </span>
+                )}
               </span>
+              {!unlocked && <span className="max-w-full truncate text-[9px] font-bold text-muted-foreground">{asset.name}</span>}
             </button>
           )
         })}

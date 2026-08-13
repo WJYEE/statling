@@ -66,5 +66,12 @@ export const OVERTALK_REACTION_HOLD_MS = 2_000
 /** How long the brief "화났어요" flash plays right after entering the Room following a long absence (visit-context.ts's isLongAbsence) — a momentary flourish, not a lingering mood. */
 export const RECONNECT_ANGRY_HOLD_MS = 1_800
 
-/** Every N intimacy levels, a claimable 'gift' state opens (and stays open — see PetCareState.giftReadyLevel) until the player taps the Statling. Deliberately separate from leveling.ts's REWARD_UNLOCKS (mission/achievement payloads) — this is a presentational-only moment. */
-export const GIFT_LEVEL_INTERVAL = 10
+/**
+ * Every N intimacy levels, a claimable 'gift' state opens (and stays open —
+ * see PetCareState.giftReadyLevel) until the player taps the Statling. Set
+ * to match the level_gift Statling Decoration table's interval
+ * (SUPPORTED_DECO_ASSETS in lib/deco-supported-assets.ts, Lv.5/10/.../50) —
+ * every gift now delivers a real Statling Decoration on claim (see
+ * hooks/use-pet-care.ts#claimGift), no longer just a presentational moment.
+ */
+export const GIFT_LEVEL_INTERVAL = 5

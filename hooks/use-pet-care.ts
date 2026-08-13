@@ -34,6 +34,8 @@ import { applyPetDecay, applyRoomDecay, clampStat } from '@/lib/pet-care/decay'
 import { computeMood, computeSecondaryTags } from '@/lib/pet-care/mood'
 import { expRequiredForLevel, getNewlyUnlockedRewards, type RewardUnlock } from '@/lib/pet-care/leveling'
 import { createDefaultPetCareState, loadPetCareState, savePetCareState } from '@/lib/pet-care/pet-care-storage'
+import { getLevelGiftDecoAsset, type SupportedDecoAsset } from '@/lib/deco-supported-assets'
+import { grantDecoReward, loadDecoInventoryState, saveDecoInventoryState } from '@/lib/deco-inventory-storage'
 import { createDefaultRoomCareState, loadRoomCareState, saveRoomCareState } from '@/lib/pet-care/room-care-storage'
 import type { CareActionId, CareStatId, Mood, PetAnimation, PetCareState, RoomCareState, SecondaryTag } from '@/lib/pet-care/types'
 import { useSound } from '@/hooks/use-sound'
@@ -326,13 +328,24 @@ export function usePetCare() {
     trackCareInteractionDeferred('talk', now)
   }
 
-  /** Tapping the Statling while a gift is ready — clears giftReadyLevel and shows a small thank-you. A no-op otherwise (see pet-mood-view.tsx's click handler). */
-  function claimGift() {
-    if (petStateRef.current.giftReadyLevel === null) return
+  /**
+   * Tapping the Statling while a gift is ready — grants that level's
+   * Statling Decoration to the claim inventory (lib/deco-inventory-storage.ts,
+   * idempotent so a double-tap race can never double-grant), clears
+   * giftReadyLevel, and shows a small thank-you. Returns the granted asset
+   * (for room-screen.tsx to surface a "획득!" toast) or null for a level
+   * with no deco mapped / no gift pending — a no-op state-wise either way.
+   */
+  function claimGift(): SupportedDecoAsset | null {
+    const level = petStateRef.current.giftReadyLevel
+    if (level === null) return null
+    const reward = getLevelGiftDecoAsset(level)
+    if (reward) saveDecoInventoryState(grantDecoReward(loadDecoInventoryState(), reward.id))
     const nextState: PetCareState = { ...petStateRef.current, giftReadyLevel: null }
     setPetState(nextState)
     savePetCareState(nextState)
     showSpeech('고마워요! 소중히 간직할게요.')
+    return reward ?? null
   }
 
   /**
