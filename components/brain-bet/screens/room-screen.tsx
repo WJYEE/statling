@@ -5,6 +5,7 @@ import { ArrowRight, Crosshair, Sparkles } from 'lucide-react'
 import { Toast } from '@base-ui/react/toast'
 import { CareActionButton } from '@/components/brain-bet/care-action-button'
 import { GiftQaMenu } from '@/components/brain-bet/gift-qa-menu'
+import { GiftRewardPopup } from '@/components/brain-bet/gift-reward-popup'
 import { PetCareHud } from '@/components/brain-bet/pet-care-hud'
 import { PetMoodView } from '@/components/brain-bet/pet-mood-view'
 import { RoomCanvas } from '@/components/brain-bet/room-canvas'
@@ -31,7 +32,7 @@ import type { PetAnimation } from '@/lib/pet-care/types'
 import { RECONNECT_ANGRY_HOLD_MS } from '@/lib/config/character-state.config'
 import { TALK_EXPRESSION_HOLD_MS } from '@/lib/config/talk.config'
 import { formatLevelLabel } from '@/lib/pet-care/leveling'
-import { LEVEL_GIFT_LEVELS } from '@/lib/deco-supported-assets'
+import { LEVEL_GIFT_LEVELS, type SupportedDecoAsset } from '@/lib/deco-supported-assets'
 
 /**
  * Dev/QA "force a level gift open" control (GiftQaMenu) — same gating
@@ -42,6 +43,9 @@ import { LEVEL_GIFT_LEVELS } from '@/lib/deco-supported-assets'
  * is explicitly turned on; never shown in a normal production build.
  */
 const SHOW_GIFT_QA = process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_ENABLE_TEST_SKIP === 'true'
+
+/** The gift-pending speech bubble's fixed text — shown for as long as `isGiftReady` stays true (see `speech` below), distinct from the bottom "Statling을 눌러 선물을 받아보세요!" banner (that one explains WHAT to do; this one is just the Statling "talking"). */
+const GIFT_READY_SPEECH = '선물이야!'
 
 interface RoomScreenProps {
   statlingName: string
@@ -74,13 +78,14 @@ interface RoomScreenProps {
  * memory -> talk -> initiatedDialogue -> autonomy — so each only ever needs
  * the *already-computed* output of a higher-priority hook to decide whether
  * it may start something new (`suppressed`). `talk` sits ahead of
- * initiatedDialogue/autonomy specifically so `talk.isActive` can suppress
- * both of them for as long as a question is open (see suppressForDialogue
- * below) — otherwise an autonomous line/motion could fire mid-question and
- * make the question bubble appear to change or vanish. This avoids any
- * circular "mode feeds back into the hooks that produced it" dependency;
- * `mode` itself (computed last, from everyone's output) is a pure
- * display-only value.
+ * initiatedDialogue/autonomy specifically so `talk.isActive` (and
+ * `isGiftReady`, computed right alongside it) can suppress both of them for
+ * as long as a question or a pending Level Gift is open (see
+ * suppressForDialogue below) — otherwise an autonomous line/motion could
+ * fire mid-question or mid-gift and make that bubble appear to change or
+ * vanish. This avoids any circular "mode feeds back into the hooks that
+ * produced it" dependency; `mode` itself (computed last, from everyone's
+ * output) is a pure display-only value.
  */
 export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, onGrow, onOpenMission, testerFolder }: RoomScreenProps) {
   const care = usePetCare()
@@ -88,6 +93,18 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
   const { play, playCharacterVoice } = useSound()
 
   const memory = usePetMemory(care.applyEffect)
+
+  // Computed here (ahead of talk/initiatedDialogue/autonomy below) for the
+  // same reason talk.isActive is — see suppressForDialogue's comment — a
+  // pending gift needs to suppress autonomous motion/dialogue too, so the
+  // gift PNG/bubble stay put until the Statling is actually tapped.
+  const isGiftReady = care.petState.giftReadyLevel !== null
+
+  // The reward just granted by tapping the Statling (see handleClaimGift),
+  // waiting on the popup's 확인 button — see GiftRewardPopup's doc comment
+  // for why granting (care.claimGift) and ending the gift state
+  // (care.dismissGiftClaim) are two separate steps instead of one.
+  const [rewardPopup, setRewardPopup] = useState<SupportedDecoAsset | null>(null)
 
   // A picked 대화 answer's own expression (happy/thinking/embarrassed/love/
   // tired/...), held for TALK_EXPRESSION_HOLD_MS regardless of what mood/
@@ -140,13 +157,14 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
   })
 
   /**
-   * `talk.isActive` is included here (and, transitively, in
-   * suppressForAutonomy below) so a question staying open can never be
-   * preempted by an autonomous "말 걸기" line or motion — those used to be
-   * able to fire while a question waited for an answer, which is exactly
-   * what let the bubble appear to "change to something else" mid-question.
+   * `talk.isActive` and `isGiftReady` are both included here (and,
+   * transitively, in suppressForAutonomy below) so an open question or a
+   * pending gift can never be preempted by an autonomous "말 걸기" line or
+   * motion — those used to be able to fire while either waited on the
+   * player, which is exactly what let their bubble appear to "change to
+   * something else" underneath them.
    */
-  const suppressForDialogue = !!care.levelUpEvent || care.reactionActive || memory.gameReaction.active || talk.isActive
+  const suppressForDialogue = !!care.levelUpEvent || care.reactionActive || memory.gameReaction.active || talk.isActive || isGiftReady
   const initiatedDialogue = usePetInitiatedDialogue({
     memory: memory.memory,
     visitContext: memory.visitContext,
@@ -192,7 +210,6 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once for this mount's initial value only
   }, [])
 
-  const isGiftReady = care.petState.giftReadyLevel !== null
   const isConsistentPlayerNow = isConsistentPlayer(memory.memory)
 
   // "들어왔을 때" — one occasional chirp on entering the Room, not on every
@@ -217,29 +234,33 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
     hasLevelUp: !!care.levelUpEvent,
     hasGameReaction: memory.gameReaction.active,
     hasUserAction: care.reactionActive,
-    hasSpeaking: initiatedDialogue.active || talk.isActive,
+    hasSpeaking: initiatedDialogue.active || talk.isActive || isGiftReady,
     hasAutonomousMotion: autonomy.active,
   })
 
   /**
-   * An open talk question wins unconditionally, ahead of every other speech
-   * source — it has no auto-hide timer of its own (see usePetTalk's onOpen
-   * above), so once shown it can only ever be replaced by choosing an
-   * answer (chooseAnswer/submitFreeText clear `talk.activeQuestion` and
-   * `handleTalkAnswered` immediately puts the reply in `care.speech`,
-   * naturally taking over here the very next render) or backing out
-   * (cancelQuestion, which shows nothing until something else speaks).
+   * An open talk question wins unconditionally first, then a pending gift's
+   * fixed GIFT_READY_SPEECH — neither has an auto-hide timer of its own (see
+   * usePetTalk's onOpen above and hooks/use-pet-care.ts#claimGift), so once
+   * either is showing it can only ever be replaced by the player actually
+   * resolving it: choosing an answer / backing out of the question, or
+   * tapping the Statling to claim the gift (which grants the reward but
+   * deliberately leaves giftReadyLevel — and therefore isGiftReady/this
+   * bubble — set until the reward popup's 확인 button fires
+   * dismissGiftClaim). Everything below that (gameReaction/care/autonomous
+   * speech) is free to come and go normally the rest of the time.
    */
-  const speech = talk.activeQuestion?.text ?? memory.gameReaction.speech ?? care.speech ?? initiatedDialogue.speech ?? null
-  const dismissSpeech = talk.activeQuestion
-    ? undefined // tap-to-dismiss is only via TalkQuestionCard's own close button (cancelQuestion), never the bubble itself
-    : memory.gameReaction.active
-      ? memory.dismissGameReaction
-      : care.speech
-        ? care.dismissSpeech
-        : initiatedDialogue.speech
-          ? initiatedDialogue.dismiss
-          : undefined
+  const speech = talk.activeQuestion?.text ?? (isGiftReady ? GIFT_READY_SPEECH : null) ?? memory.gameReaction.speech ?? care.speech ?? initiatedDialogue.speech ?? null
+  const dismissSpeech =
+    talk.activeQuestion || isGiftReady
+      ? undefined // neither is dismissible by tapping the bubble itself — a question closes only via TalkQuestionCard's own close button, a gift only via actually claiming it
+      : memory.gameReaction.active
+        ? memory.dismissGameReaction
+        : care.speech
+          ? care.dismissSpeech
+          : initiatedDialogue.speech
+            ? initiatedDialogue.dismiss
+            : undefined
 
   const animation: PetAnimation =
     memory.gameReaction.active && memory.gameReaction.animation
@@ -278,11 +299,29 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
     // — see lib/audio/character-voice.ts's doc comment.
   }
 
-  /** "선물 주려고 할 때" — the Statling tap that actually hands over an unclaimed gift (see care.claimGift/isGiftReady above). Reveals the granted Statling Decoration via a toast, same pattern as the level-up toasts above. */
+  /**
+   * "선물 주려고 할 때" — the Statling tap that actually grants an unclaimed
+   * gift's Statling Decoration to inventory (see care.claimGift/isGiftReady
+   * above) and opens the reward popup for it — no toast; Level Gift claims
+   * use GiftRewardPopup exclusively (every other toast in the app is
+   * untouched). `if (rewardPopup) return` guards against a stray extra tap
+   * re-granting/reopening while the popup from the first tap is still up
+   * (grantDecoReward is itself idempotent too, so this is defense-in-depth,
+   * not the only thing preventing a double-grant).
+   */
   function handleClaimGift() {
+    if (rewardPopup) return
     const reward = care.claimGift()
-    playCharacterVoice(petProfile?.id)
-    if (reward) toastManager.add({ title: `${reward.name} 획득!`, type: 'success' })
+    if (reward) {
+      playCharacterVoice(petProfile?.id)
+      setRewardPopup(reward)
+    }
+  }
+
+  /** GiftRewardPopup's 확인 button — the actual end of the gift state (see PetCareState.giftReadyLevel's doc comment for why this is separate from the grant itself in handleClaimGift above). */
+  function handleRewardPopupConfirm() {
+    care.dismissGiftClaim()
+    setRewardPopup(null)
   }
 
   /** Blocks 성장시키기(and therefore every minigame it leads to) while the Statling is asleep — the only entry point into Grow/minigames from Room. */
@@ -297,6 +336,7 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col px-5 pb-24 pt-4 sm:pb-28 sm:pt-8" data-interaction-mode={mode}>
       {SHOW_GIFT_QA && <GiftQaMenu levels={LEVEL_GIFT_LEVELS} onTrigger={care.debugTriggerGift} />}
+      {rewardPopup && <GiftRewardPopup asset={rewardPopup} onConfirm={handleRewardPopupConfirm} />}
 
       <header className="flex items-center justify-between gap-3">
         <h1 className="flex min-w-0 items-baseline gap-1.5 font-display text-lg font-extrabold text-foreground sm:text-xl">
@@ -332,10 +372,11 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
         {secondaryLabel && <span className="text-[11px] font-semibold text-muted-foreground sm:text-xs">· {secondaryLabel}</span>}
       </div>
 
-      {/* Persists for as long as isGiftReady stays true (unclaimed across
-          remounts too, see PetCareState.giftReadyLevel) — not a transient
-          speech-bubble line, so it can't be missed even if the character's
-          own speech bubble is showing something else at the same moment. */}
+      {/* Separate from (and in addition to) the character's own GIFT_READY_SPEECH
+          speech bubble above `speech` — that one is the Statling "talking"
+          ("선물이야!"), this one is the actual instruction. Both persist for
+          as long as isGiftReady stays true (unclaimed across remounts too,
+          see PetCareState.giftReadyLevel), so neither can be missed. */}
       {isGiftReady && (
         <p className="mt-1 text-center text-xs font-bold text-accent-foreground">
           Statling을 눌러 선물을 받아보세요!

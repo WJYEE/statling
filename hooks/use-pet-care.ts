@@ -353,31 +353,39 @@ export function usePetCare() {
   /**
    * Tapping the Statling while a gift is ready — grants that level's
    * Statling Decoration to the claim inventory (lib/deco-inventory-storage.ts,
-   * idempotent so a double-tap race can never double-grant), clears
-   * giftReadyLevel, and shows a small thank-you. Returns the granted asset
-   * (for room-screen.tsx to surface a "획득!" toast) or null for a level
-   * with no deco mapped / no gift pending — a no-op state-wise either way.
+   * idempotent so a double-tap race/re-render can never double-grant).
+   * Deliberately does NOT clear `giftReadyLevel` here anymore — the reward
+   * popup (components/brain-bet/gift-reward-popup.tsx) needs the gift
+   * PNG/bubble to stay up behind it while it's showing, and only
+   * `dismissGiftClaim` below (fired by the popup's 확인 button) actually
+   * ends the gift state. Returns the granted asset (for room-screen.tsx to
+   * open the popup with) or null for a level with no deco mapped / no gift
+   * pending.
    */
   function claimGift(): SupportedDecoAsset | null {
     const level = petStateRef.current.giftReadyLevel
     if (level === null) return null
     const reward = getLevelGiftDecoAsset(level)
     if (reward) saveDecoInventoryState(grantDecoReward(loadDecoInventoryState(), reward.id))
+    return reward ?? null
+  }
+
+  /** Fired once the reward popup's 확인 button is pressed — the actual end of the gift state (see claimGift's doc comment for why granting and ending are two separate steps). A no-op if there's no gift pending (e.g. the popup somehow fires twice). */
+  function dismissGiftClaim() {
+    if (petStateRef.current.giftReadyLevel === null) return
     const nextState: PetCareState = { ...petStateRef.current, giftReadyLevel: null }
     setPetState(nextState)
     savePetCareState(nextState)
-    showSpeech('고마워요! 소중히 간직할게요.')
-    return reward ?? null
   }
 
   /**
    * QA/dev only — forces `giftReadyLevel` to `level` directly, WITHOUT
    * touching intimacyLevel/intimacyExp, so any single level's gift (PNG,
-   * banner, character-click claim, inventory unlock, reward toast) can be
-   * exercised without grinding real XP up to it. `claimGift` above is
-   * completely untouched by this — once triggered, claiming runs through
-   * the exact same production code path a real level-up gift would. See
-   * components/brain-bet/gift-qa-menu.tsx, only ever rendered in dev/QA
+   * bubble, character-click claim, inventory unlock, reward popup) can be
+   * exercised without grinding real XP up to it. `claimGift`/`dismissGiftClaim`
+   * above are completely untouched by this — once triggered, claiming runs
+   * through the exact same production code path a real level-up gift would.
+   * See components/brain-bet/gift-qa-menu.tsx, only ever rendered in dev/QA
    * builds (room-screen.tsx's SHOW_GIFT_QA).
    */
   function debugTriggerGift(level: number) {
@@ -457,10 +465,11 @@ export function usePetCare() {
     performAction,
     applyEffect,
     claimGift,
+    dismissGiftClaim,
     debugTriggerGift,
     registerTalkOpen,
     answerTalk,
-    /** Puts a line straight in the character's speech bubble with no stat/cooldown/exp effect — same direct showSpeech call claimGift uses for its own fixed thank-you line, just for an arbitrary caller-supplied line (room-screen.tsx uses it to show a 대화 question's prompt text). */
+    /** Puts a line straight in the character's speech bubble with no stat/cooldown/exp effect — same direct showSpeech call finalizeAction's speech handling uses internally, just for an arbitrary caller-supplied line (room-screen.tsx uses it to show a 대화 question's prompt text). */
     sayText: (text: string, holdMs?: number) => showSpeech(text, holdMs),
     /** Tap-to-dismiss support — lets room-screen close the bubble immediately instead of waiting out its auto-hide timer. */
     dismissSpeech: () => setSpeech(null),

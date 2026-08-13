@@ -86,11 +86,16 @@ export interface PetCareState {
   unlockedRewardLevels: number[]
   /**
    * The most recent GIFT_LEVEL_INTERVAL milestone (see
-   * lib/config/character-state.config.ts) crossed and not yet claimed — null
-   * once claimed (tapping the Statling while this is set). Deliberately
-   * separate from `unlockedRewardLevels`/leveling.ts's REWARD_UNLOCKS: this
-   * is a presentational-only "gift" art state, never a mission/achievement
-   * payload.
+   * lib/config/character-state.config.ts) crossed and not yet fully claimed.
+   * Tapping the Statling (hooks/use-pet-care.ts#claimGift) grants this
+   * level's Statling Decoration to the inventory but deliberately leaves
+   * this set, so the gift PNG/bubble stay up behind the reward popup
+   * (components/brain-bet/gift-reward-popup.tsx) — it only becomes null once
+   * the popup's 확인 button fires `dismissGiftClaim`. See
+   * lib/deco-supported-assets.ts's `level_gift` unlockSource for the level
+   * -> Statling Decoration mapping. Deliberately separate from
+   * `unlockedRewardLevels`/leveling.ts's REWARD_UNLOCKS, an unrelated older
+   * placeholder table.
    */
   giftReadyLevel: number | null
   /** ISO timestamp — the ground truth decay is computed from. */
