@@ -88,16 +88,27 @@ export function recordGamePlayed(
   }
 }
 
-/** One pet-care action press (see hooks/use-pet-care.ts's ACTION_IDS + answerTalk) — bumps both the shared totalInteractions tally and that action's own counter. */
+/**
+ * One pet-care action press (see hooks/use-pet-care.ts's ACTION_IDS +
+ * answerTalk) — bumps that action's own counter, and (for every action
+ * EXCEPT `clean`) the shared totalInteractions tally too. `clean` tidies the
+ * Room, not a direct interaction with the Statling itself, so it's excluded
+ * from totalInteractions (lib/missions/achievements.config.ts's
+ * total-interactions family) — it still increments its own `cleanCount`.
+ * Only affects future presses: a returning player's already-accumulated
+ * totalInteractions is never migrated/decremented.
+ */
 export function recordCareInteraction(state: ActivityCounters, actionId: CareActionId): ActivityCounters {
-  const next: ActivityCounters = { ...state, totalInteractions: state.totalInteractions + 1, updatedAt: new Date().toISOString() }
+  const updatedAt = new Date().toISOString()
+  if (actionId === 'clean') {
+    return { ...state, cleanCount: state.cleanCount + 1, updatedAt }
+  }
+  const next: ActivityCounters = { ...state, totalInteractions: state.totalInteractions + 1, updatedAt }
   switch (actionId) {
     case 'feed':
       return { ...next, feedCount: next.feedCount + 1 }
     case 'shower':
       return { ...next, showerCount: next.showerCount + 1 }
-    case 'clean':
-      return { ...next, cleanCount: next.cleanCount + 1 }
     case 'play':
       return { ...next, playCount: next.playCount + 1 }
     case 'pet':

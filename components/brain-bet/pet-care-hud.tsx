@@ -58,7 +58,7 @@ export function PetCareHud({ stats, intimacyLevel, intimacyExp, expToNext, float
         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-card">
           <div
             role="progressbar"
-            aria-label="친밀도 레벨 진행도"
+            aria-label="Statling Lv. 진행도"
             aria-valuemin={0}
             aria-valuemax={isMaxLevel ? 1 : expToNext}
             aria-valuenow={isMaxLevel ? 1 : intimacyExp}

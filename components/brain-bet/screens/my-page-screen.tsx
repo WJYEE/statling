@@ -486,7 +486,7 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
         open={confirmingReset}
         onOpenChange={setConfirmingReset}
         title="펫을 초기화할까요?"
-        description={`${statlingName}과의 기록이 모두 사라져요.\n친밀도, 대화 기록을 포함해 되돌릴 수 없어요.`}
+        description={`${statlingName}과의 기록이 모두 사라져요.\nStatling 성장 기록, 대화 기록을 포함해 되돌릴 수 없어요.`}
         confirmLabel="초기화"
         cancelLabel="취소"
         onConfirm={onResetPet}
