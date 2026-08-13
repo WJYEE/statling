@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Toast } from '@base-ui/react/toast'
-import { RotateCcw, Save, Sparkles, Undo2 } from 'lucide-react'
+import { Lock, RotateCcw, Save, Sparkles, Undo2 } from 'lucide-react'
 import { AssetImage } from '@/components/brain-bet/asset-image'
 import { CharacterImage } from '@/components/brain-bet/character-image'
 import { ConfirmDialog } from '@/components/brain-bet/confirm-dialog'
@@ -12,12 +12,23 @@ import { RoomPropertiesPanel } from '@/components/brain-bet/room-properties-pane
 import { ToyButton } from '@/components/brain-bet/toy-button'
 import type { StatId } from '@/lib/brain-bet'
 import type { PetProfile } from '@/lib/pets/pet-profile'
-import { ROOM_ASSETS, type RoomAsset, type RoomAssetCategory } from '@/lib/room-assets'
+import { isRoomAssetUnlocked, ROOM_ASSETS, type RoomAsset, type RoomAssetCategory } from '@/lib/room-assets'
+import { loadRoomInventoryState } from '@/lib/room-inventory-storage'
+import { ACHIEVEMENT_TIERS_FLAT, findAchievementTier } from '@/lib/missions/achievements.config'
 import { STATLING_Z_INDEX, applyMove, spawnDefaultItem } from '@/lib/room/room-layout'
 import { loadSavedRoomState, saveRoomState } from '@/lib/room/room-storage'
 import { deepCloneRoomState, roomStatesEqual, type RoomItem, type RoomState } from '@/lib/room/room-state'
 import { cn } from '@/lib/utils'
 import { trackRoomDecorSaved } from '@/lib/missions/mission-tracker'
+
+/** `ROOM_ASSETS[id]`'s position among locked ("achievement"-sourced) items in the Room grid — the SAME order their Achievement tiers are declared in achievements.config.ts, so a harder/later achievement's reward always sorts after an easier/earlier one's. Computed once at module load. */
+const ROOM_REWARD_ACHIEVEMENT_ORDER: Map<string, number> = (() => {
+  const order = new Map<string, number>()
+  ACHIEVEMENT_TIERS_FLAT.forEach((tier, index) => {
+    if (tier.roomReward) order.set(tier.roomReward, index)
+  })
+  return order
+})()
 
 interface ThemeScreenProps {
   topStat: StatId
@@ -39,11 +50,13 @@ const NUDGE_STEP = 0.005
 const NUDGE_STEP_LARGE = 0.02
 
 /**
- * Beta-only messaging: right now every asset below is unlocked and free (no
- * shop/currency/unlock system exists yet), so this notice is simply true.
- * Defaults ON (matches "we're in beta right now") — flip
+ * Beta-only messaging. Most assets are still unlocked and free (no
+ * shop/currency system exists), but a handful are now gated behind an
+ * Achievement reward (see ROOM_ASSETS's `unlockSource`) — the copy below
+ * reflects that split rather than claiming everything is free. Defaults ON
+ * (matches "we're in beta right now") — flip
  * NEXT_PUBLIC_ENABLE_BETA_FURNITURE_NOTICE to 'false' once a real
- * shop/currency/unlock system ships and the claim stops being accurate.
+ * shop/currency system ships and this notice stops being needed at all.
  */
 const SHOW_BETA_FURNITURE_NOTICE = process.env.NEXT_PUBLIC_ENABLE_BETA_FURNITURE_NOTICE !== 'false'
 
@@ -61,6 +74,11 @@ export function ThemeScreen({ topStat, petProfile, onDirtyChange }: ThemeScreenP
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [confirmKind, setConfirmKind] = useState<'revert' | 'reset' | null>(null)
+  // Loaded once per mount, same "remount on tab switch reflects latest
+  // storage" idiom savedState/draftState already use — an Achievement's Room
+  // reward granted elsewhere (mission-tracker.ts) always shows up unlocked
+  // here the next time this screen mounts.
+  const [unlockedAchievementRewardIds] = useState<string[]>(() => loadRoomInventoryState().unlockedIds)
   const toastManager = Toast.useToastManager()
 
   const dirty = useMemo(() => !roomStatesEqual(draftState, savedState), [draftState, savedState])
@@ -82,8 +100,24 @@ export function ThemeScreen({ topStat, petProfile, onDirtyChange }: ThemeScreenP
     return () => window.removeEventListener('beforeunload', handler)
   }, [])
 
+  // default items first (original ROOM_ASSETS declaration order preserved —
+  // Array.prototype.sort is stable), then every achievement-locked item
+  // grouped at the end, ordered to match its Achievement tier's own
+  // declaration order (ROOM_REWARD_ACHIEVEMENT_ORDER). Claiming a reward
+  // only lifts its lock (isRoomAssetUnlocked) — it never moves the item out
+  // of this group, so the grid never reshuffles just because something got
+  // unlocked.
   const assetsForActiveTab = useMemo(
-    () => Object.values(ROOM_ASSETS).filter((asset) => asset.category === activeTab),
+    () =>
+      Object.values(ROOM_ASSETS)
+        .filter((asset) => asset.category === activeTab)
+        .sort((a, b) => {
+          const aLocked = a.unlockSource?.type === 'achievement' ? 1 : 0
+          const bLocked = b.unlockSource?.type === 'achievement' ? 1 : 0
+          if (aLocked !== bLocked) return aLocked - bLocked
+          if (!aLocked) return 0
+          return (ROOM_REWARD_ACHIEVEMENT_ORDER.get(a.id) ?? 0) - (ROOM_REWARD_ACHIEVEMENT_ORDER.get(b.id) ?? 0)
+        }),
     [activeTab],
   )
 
@@ -158,8 +192,19 @@ export function ThemeScreen({ topStat, petProfile, onDirtyChange }: ThemeScreenP
     updateItem(selectedItem.instanceId, { flipped: !selectedItem.flipped })
   }
 
-  /** Each asset can only be placed once — clicking an asset that's already in the room just selects the existing instance (e.g. to flip or reposition it) instead of adding a duplicate "sticker". */
+  /** Tapping a not-yet-unlocked achievement-reward item — never places/backgrounds it, just names the achievement that grants it. No further detail (see the grid's lock UI below). */
+  function handleLockedTap(asset: RoomAsset) {
+    if (asset.unlockSource?.type !== 'achievement') return
+    const tier = findAchievementTier(asset.unlockSource.tierId)
+    toastManager.add({ title: tier ? `"${tier.title}" 업적 달성 보상` : '업적 달성 보상' })
+  }
+
+  /** Each asset can only be placed once — clicking an asset that's already in the room just selects the existing instance (e.g. to flip or reposition it) instead of adding a duplicate "sticker". Locked (achievement-reward) assets never reach the placement/background logic below — see handleLockedTap. */
   function handleAssetClick(asset: RoomAsset) {
+    if (!isRoomAssetUnlocked(asset, unlockedAchievementRewardIds)) {
+      handleLockedTap(asset)
+      return
+    }
     if (asset.category === 'background') {
       setDraftState((prev) => ({ ...prev, backgroundId: asset.id }))
       return
@@ -213,13 +258,14 @@ export function ThemeScreen({ topStat, petProfile, onDirtyChange }: ThemeScreenP
         </p>
       </header>
 
-      {/* Sets expectations up front: every basic asset below is unlocked and free right now — no
-          shop/currency/unlock system exists yet, so this is simply true, not a promotional claim. */}
+      {/* Sets expectations up front. Updated for the achievement-reward lock
+          system below — no longer claims every asset is free, since the
+          achievement-locked ones aren't. */}
       {SHOW_BETA_FURNITURE_NOTICE && (
         <div className="flex items-start gap-2 rounded-2xl bg-secondary px-4 py-3 text-secondary-foreground toy-border">
           <Sparkles size={18} className="mt-0.5 shrink-0" strokeWidth={2.4} />
           <p className="text-xs font-bold leading-relaxed">
-            지금은 기본 가구와 소품을 전부 무료로 제공하고 있어요. 마음껏 자유롭게 방을 꾸며보세요!
+            기본 가구와 소품은 지금 바로 무료로 사용할 수 있어요. 잠긴 장식은 업적 달성 보상으로 받아보세요!
           </p>
         </div>
       )}
@@ -280,33 +326,44 @@ export function ThemeScreen({ topStat, petProfile, onDirtyChange }: ThemeScreenP
             asset.category === 'background'
               ? asset.id === draftState.backgroundId
               : draftState.items.some((item) => item.assetId === asset.id)
+          const unlocked = isRoomAssetUnlocked(asset, unlockedAchievementRewardIds)
 
           return (
             <button
               key={asset.id}
               type="button"
               onClick={() => handleAssetClick(asset)}
-              aria-label={`${asset.name} ${asset.category === 'background' ? '배경으로 설정' : '추가하기'}`}
+              aria-label={
+                unlocked
+                  ? `${asset.name} ${asset.category === 'background' ? '배경으로 설정' : '추가하기'}`
+                  : `${asset.name} — 잠김`
+              }
               aria-pressed={inUse}
               className={cn(
                 'flex flex-col items-center gap-1 rounded-2xl bg-card p-2 toy-border transition-transform active:translate-y-0.5',
                 inUse && 'ring-2 ring-primary',
+                !unlocked && 'opacity-70',
               )}
             >
-              <span className="grid h-14 w-14 place-items-center overflow-hidden rounded-xl bg-secondary">
+              <span className="relative grid h-14 w-14 place-items-center overflow-hidden rounded-xl bg-secondary">
                 {/* eslint-disable-next-line @next/next/no-img-element -- thumbnail of a pre-authored static PNG, matches asset-image.tsx's convention */}
                 <img
                   src={asset.src}
                   alt=""
                   loading="lazy"
-                  className="max-h-full max-w-full object-contain"
+                  className={cn('max-h-full max-w-full object-contain', !unlocked && 'grayscale')}
                   draggable={false}
                 />
+                {!unlocked && (
+                  <span className="absolute inset-0 grid place-items-center bg-background/60">
+                    <Lock size={16} strokeWidth={2.6} className="text-foreground" />
+                  </span>
+                )}
               </span>
               <span className="line-clamp-1 w-full text-center text-[10px] font-bold text-foreground">
                 {asset.name}
               </span>
-              {inUse && <span className="text-[9px] font-bold text-primary">사용 중</span>}
+              {unlocked && inUse && <span className="text-[9px] font-bold text-primary">사용 중</span>}
             </button>
           )
         })}

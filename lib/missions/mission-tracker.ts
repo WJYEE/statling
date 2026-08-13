@@ -24,9 +24,10 @@ import {
   claimDailyMission,
   type DailyMissionState,
 } from '@/lib/missions/daily-mission-storage'
-import { ACHIEVEMENT_FAMILIES, RANK_ACHIEVEMENT_METRICS, type AchievementMetricKey } from '@/lib/missions/achievements.config'
+import { ACHIEVEMENT_FAMILIES, ACHIEVEMENT_TIERS_FLAT, RANK_ACHIEVEMENT_METRICS, type AchievementMetricKey } from '@/lib/missions/achievements.config'
 import { evaluateAchievementFamilies, type AchievementTierProgress } from '@/lib/missions/achievement-evaluator'
 import { loadAchievementState, saveAchievementState } from '@/lib/missions/achievement-storage'
+import { grantRoomReward, loadRoomInventoryState, saveRoomInventoryState } from '@/lib/room-inventory-storage'
 
 /**
  * Every tracked gameplay event's single entry point — the ONLY file
@@ -81,8 +82,34 @@ function collectSyncMetricValues(counters: ActivityCounters): Partial<Record<Ach
 }
 
 /**
+ * Backfills a Room Decoration reward for any tier that's already in
+ * `unlockedTierIds` (achieved in a past session — possibly before that tier
+ * even had a `roomReward` attached) but whose reward isn't in inventory yet.
+ * Never touches XP — that's only ever granted once, in the newly-unlocked
+ * path below. Self-terminating: once backfilled, the reward is in
+ * inventory, so the very next call finds nothing left to reconcile for that
+ * tier — no separate "migration already ran" flag needed, so this is safe
+ * to call on every evaluation pass (see applyNewlyUnlockedAchievements).
+ */
+function reconcileRoomRewards(unlockedTierIds: readonly string[]): void {
+  const owned = new Set(unlockedTierIds)
+  const missing = ACHIEVEMENT_TIERS_FLAT.filter((tier) => tier.roomReward && owned.has(tier.id))
+  if (missing.length === 0) return
+
+  let inventory = loadRoomInventoryState()
+  let changed = false
+  for (const tier of missing) {
+    if (inventory.unlockedIds.includes(tier.roomReward as string)) continue
+    inventory = grantRoomReward(inventory, tier.roomReward as string)
+    changed = true
+  }
+  if (changed) saveRoomInventoryState(inventory)
+}
+
+/**
  * Diffs freshly-evaluated progress against what's already been unlocked,
- * grants each newly-completed tier's rewardXp, persists the updated
+ * grants each newly-completed tier's rewardXp (and Room Decoration reward,
+ * if any — see AchievementTierDef.roomReward), persists the updated
  * unlocked set, and plays the Achievement SFX exactly once for the whole
  * batch (audioManager.play already no-ops when SFX is off — see
  * lib/audio/audio-manager.ts — so no extra mute check is needed here).
@@ -91,11 +118,24 @@ export function applyNewlyUnlockedAchievements(progressList: AchievementTierProg
   const state = loadAchievementState()
   const unlockedSet = new Set(state.unlockedTierIds)
   const newlyUnlocked = progressList.filter((p) => p.completed && !unlockedSet.has(p.tierId))
+
+  // Runs regardless of whether anything is newly-unlocked this call — a
+  // returning player's pre-existing unlocks may still be missing a Room
+  // reward that didn't exist when they first earned the tier.
+  reconcileRoomRewards(state.unlockedTierIds)
+
   if (newlyUnlocked.length === 0) return newlyUnlocked
 
   let xp = loadXpState()
   for (const p of newlyUnlocked) xp = addXp(xp, p.rewardXp)
   saveXpState(xp)
+
+  const newRoomRewardIds = newlyUnlocked.map((p) => p.roomReward).filter((id): id is string => !!id)
+  if (newRoomRewardIds.length > 0) {
+    let inventory = loadRoomInventoryState()
+    for (const assetId of newRoomRewardIds) inventory = grantRoomReward(inventory, assetId)
+    saveRoomInventoryState(inventory)
+  }
 
   saveAchievementState({
     version: 1,

@@ -10,6 +10,8 @@ export interface AchievementTierProgress {
   description: string
   target: number
   rewardXp: number
+  /** Passed straight through from AchievementTierDef.roomReward — a lib/room-assets.ts ROOM_ASSETS id for the small set of "특별 Achievement" tiers, undefined for every ordinary XP-only tier. See mission-screen.tsx's reward PNG display. */
+  roomReward: string | undefined
   /** The metric's current live value — undefined when that metric wasn't included in this evaluation pass (e.g. a sync-only pass skipping rank metrics). */
   currentValue: number | undefined
   completed: boolean
@@ -44,6 +46,7 @@ export function evaluateAchievementFamilies(
         description: tier.description,
         target: tier.target,
         rewardXp: tier.rewardXp,
+        roomReward: tier.roomReward,
         currentValue: value,
         completed: tierCompleted(family.direction, value, tier.target),
       })

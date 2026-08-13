@@ -70,6 +70,16 @@ export interface AchievementTierDef {
   description: string
   target: number
   rewardXp: number
+  /**
+   * A lib/room-assets.ts `ROOM_ASSETS` id — only set on the handful of
+   * "특별 Achievement" tiers that also grant a Room Decoration on top of
+   * their XP (see lib/missions/mission-tracker.ts#applyNewlyUnlockedAchievements
+   * and lib/room-inventory-storage.ts). Undefined for every ordinary tier,
+   * which stays XP-only. The matching ROOM_ASSETS entry's own `unlockSource`
+   * must be `{ type: 'achievement', tierId: this.id }` — the two are meant
+   * to be edited together, though nothing enforces that at the type level.
+   */
+  roomReward?: string
 }
 
 export interface AchievementFamilyDef {
@@ -105,7 +115,7 @@ export const ACHIEVEMENT_FAMILIES: AchievementFamilyDef[] = [
     direction: 'atLeast',
     tiers: [
       { id: 'attendance-total-days-7', tier: 1, title: '일주일의 동행', description: '누적 7일 동안 Statling을 만나러 왔어요.', target: 7, rewardXp: 30 },
-      { id: 'attendance-total-days-30', tier: 2, title: '한 달의 동행', description: '누적 30일 동안 Statling을 만나러 왔어요.', target: 30, rewardXp: 100 },
+      { id: 'attendance-total-days-30', tier: 2, title: '한 달의 동행', description: '누적 30일 동안 Statling을 만나러 왔어요.', target: 30, rewardXp: 100, roomReward: 'plant-7' },
     ],
   },
   {
@@ -118,7 +128,7 @@ export const ACHIEVEMENT_FAMILIES: AchievementFamilyDef[] = [
     // already rewards long-term play without penalizing a missed day.
     tiers: [
       { id: 'attendance-streak-3', tier: 1, title: '삼일 연속 출석!', description: '3일 연속으로 Statling을 만나러 왔어요.', target: 3, rewardXp: 30 },
-      { id: 'attendance-streak-7', tier: 2, title: '개근상', description: '7일 연속으로 Statling을 만나러 왔어요.', target: 7, rewardXp: 80 },
+      { id: 'attendance-streak-7', tier: 2, title: '개근상', description: '7일 연속으로 Statling을 만나러 왔어요.', target: 7, rewardXp: 80, roomReward: 'bluegrey-background' },
     ],
   },
 
@@ -130,8 +140,8 @@ export const ACHIEVEMENT_FAMILIES: AchievementFamilyDef[] = [
     direction: 'atLeast',
     tiers: [
       { id: 'games-played-10', tier: 1, title: '워밍업 완료', description: '미니게임을 10판 플레이했어요.', target: 10, rewardXp: 30 },
-      { id: 'games-played-50', tier: 2, title: '게임 마니아', description: '미니게임을 50판 플레이했어요.', target: 50, rewardXp: 100 },
-      { id: 'games-played-100', tier: 3, title: '미니게임 달인', description: '미니게임을 100판 플레이했어요.', target: 100, rewardXp: 250 },
+      { id: 'games-played-50', tier: 2, title: '게임 마니아', description: '미니게임을 50판 플레이했어요.', target: 50, rewardXp: 100, roomReward: 'mountain-frame' },
+      { id: 'games-played-100', tier: 3, title: '미니게임 달인', description: '미니게임을 100판 플레이했어요.', target: 100, rewardXp: 250, roomReward: 'blue-background' },
     ],
   },
   {
@@ -146,7 +156,7 @@ export const ACHIEVEMENT_FAMILIES: AchievementFamilyDef[] = [
     category: 'game',
     metric: 'personalBestCount',
     direction: 'atLeast',
-    tiers: [{ id: 'personal-best-count-10', tier: 1, title: '나를 넘어서는 중', description: '개인 최고 기록을 10번 경신했어요.', target: 10, rewardXp: 80 }],
+    tiers: [{ id: 'personal-best-count-10', tier: 1, title: '나를 넘어서는 중', description: '개인 최고 기록을 10번 경신했어요.', target: 10, rewardXp: 80, roomReward: 'pegtop' }],
   },
   {
     familyId: 'best-game-rank',
@@ -169,7 +179,7 @@ export const ACHIEVEMENT_FAMILIES: AchievementFamilyDef[] = [
     // follow-up would need to touch.
     tiers: [
       { id: 'best-game-rank-10', tier: 1, title: '두각을 나타내다', description: '한 스탯 게임에서 Top 10 안에 들었어요.', target: 10, rewardXp: 50 },
-      { id: 'best-game-rank-3', tier: 2, title: '포디움 입성', description: '한 스탯 게임에서 Top 3 안에 들었어요.', target: 3, rewardXp: 120 },
+      { id: 'best-game-rank-3', tier: 2, title: '포디움 입성', description: '한 스탯 게임에서 Top 3 안에 들었어요.', target: 3, rewardXp: 120, roomReward: 'wood-flag' },
       { id: 'best-game-rank-1', tier: 3, title: '스탯 최강자', description: '한 스탯 게임에서 1위를 차지했어요.', target: 1, rewardXp: 300 },
     ],
   },
@@ -180,7 +190,9 @@ export const ACHIEVEMENT_FAMILIES: AchievementFamilyDef[] = [
     direction: 'atMost',
     tiers: [
       { id: 'overall-rank-100', tier: 1, title: '랭커의 시작', description: '종합 랭킹 Top 100 안에 들었어요.', target: 100, rewardXp: 60 },
-      { id: 'overall-rank-10', tier: 2, title: '상위 10인의 Statling', description: '종합 랭킹 Top 10 안에 들었어요.', target: 10, rewardXp: 150 },
+      { id: 'overall-rank-10', tier: 2, title: '상위 10인의 Statling', description: '종합 랭킹 Top 10 안에 들었어요.', target: 10, rewardXp: 150, roomReward: 'purple-background' },
+      // No roomReward yet — a rank-1-only Trophy Room asset is planned for a
+      // future pass; this stays XP-only until that asset exists.
       { id: 'overall-rank-1', tier: 3, title: 'Statling 챔피언', description: '종합 랭킹 1위를 차지했어요.', target: 1, rewardXp: 400 },
     ],
   },
@@ -194,7 +206,7 @@ export const ACHIEVEMENT_FAMILIES: AchievementFamilyDef[] = [
     tiers: [
       { id: 'total-interactions-10', tier: 1, title: '조금 가까워졌어', description: 'Statling과 10번 상호작용했어요.', target: 10, rewardXp: 20 },
       { id: 'total-interactions-100', tier: 2, title: '우리 꽤 친해졌지?', description: 'Statling과 100번 상호작용했어요.', target: 100, rewardXp: 80 },
-      { id: 'total-interactions-500', tier: 3, title: '최고의 단짝', description: 'Statling과 500번 상호작용했어요.', target: 500, rewardXp: 250 },
+      { id: 'total-interactions-500', tier: 3, title: '최고의 단짝', description: 'Statling과 500번 상호작용했어요.', target: 500, rewardXp: 250, roomReward: 'teddybear' },
     ],
   },
   {
@@ -202,28 +214,28 @@ export const ACHIEVEMENT_FAMILIES: AchievementFamilyDef[] = [
     category: 'bond',
     metric: 'feedCount',
     direction: 'atLeast',
-    tiers: [{ id: 'feed-count-20', tier: 1, title: '잘 먹고 잘 크자', description: 'Statling에게 20번 먹이를 줬어요.', target: 20, rewardXp: 40 }],
+    tiers: [{ id: 'feed-count-20', tier: 1, title: '잘 먹고 잘 크자', description: 'Statling에게 20번 먹이를 줬어요.', target: 20, rewardXp: 40, roomReward: 'plant-8' }],
   },
   {
     familyId: 'wash-count',
     category: 'bond',
     metric: 'washCount',
     direction: 'atLeast',
-    tiers: [{ id: 'wash-count-20', tier: 1, title: '깨끗하게 반짝!', description: 'Statling을 20번 씻겨줬어요.', target: 20, rewardXp: 40 }],
+    tiers: [{ id: 'wash-count-20', tier: 1, title: '깨끗하게 반짝!', description: 'Statling을 20번 씻겨줬어요.', target: 20, rewardXp: 40, roomReward: 'ivory-background' }],
   },
   {
     familyId: 'play-count',
     category: 'bond',
     metric: 'playCount',
     direction: 'atLeast',
-    tiers: [{ id: 'play-count-20', tier: 1, title: '놀이는 내가 책임질게', description: 'Statling과 20번 놀아줬어요.', target: 20, rewardXp: 40 }],
+    tiers: [{ id: 'play-count-20', tier: 1, title: '놀이는 내가 책임질게', description: 'Statling과 20번 놀아줬어요.', target: 20, rewardXp: 40, roomReward: 'ball-3' }],
   },
   {
     familyId: 'talk-count',
     category: 'bond',
     metric: 'talkCount',
     direction: 'atLeast',
-    tiers: [{ id: 'talk-count-20', tier: 1, title: '수다 친구', description: 'Statling과 20번 대화했어요.', target: 20, rewardXp: 40 }],
+    tiers: [{ id: 'talk-count-20', tier: 1, title: '수다 친구', description: 'Statling과 20번 대화했어요.', target: 20, rewardXp: 40, roomReward: 'book-4' }],
   },
   {
     familyId: 'pet-count',
@@ -264,8 +276,8 @@ export const ACHIEVEMENT_FAMILIES: AchievementFamilyDef[] = [
     direction: 'atLeast',
     tiers: [
       { id: 'dex-count-5', tier: 1, title: '새로운 친구들', description: '도감에 5종의 Statling을 기록했어요.', target: 5, rewardXp: 40 },
-      { id: 'dex-count-10', tier: 2, title: 'Statling 수집가', description: '도감에 10종의 Statling을 기록했어요.', target: 10, rewardXp: 90 },
-      { id: 'dex-count-30', tier: 3, title: '도감 마스터', description: '도감에 30종의 Statling을 모두 기록했어요.', target: 30, rewardXp: 300 },
+      { id: 'dex-count-10', tier: 2, title: 'Statling 수집가', description: '도감에 10종의 Statling을 기록했어요.', target: 10, rewardXp: 90, roomReward: 'shelf-5' },
+      { id: 'dex-count-30', tier: 3, title: '도감 마스터', description: '도감에 30종의 Statling을 모두 기록했어요.', target: 30, rewardXp: 300, roomReward: 'pink-background' },
     ],
   },
   {
@@ -273,7 +285,10 @@ export const ACHIEVEMENT_FAMILIES: AchievementFamilyDef[] = [
     category: 'collection',
     metric: 'roomDecorSaved',
     direction: 'atLeast',
-    tiers: [{ id: 'room-decor-first-save-1', tier: 1, title: '우리 집 완성!', description: '방 꾸미기를 처음 저장했어요.', target: 1, rewardXp: 20 }],
+    // roomReward is 'clover-frame' — a small wallDecor item, not the
+    // (also-locked) house-frame that's reserved for share-count-10 below so
+    // the two "첫 저장 계열" achievements never hand out the same asset.
+    tiers: [{ id: 'room-decor-first-save-1', tier: 1, title: '우리 집 완성!', description: '방 꾸미기를 처음 저장했어요.', target: 1, rewardXp: 20, roomReward: 'clover-frame' }],
   },
   {
     familyId: 'statling-decor-first-save',
@@ -291,7 +306,15 @@ export const ACHIEVEMENT_FAMILIES: AchievementFamilyDef[] = [
     direction: 'atLeast',
     tiers: [
       { id: 'share-count-1', tier: 1, title: '친구에게 자랑하기', description: 'Statling을 처음 공유했어요.', target: 1, rewardXp: 20 },
-      { id: 'share-count-10', tier: 2, title: 'Statling 전도사', description: 'Statling을 10번 공유했어요.', target: 10, rewardXp: 80 },
+      { id: 'share-count-10', tier: 2, title: 'Statling 전도사', description: 'Statling을 10번 공유했어요.', target: 10, rewardXp: 80, roomReward: 'house-frame' },
     ],
   },
 ]
+
+/** Every family's tiers, flattened in the same order they're declared above — the one place "which comes first" for the tiers below is decided, so a locked Room reward's display order (theme-screen.tsx) and any other cross-tier lookup stay consistent with this file without redefining that order elsewhere. */
+export const ACHIEVEMENT_TIERS_FLAT: readonly AchievementTierDef[] = ACHIEVEMENT_FAMILIES.flatMap((family) => family.tiers)
+
+/** Looks up one tier by its persisted id (e.g. to show "\"개근상\" 업적 달성 보상" for a still-locked Room reward, see theme-screen.tsx) — undefined if `tierId` doesn't match any tier, which should only happen for a stale/removed id. */
+export function findAchievementTier(tierId: string): AchievementTierDef | undefined {
+  return ACHIEVEMENT_TIERS_FLAT.find((tier) => tier.id === tierId)
+}

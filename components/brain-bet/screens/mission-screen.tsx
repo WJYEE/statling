@@ -11,6 +11,7 @@ import { claimDailyMissionReward, evaluateSyncAchievements } from '@/lib/mission
 import { evaluateRankAchievements } from '@/lib/missions/ranking-achievements'
 import { ACHIEVEMENT_CATEGORY_LABELS, type AchievementCategory } from '@/lib/missions/achievements.config'
 import type { AchievementTierProgress } from '@/lib/missions/achievement-evaluator'
+import { ROOM_ASSETS } from '@/lib/room-assets'
 
 type MissionTab = 'daily' | 'achievement'
 
@@ -182,6 +183,10 @@ function AchievementPanel({ statlingName, userId }: { statlingName: string; user
 function AchievementRow({ item }: { item: AchievementTierProgress }) {
   const isRank = RANK_FAMILY_IDS.has(item.familyId)
   const value = item.currentValue ?? 0
+  // Real ROOM_ASSETS PNG (never a placeholder icon) — only set for the
+  // handful of "특별 Achievement" tiers with a roomReward (see
+  // lib/missions/achievements.config.ts). Most tiers stay XP-only.
+  const roomAsset = item.roomReward ? ROOM_ASSETS[item.roomReward] : undefined
 
   return (
     <div className={cn('rounded-2xl px-4 py-3.5 toy-border', item.completed ? 'bg-accent toy-shadow-sm' : 'bg-card')}>
@@ -217,7 +222,18 @@ function AchievementRow({ item }: { item: AchievementTierProgress }) {
           </p>
         </>
       )}
-      <p className="mt-1.5 text-[10px] font-bold text-primary">+{item.rewardXp} XP</p>
+      <div className="mt-1.5 flex items-center justify-between gap-2">
+        <p className="text-[10px] font-bold text-primary">+{item.rewardXp} XP</p>
+        {roomAsset && (
+          <div className="flex min-w-0 items-center gap-1.5 rounded-full bg-secondary/60 py-0.5 pl-0.5 pr-2">
+            <span className="grid h-6 w-6 shrink-0 place-items-center overflow-hidden rounded-full bg-card">
+              {/* eslint-disable-next-line @next/next/no-img-element -- thumbnail of a pre-authored static PNG, matches theme-screen.tsx's convention */}
+              <img src={roomAsset.src} alt="" className="max-h-full max-w-full object-contain" draggable={false} />
+            </span>
+            <span className="truncate text-[10px] font-bold text-foreground">{roomAsset.name}</span>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
