@@ -17,7 +17,13 @@ import { resolveCharacterAnchors } from '@/lib/character-anchor.config'
 import { applyDecoReanchor, spawnDefaultDecoItem } from '@/lib/deco-placement-layout'
 import { deepCloneDecoPlacementState, decoPlacementStatesEqual, type DecoPlacementItem, type DecoPlacementState } from '@/lib/deco-placement-state'
 import { loadSavedDecoPlacementState, saveDecoPlacementState } from '@/lib/deco-placement-storage'
-import { getSupportedDecoAssetById, isDecoUnlocked, SUPPORTED_DECO_ASSETS, type SupportedDecoAsset } from '@/lib/deco-supported-assets'
+import {
+  getSupportedDecoAssetById,
+  isDecoUnlocked,
+  SUPPORTED_DECO_ASSETS,
+  SUPPORTED_DECO_ASSETS_DISPLAY_ORDER,
+  type SupportedDecoAsset,
+} from '@/lib/deco-supported-assets'
 import { loadDecoInventoryState } from '@/lib/deco-inventory-storage'
 import type { PetProfile } from '@/lib/pets/pet-profile'
 import { cn } from '@/lib/utils'
@@ -282,7 +288,7 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
       />
 
       <div className="mt-4 grid grid-cols-5 gap-2 sm:grid-cols-6">
-        {SUPPORTED_DECO_ASSETS.map((asset) => {
+        {SUPPORTED_DECO_ASSETS_DISPLAY_ORDER.map((asset) => {
           const inUse = draftDeco.items.some((item) => item.itemId === asset.id)
           const unlocked = isDecoUnlocked(asset, unlockedLevelGiftIds)
           return (

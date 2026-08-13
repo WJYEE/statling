@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, Crosshair, Sparkles } from 'lucide-react'
 import { Toast } from '@base-ui/react/toast'
 import { CareActionButton } from '@/components/brain-bet/care-action-button'
+import { GiftQaMenu } from '@/components/brain-bet/gift-qa-menu'
 import { PetCareHud } from '@/components/brain-bet/pet-care-hud'
 import { PetMoodView } from '@/components/brain-bet/pet-mood-view'
 import { RoomCanvas } from '@/components/brain-bet/room-canvas'
@@ -30,6 +31,17 @@ import type { PetAnimation } from '@/lib/pet-care/types'
 import { RECONNECT_ANGRY_HOLD_MS } from '@/lib/config/character-state.config'
 import { TALK_EXPRESSION_HOLD_MS } from '@/lib/config/talk.config'
 import { formatLevelLabel } from '@/lib/pet-care/leveling'
+import { LEVEL_GIFT_LEVELS } from '@/lib/deco-supported-assets'
+
+/**
+ * Dev/QA "force a level gift open" control (GiftQaMenu) — same gating
+ * convention as game-flow.tsx's SHOW_QA_SKIP (reused here as its own local
+ * const, matching how statling-screen.tsx/theme-screen.tsx each keep their
+ * own beta-notice flag independent rather than sharing one import). Visible
+ * in local dev by default, or in any build where NEXT_PUBLIC_ENABLE_TEST_SKIP
+ * is explicitly turned on; never shown in a normal production build.
+ */
+const SHOW_GIFT_QA = process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_ENABLE_TEST_SKIP === 'true'
 
 interface RoomScreenProps {
   statlingName: string
@@ -253,6 +265,8 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col px-5 pb-24 pt-4 sm:pb-28 sm:pt-8" data-interaction-mode={mode}>
+      {SHOW_GIFT_QA && <GiftQaMenu levels={LEVEL_GIFT_LEVELS} onTrigger={care.debugTriggerGift} />}
+
       <header className="flex items-center justify-between gap-3">
         <h1 className="flex min-w-0 items-baseline gap-1.5 font-display text-lg font-extrabold text-foreground sm:text-xl">
           <span className="shrink-0 text-xs font-bold text-muted-foreground sm:text-sm">우리 방 ·</span>
@@ -328,6 +342,7 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
               stats={care.petState.stats}
               isOverPetted={care.isOverPetted}
               isOverTalked={care.isOverTalked}
+              isShowerAlreadySatisfied={care.isShowerAlreadySatisfied}
               isReconnectGreeting={isReconnectGreeting}
               isGiftReady={isGiftReady}
               isConsistentPlayer={isConsistentPlayerNow}

@@ -91,6 +91,8 @@ interface PetMoodViewProps {
   isOverPetted?: boolean
   /** True briefly after a talking streak — see hooks/use-pet-care.ts's `isOverTalked`. */
   isOverTalked?: boolean
+  /** True briefly right after a 씻기 press whose cleanliness was already at ceiling BEFORE that press — see hooks/use-pet-care.ts's `isShowerAlreadySatisfied`. */
+  isShowerAlreadySatisfied?: boolean
   /** True briefly right after mount, following a long absence — see room-screen.tsx's `isReconnectGreeting`. */
   isReconnectGreeting?: boolean
   /** True while an unclaimed level-milestone gift is waiting — tapping the Statling (see the click handler below) claims it. */
@@ -136,6 +138,7 @@ export function PetMoodView({
   stats,
   isOverPetted = false,
   isOverTalked = false,
+  isShowerAlreadySatisfied = false,
   isReconnectGreeting = false,
   isGiftReady = false,
   isConsistentPlayer = false,
@@ -201,6 +204,7 @@ export function PetMoodView({
         stats,
         isOverPetted,
         isOverTalked,
+        isShowerAlreadySatisfied,
         isReconnectGreeting,
         isGiftReady,
         isConsistentPlayer,

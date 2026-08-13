@@ -98,3 +98,25 @@ export function isDecoUnlocked(asset: SupportedDecoAsset, unlockedLevelGiftIds: 
 export function getLevelGiftDecoAsset(level: number): SupportedDecoAsset | undefined {
   return SUPPORTED_DECO_ASSETS.find((asset) => asset.unlockSource.type === 'level_gift' && asset.unlockSource.level === level)
 }
+
+/**
+ * Display order for the Statling 꾸미기 grid (statling-screen.tsx): every
+ * `default` item first, in the same relative order SUPPORTED_DECO_ASSETS
+ * already lists them in (Array.prototype.sort is stable), then every
+ * `level_gift` item grouped at the end sorted by level ascending (Lv.5 ->
+ * Lv.50). Claiming a gift only lifts its lock (see `isDecoUnlocked`) — it
+ * never moves the item out of this group, so the grid's overall layout
+ * never shifts just because something got unlocked. Computed once at
+ * module load since SUPPORTED_DECO_ASSETS itself never changes at runtime.
+ */
+export const SUPPORTED_DECO_ASSETS_DISPLAY_ORDER: SupportedDecoAsset[] = [...SUPPORTED_DECO_ASSETS].sort((a, b) => {
+  const rank = (asset: SupportedDecoAsset) => (asset.unlockSource.type === 'level_gift' ? 1 : 0)
+  const rankDiff = rank(a) - rank(b)
+  if (rankDiff !== 0) return rankDiff
+  return a.unlockSource.type === 'level_gift' && b.unlockSource.type === 'level_gift' ? a.unlockSource.level - b.unlockSource.level : 0
+})
+
+/** Every level with a Statling Decoration gift, ascending (Lv.5, 10, ..., 50) — the single source of truth for both the QA gift trigger (gift-qa-menu.tsx) and the level_gift ordering above. */
+export const LEVEL_GIFT_LEVELS: number[] = SUPPORTED_DECO_ASSETS_DISPLAY_ORDER.filter(
+  (asset): asset is SupportedDecoAsset & { unlockSource: { type: 'level_gift'; level: number } } => asset.unlockSource.type === 'level_gift',
+).map((asset) => asset.unlockSource.level)

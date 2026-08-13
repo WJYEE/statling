@@ -2,7 +2,6 @@ import {
   FEED_SATIETY_MAX_THRESHOLD,
   PET_AFFECTION_MAX_THRESHOLD,
   PLAY_HAPPINESS_MAX_THRESHOLD,
-  SHOWER_CLEANLINESS_MAX_THRESHOLD,
 } from '@/lib/config/pet-care.config'
 import {
   EXCITED_HAPPINESS_THRESHOLD,
@@ -237,6 +236,18 @@ export interface InteractionStateContext {
   /** "미니게임을 일정 수준 이상 꾸준히 플레이했을 때" — see lib/pet-care/pet-memory.ts#isConsistentPlayer. */
   isConsistentPlayer?: boolean
   /**
+   * True for a few seconds right after a 씻기 press whose cleanliness was
+   * ALREADY at/above SHOWER_CLEANLINESS_MAX_THRESHOLD *before* that press —
+   * see hooks/use-pet-care.ts's `isShowerAlreadySatisfied`. Deliberately a
+   * flag computed from the pre-action stat, not `stats.cleanliness` itself:
+   * by the time this renders, `stats` already reflects the shower's own
+   * +cleanliness delta (state update happens before the 'wash' animation
+   * plays), so comparing the post-delta value against the same ceiling used
+   * to grant the delta was always true for an ordinary shower too — the bug
+   * this flag fixes (see the 'wash' case below).
+   */
+  isShowerAlreadySatisfied?: boolean
+  /**
    * Wins over everything else below, unconditionally — a 대화 answer's own
    * expression (happy/thinking/embarrassed/love/tired/...), held for a few
    * seconds by room-screen.tsx regardless of what mood/animation/stats would
@@ -255,6 +266,7 @@ export function characterStateForInteraction({
   isReconnectGreeting = false,
   isGiftReady = false,
   isConsistentPlayer = false,
+  isShowerAlreadySatisfied = false,
   forcedStateKey,
 }: InteractionStateContext): CharacterStateKey {
   if (forcedStateKey) return forcedStateKey
@@ -272,10 +284,11 @@ export function characterStateForInteraction({
       if (stats.satiety < FEED_SATIETY_MAX_THRESHOLD) return 'eat'
       break
     case 'wash':
-      // Already clean: reads as "어, 씻길 게 없는데?" surprise, not a fallback
-      // to idle — mirrors performClean's alreadyClean case (always 'shake').
-      if (stats.cleanliness < SHOWER_CLEANLINESS_MAX_THRESHOLD) return 'wash'
-      return 'surprised'
+      // Already clean (per isShowerAlreadySatisfied, computed from the
+      // PRE-shower cleanliness — see this prop's doc comment above): reads
+      // as "어, 씻길 게 없는데?" surprise, not a fallback to idle — mirrors
+      // performClean's alreadyClean case (always 'shake').
+      return isShowerAlreadySatisfied ? 'surprised' : 'wash'
     case 'play':
     case 'playAlone':
       if (stats.happiness < PLAY_HAPPINESS_MAX_THRESHOLD) return 'play'

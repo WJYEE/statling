@@ -11,6 +11,7 @@ import {
   OVERPET_COUNT_THRESHOLD,
   OVERPET_WINDOW_MS,
   OVERPET_REACTION_HOLD_MS,
+  SHOWER_CLEANLINESS_MAX_THRESHOLD,
 } from '@/lib/config/pet-care.config'
 import {
   GIFT_LEVEL_INTERVAL,
@@ -106,6 +107,17 @@ export function usePetCare() {
   /** Mirrors isOverPetted/petClickTimestampsRef exactly, for the 'talk' action — see the 'talk' case in performAction below. */
   const [isOverTalked, setIsOverTalked] = useState(false)
   const talkClickTimestampsRef = useRef<number[]>([])
+  /**
+   * True for REACTION_FEEDBACK_MS right after a 씻기 press whose cleanliness
+   * was already >= SHOWER_CLEANLINESS_MAX_THRESHOLD BEFORE that press — see
+   * the 'shower' case in performAction below. Computed from the pre-action
+   * snapshot deliberately: by the time this state's consumer
+   * (characterStateForInteraction) renders, `petState.stats.cleanliness`
+   * already reflects performShower's own +cleanliness delta, so it can no
+   * longer tell "was already clean" apart from "just got cleaned" on its
+   * own — see lib/character-state-assets.ts's `isShowerAlreadySatisfied` doc.
+   */
+  const [isShowerAlreadySatisfied, setIsShowerAlreadySatisfied] = useState(false)
 
   const petStateRef = useRef(petState)
   petStateRef.current = petState
@@ -269,10 +281,20 @@ export function usePetCare() {
         finalizeAction(performFeed(pet, now))
         trackCareInteractionDeferred(actionId, now)
         return
-      case 'shower':
+      case 'shower': {
+        // Snapshot BEFORE performShower's own cleanliness delta lands (see
+        // isShowerAlreadySatisfied's doc comment) — same threshold
+        // showerTier (lib/pet-care/care-reactions.ts) already uses to
+        // decide "already clean", just read here too so the art layer gets
+        // an accurate pre-action signal instead of the post-action stats.
+        if (pet.stats.cleanliness >= SHOWER_CLEANLINESS_MAX_THRESHOLD) {
+          setIsShowerAlreadySatisfied(true)
+          schedule(() => setIsShowerAlreadySatisfied(false), REACTION_FEEDBACK_MS)
+        }
         finalizeAction(performShower(pet, now))
         trackCareInteractionDeferred(actionId, now)
         return
+      }
       case 'clean': {
         const result = performClean(pet, room, now)
         finalizeAction(result, result.roomState)
@@ -349,6 +371,22 @@ export function usePetCare() {
   }
 
   /**
+   * QA/dev only — forces `giftReadyLevel` to `level` directly, WITHOUT
+   * touching intimacyLevel/intimacyExp, so any single level's gift (PNG,
+   * banner, character-click claim, inventory unlock, reward toast) can be
+   * exercised without grinding real XP up to it. `claimGift` above is
+   * completely untouched by this — once triggered, claiming runs through
+   * the exact same production code path a real level-up gift would. See
+   * components/brain-bet/gift-qa-menu.tsx, only ever rendered in dev/QA
+   * builds (room-screen.tsx's SHOW_GIFT_QA).
+   */
+  function debugTriggerGift(level: number) {
+    const nextState: PetCareState = { ...petStateRef.current, giftReadyLevel: level }
+    setPetState(nextState)
+    savePetCareState(nextState)
+  }
+
+  /**
    * The entry point autonomous bonuses (sleep/playAlone) and minigame
    * reactions use to touch PetCareState. Shares `finalizeAction`'s
    * clamp/exp/level-up/save/floating-delta handling, but deliberately does
@@ -411,6 +449,7 @@ export function usePetCare() {
     levelUpEvent,
     isOverPetted,
     isOverTalked,
+    isShowerAlreadySatisfied,
     lastUserActionAt,
     expToNext: expRequiredForLevel(petState.intimacyLevel),
     cooldowns,
@@ -418,6 +457,7 @@ export function usePetCare() {
     performAction,
     applyEffect,
     claimGift,
+    debugTriggerGift,
     registerTalkOpen,
     answerTalk,
     /** Puts a line straight in the character's speech bubble with no stat/cooldown/exp effect — same direct showSpeech call claimGift uses for its own fixed thank-you line, just for an arbitrary caller-supplied line (room-screen.tsx uses it to show a 대화 question's prompt text). */
