@@ -39,9 +39,10 @@ interface StatlingScreenProps {
 type StatlingView = 'main' | 'room' | 'dex'
 
 /**
- * Beta-only messaging, mirrors theme-screen.tsx's SHOW_BETA_FURNITURE_NOTICE
- * exactly (own flag so either notice can be turned off independently once a
- * real shop/currency/unlock system ships for that surface).
+ * Beta framing for the notice card below, mirrors theme-screen.tsx's
+ * SHOW_BETA_FURNITURE_NOTICE (own flag so either notice can be turned off
+ * independently) — default stickers are free, the rest unlock via level-up
+ * gifts (see SupportedDecoAsset.unlockSource, lib/statling-deco-unlock.ts).
  */
 const SHOW_BETA_DECO_NOTICE = process.env.NEXT_PUBLIC_ENABLE_BETA_DECO_NOTICE !== 'false'
 
@@ -107,7 +108,13 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
     }))
   }
 
-  /** Each supported item can only be placed once — tapping an already-placed item just selects it (e.g. to drag it), instead of adding a duplicate sticker. Mirrors theme-screen.tsx#handleAssetClick. */
+  /**
+   * Each supported item can only be placed once — tapping an already-placed
+   * item just selects it (e.g. to drag it), instead of adding a duplicate
+   * sticker. Mirrors theme-screen.tsx#handleAssetClick, including the same
+   * "locked only blocks a brand-new placement, never an already-placed
+   * instance" rule.
+   */
   function handleAssetTap(assetId: string) {
     const existing = draftDeco.items.find((item) => item.itemId === assetId)
     if (existing) {
@@ -116,6 +123,7 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
     }
     const asset = SUPPORTED_DECO_ASSETS.find((a) => a.id === assetId)
     if (!asset) return
+    if (!isDecoUnlocked(asset, unlockedLevelGiftIds)) return
     const newItem = spawnDefaultDecoItem(asset, draftDeco.items, anchors)
     setDraftDeco((prev) => ({ ...prev, items: [...prev.items, newItem] }))
     setSelectedInstanceId(newItem.instanceId)
@@ -298,6 +306,7 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
               onClick={() => (unlocked ? handleAssetTap(asset.id) : handleLockedTap(asset))}
               aria-label={unlocked ? `${asset.name} 붙이기` : `${asset.name} — 잠김`}
               aria-pressed={inUse}
+              aria-disabled={!unlocked && !inUse}
               className={cn(
                 'flex flex-col items-center gap-1 rounded-2xl bg-card p-2 toy-border transition-transform active:translate-y-0.5',
                 inUse && 'ring-2 ring-primary',

@@ -52,6 +52,11 @@ export interface RoomAsset {
 
 const ROOM_BASE = '/assets/statling/room'
 
+const DEFAULT: RoomUnlockSource = { type: 'default' }
+function achievement(tierId: string): RoomUnlockSource {
+  return { type: 'achievement', tierId }
+}
+
 export const ROOM_ASSETS: Record<string, RoomAsset> = {
   // -- backgrounds ------------------------------------------------------
   // All 7 entries below share one normalization pass so switching between
@@ -74,6 +79,7 @@ export const ROOM_ASSETS: Record<string, RoomAsset> = {
     src: `${ROOM_BASE}/backgrounds/wood_back-normalized.png`,
     naturalWidth: 724,
     naturalHeight: 724,
+    unlockSource: DEFAULT,
   },
   'green-background': {
     id: 'green-background',
@@ -82,6 +88,7 @@ export const ROOM_ASSETS: Record<string, RoomAsset> = {
     src: `${ROOM_BASE}/backgrounds/green_back-normalized.png`,
     naturalWidth: 724,
     naturalHeight: 724,
+    unlockSource: DEFAULT,
   },
   'bluegrey-background': {
     id: 'bluegrey-background',
@@ -143,6 +150,7 @@ export const ROOM_ASSETS: Record<string, RoomAsset> = {
     src: `${ROOM_BASE}/windows/wood_window.png`,
     naturalWidth: 298,
     naturalHeight: 313,
+    unlockSource: DEFAULT,
   },
   'green-window': {
     id: 'green-window',
@@ -151,6 +159,7 @@ export const ROOM_ASSETS: Record<string, RoomAsset> = {
     src: `${ROOM_BASE}/windows/green_window.png`,
     naturalWidth: 277,
     naturalHeight: 264,
+    unlockSource: DEFAULT,
   },
   'pink-window': {
     id: 'pink-window',
@@ -159,23 +168,24 @@ export const ROOM_ASSETS: Record<string, RoomAsset> = {
     src: `${ROOM_BASE}/windows/pink_window.png`,
     naturalWidth: 451,
     naturalHeight: 376,
+    unlockSource: achievement('room-decor-first-save-1'),
   },
 
   // -- rugs ------------------------------------------------------
-  'wood-rug': { id: 'wood-rug', name: '우드 러그', category: 'rug', src: `${ROOM_BASE}/rugs/wood_rug.png`, naturalWidth: 355, naturalHeight: 166 },
-  'green-rug': { id: 'green-rug', name: '그린 러그', category: 'rug', src: `${ROOM_BASE}/rugs/green_rug.png`, naturalWidth: 340, naturalHeight: 154 },
-  'pink-rug': { id: 'pink-rug', name: '핑크 러그', category: 'rug', src: `${ROOM_BASE}/rugs/pink_rug.png`, naturalWidth: 334, naturalHeight: 145 },
+  'wood-rug': { id: 'wood-rug', name: '우드 러그', category: 'rug', src: `${ROOM_BASE}/rugs/wood_rug.png`, naturalWidth: 355, naturalHeight: 166, unlockSource: DEFAULT },
+  'green-rug': { id: 'green-rug', name: '그린 러그', category: 'rug', src: `${ROOM_BASE}/rugs/green_rug.png`, naturalWidth: 340, naturalHeight: 154, unlockSource: DEFAULT },
+  'pink-rug': { id: 'pink-rug', name: '핑크 러그', category: 'rug', src: `${ROOM_BASE}/rugs/pink_rug.png`, naturalWidth: 334, naturalHeight: 145, unlockSource: achievement('attendance-total-days-7') },
 
   // -- furniture ------------------------------------------------------
-  'wood-drawer': { id: 'wood-drawer', name: '우드 서랍장', category: 'furniture', src: `${ROOM_BASE}/furniture/wood_drawer.png`, naturalWidth: 223, naturalHeight: 222 },
-  'green-drawer': { id: 'green-drawer', name: '그린 서랍장', category: 'furniture', src: `${ROOM_BASE}/furniture/green_drawer.png`, naturalWidth: 189, naturalHeight: 205 },
-  'pink-drawer': { id: 'pink-drawer', name: '핑크 서랍장', category: 'furniture', src: `${ROOM_BASE}/furniture/pink_drawer.png`, naturalWidth: 175, naturalHeight: 192 },
-  'wood-bigchair': { id: 'wood-bigchair', name: '우드 포근한 의자', category: 'furniture', src: `${ROOM_BASE}/furniture/wood_bigchair.png`, naturalWidth: 277, naturalHeight: 172 },
-  'green-bigchair': { id: 'green-bigchair', name: '그린 포근한 의자', category: 'furniture', src: `${ROOM_BASE}/furniture/green_bigchair.png`, naturalWidth: 195, naturalHeight: 172 },
-  'pink-bigchair': { id: 'pink-bigchair', name: '핑크 포근한 의자', category: 'furniture', src: `${ROOM_BASE}/furniture/pink_bigchair.png`, naturalWidth: 202, naturalHeight: 178 },
-  'wood-chair': { id: 'wood-chair', name: '우드 의자', category: 'furniture', src: `${ROOM_BASE}/furniture/wood_chair.png`, naturalWidth: 175, naturalHeight: 195 },
-  'green-chair': { id: 'green-chair', name: '그린 의자', category: 'furniture', src: `${ROOM_BASE}/furniture/green_chair.png`, naturalWidth: 162, naturalHeight: 193 },
-  'pink-chair': { id: 'pink-chair', name: '핑크 의자', category: 'furniture', src: `${ROOM_BASE}/furniture/pink_chair.png`, naturalWidth: 163, naturalHeight: 195 },
+  'wood-drawer': { id: 'wood-drawer', name: '우드 서랍장', category: 'furniture', src: `${ROOM_BASE}/furniture/wood_drawer.png`, naturalWidth: 223, naturalHeight: 222, unlockSource: DEFAULT },
+  'green-drawer': { id: 'green-drawer', name: '그린 서랍장', category: 'furniture', src: `${ROOM_BASE}/furniture/green_drawer.png`, naturalWidth: 189, naturalHeight: 205, unlockSource: DEFAULT },
+  'pink-drawer': { id: 'pink-drawer', name: '핑크 서랍장', category: 'furniture', src: `${ROOM_BASE}/furniture/pink_drawer.png`, naturalWidth: 175, naturalHeight: 192, unlockSource: achievement('feed-count-20') },
+  'wood-bigchair': { id: 'wood-bigchair', name: '우드 포근한 의자', category: 'furniture', src: `${ROOM_BASE}/furniture/wood_bigchair.png`, naturalWidth: 277, naturalHeight: 172, unlockSource: DEFAULT },
+  'green-bigchair': { id: 'green-bigchair', name: '그린 포근한 의자', category: 'furniture', src: `${ROOM_BASE}/furniture/green_bigchair.png`, naturalWidth: 195, naturalHeight: 172, unlockSource: achievement('total-interactions-10') },
+  'pink-bigchair': { id: 'pink-bigchair', name: '핑크 포근한 의자', category: 'furniture', src: `${ROOM_BASE}/furniture/pink_bigchair.png`, naturalWidth: 202, naturalHeight: 178, unlockSource: achievement('intimacy-level-10') },
+  'wood-chair': { id: 'wood-chair', name: '우드 의자', category: 'furniture', src: `${ROOM_BASE}/furniture/wood_chair.png`, naturalWidth: 175, naturalHeight: 195, unlockSource: DEFAULT },
+  'green-chair': { id: 'green-chair', name: '그린 의자', category: 'furniture', src: `${ROOM_BASE}/furniture/green_chair.png`, naturalWidth: 162, naturalHeight: 193, unlockSource: DEFAULT },
+  'pink-chair': { id: 'pink-chair', name: '핑크 의자', category: 'furniture', src: `${ROOM_BASE}/furniture/pink_chair.png`, naturalWidth: 163, naturalHeight: 195, unlockSource: achievement('attendance-streak-3') },
   // wood-lantern.png is a real, existing file, but its actual pixel content
   // is a duplicate of plants/wood_plant.png (a potted plant), not a lamp —
   // almost certainly a mislabeled/misexported source asset. Cataloged

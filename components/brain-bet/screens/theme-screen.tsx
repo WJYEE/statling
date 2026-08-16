@@ -339,6 +339,7 @@ export function ThemeScreen({ topStat, petProfile, onDirtyChange }: ThemeScreenP
                   : `${asset.name} — 잠김`
               }
               aria-pressed={inUse}
+              aria-disabled={!unlocked && !inUse}
               className={cn(
                 'flex flex-col items-center gap-1 rounded-2xl bg-card p-2 toy-border transition-transform active:translate-y-0.5',
                 inUse && 'ring-2 ring-primary',
