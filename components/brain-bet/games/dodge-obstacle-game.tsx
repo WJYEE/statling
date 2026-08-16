@@ -89,6 +89,20 @@ export function DodgeObstacleGame({
   const [survivedDisplayMs, setSurvivedDisplayMs] = useState(0)
   const [flash, setFlash] = useState<'dodge' | 'hit' | null>(null)
 
+  /**
+   * Synchronous mirror of `obstacles`, always up to date the instant an
+   * obstacle is added or resolved — unlike a `setObstacles(prev => ...)`
+   * functional updater, which React does not guarantee runs synchronously
+   * at call time (it can be deferred to the render phase, e.g. whenever
+   * this fiber already has another update pending — which it always does
+   * here, since `setSurvivedDisplayMs` runs earlier in the very same
+   * frame). The rAF loop below reads this ref to decide "did a hazard
+   * collision just happen" so that decision — and the resulting
+   * `finish()` call for Extreme's 1-hit-ends rule — never depends on
+   * React's state-update scheduling.
+   */
+  const obstaclesRef = useRef<Obstacle[]>([])
+
   const playerLaneRef = useRef<Lane>(1)
   const eventsRef = useRef<DodgeObstacleEvent[]>([])
   const moveReactionTimesRef = useRef<number[]>([])
@@ -135,6 +149,12 @@ export function DodgeObstacleGame({
     onComplete({ events: eventsRef.current, rawSummary, gameScore })
   }
 
+  /** Appends newly spawned obstacles to the synchronous ref first, then mirrors it into React state for rendering — keeps the two never out of sync. */
+  const appendObstacles = (items: Obstacle[]) => {
+    obstaclesRef.current = [...obstaclesRef.current, ...items]
+    setObstacles(obstaclesRef.current)
+  }
+
   const moveTo = (lane: Lane) => {
     if (stage !== 'playing' || tutorialOpen) return
     if (lane === playerLaneRef.current) return
@@ -171,7 +191,7 @@ export function DodgeObstacleGame({
         ...hazardLanes.map((lane) => ({ id: obstacleIdCounter++, lane, spawnedAt: now, resolved: false, kind: 'hazard' as const })),
         { id: obstacleIdCounter++, lane: safeLane, spawnedAt: now, resolved: false, kind: 'safe' as const },
       ]
-      setObstacles((prev) => [...prev, ...newObstacles])
+      appendObstacles(newObstacles)
       lastSpawnLaneRef.current = hazardLanes[0]
       lastSpawnWasDoubleRef.current = false
       if (!pendingThreatRef.current) {
@@ -206,7 +226,7 @@ export function DodgeObstacleGame({
     lastSpawnWasDoubleRef.current = lanesToSpawn.length === 2
 
     const newObstacles: Obstacle[] = lanesToSpawn.map((lane) => ({ id: obstacleIdCounter++, lane, spawnedAt: now, resolved: false, kind: 'hazard' }))
-    setObstacles((prev) => [...prev, ...newObstacles])
+    appendObstacles(newObstacles)
 
     if (!pendingThreatRef.current) {
       const threatensPlayer = lanesToSpawn.includes(playerLaneRef.current)
@@ -232,6 +252,11 @@ export function DodgeObstacleGame({
     if (stage !== 'playing') return
 
     const loop = () => {
+      // Defensive: a rAF callback already in flight when finish() cancels
+      // the *next* frame can't un-run itself — this guard just makes sure
+      // such a stale tick can never spawn/mutate obstacles after the game
+      // has already ended.
+      if (finishedRef.current) return
       if (tutorialOpenRef.current) {
         rafRef.current = requestAnimationFrame(loop)
         return
@@ -252,46 +277,52 @@ export function DodgeObstacleGame({
         nextSpawnAtRef.current = now + spawnIntervalAt(elapsed)
       }
 
+      // Collision detection is a plain synchronous pass over `obstaclesRef`
+      // (not a `setObstacles(prev => ...)` functional updater) — the
+      // updater form doesn't guarantee it runs synchronously at call time
+      // (React can defer it to the render phase, which already happens on
+      // every tick here since `setSurvivedDisplayMs` above always dirties
+      // this fiber first), so `finish()` for Extreme's 1-hit-ends rule must
+      // never depend on it. `setObstacles` below is purely to push the
+      // already-decided result into rendering.
+      const speed = speedAt(elapsed)
+      let changed = false
       let collisionSurvivedMs: number | null = null
-
-      setObstacles((prev) => {
-        const speed = speedAt(elapsed)
-        let changed = false
-        const next = prev.map((o) => {
-          if (o.resolved) return o
-          const y = ((now - o.spawnedAt) / 1000) * speed
-          if (y >= HIT_LINE_PX) {
-            changed = true
-            // Green-gap's safe marker is never a collision, in any lane — it
-            // only ever means "stand here," so it always resolves as a
-            // harmless dodge regardless of where the player is standing.
-            if (o.kind === 'safe') {
-              eventsRef.current.push({ kind: 'dodged', lane: o.lane, atMs: elapsed })
-              return { ...o, resolved: true }
-            }
-            const collided = o.lane === playerLaneRef.current
-            eventsRef.current.push({ kind: collided ? 'collided' : 'dodged', lane: o.lane, atMs: elapsed })
-            if (collided) {
-              play('wrong')
-              if (now - lastCollisionAtRef.current > DODGE_OBSTACLE_COLLISION_COOLDOWN_MS) {
-                lastCollisionAtRef.current = now
-                setFlash('hit')
-              }
-              // Endless mode (Extreme): the first collision ends the run — capture elapsed now, finish() is called once after this state update settles. Fixed-time tiers just keep going.
-              if (tierConfig.mode === 'endless' && collisionSurvivedMs === null) collisionSurvivedMs = elapsed
-            } else {
-              play('answer-correct')
-              setFlash((f) => f ?? 'dodge')
-              window.setTimeout(() => setFlash((f) => (f === 'dodge' ? null : f)), 150)
-            }
-            return { ...o, resolved: true }
+      const next = obstaclesRef.current.map((o) => {
+        if (o.resolved) return o
+        const y = ((now - o.spawnedAt) / 1000) * speed
+        if (y < HIT_LINE_PX) return o
+        changed = true
+        // Green-gap's safe marker is never a collision, in any lane — it
+        // only ever means "stand here," so it always resolves as a
+        // harmless dodge regardless of where the player is standing.
+        if (o.kind === 'safe') {
+          eventsRef.current.push({ kind: 'dodged', lane: o.lane, atMs: elapsed })
+          return { ...o, resolved: true }
+        }
+        const collided = o.lane === playerLaneRef.current
+        eventsRef.current.push({ kind: collided ? 'collided' : 'dodged', lane: o.lane, atMs: elapsed })
+        if (collided) {
+          play('wrong')
+          if (now - lastCollisionAtRef.current > DODGE_OBSTACLE_COLLISION_COOLDOWN_MS) {
+            lastCollisionAtRef.current = now
+            setFlash('hit')
           }
-          return o
-        })
-        // Drop long-resolved obstacles so the array doesn't grow unbounded over a long run.
-        const trimmed = next.filter((o) => now - o.spawnedAt < 4000)
-        return changed || trimmed.length !== prev.length ? trimmed : prev
+          // Endless mode (Extreme): the first hazard collision ends the run — capture elapsed now, finish() is called immediately below, still within this same synchronous tick. Fixed-time tiers just keep going.
+          if (tierConfig.mode === 'endless' && collisionSurvivedMs === null) collisionSurvivedMs = elapsed
+        } else {
+          play('answer-correct')
+          setFlash((f) => f ?? 'dodge')
+          window.setTimeout(() => setFlash((f) => (f === 'dodge' ? null : f)), 150)
+        }
+        return { ...o, resolved: true }
       })
+      // Drop long-resolved obstacles so the array doesn't grow unbounded over a long run.
+      const trimmed = next.filter((o) => now - o.spawnedAt < 4000)
+      if (changed || trimmed.length !== obstaclesRef.current.length) {
+        obstaclesRef.current = trimmed
+        setObstacles(trimmed)
+      }
 
       if (collisionSurvivedMs !== null) {
         finish(collisionSurvivedMs)
@@ -320,6 +351,7 @@ export function DodgeObstacleGame({
     lastSpawnWasDoubleRef.current = false
     scriptedQueueRef.current = []
     finishedRef.current = false
+    obstaclesRef.current = []
     setObstacles([])
     setPlayerLane(1)
     startedAtRef.current = performance.now()
