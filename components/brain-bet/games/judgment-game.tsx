@@ -103,15 +103,23 @@ interface JudgmentGameProps {
 /** Per-rule "last mapping used" memory — lets a rule's re-shuffle avoid repeating its own previous permutation even though the other rule always plays in between. */
 type LastMappingByRule = Record<JudgmentRuleId, JudgmentRuleMapping | null>
 
-const RULE_LABEL: Record<JudgmentRuleId, string> = { shape: '모양 규칙', count: '개수 규칙' }
-const RULE_FOCUS_LABEL: Record<JudgmentRuleId, string> = { shape: '모양', count: '개수' }
+const RULE_LABEL: Record<JudgmentRuleId, string> = { shape: '모양 규칙', count: '개수 규칙', direction: '방향 규칙' }
+const RULE_FOCUS_LABEL: Record<JudgmentRuleId, string> = { shape: '모양', count: '개수', direction: '화살표 방향' }
 const ANSWER_ICON: Record<JudgmentAnswer, string> = { left: '←', right: '→', down: '↓' }
 const SHAPE_LABEL: Record<JudgmentStimulus['shape'], string> = { circle: '동그라미', square: '네모', triangle: '세모' }
 const COUNT_LABEL: Record<JudgmentStimulus['dotCount'], string> = { 1: '점 1개', 2: '점 2개', 3: '점 3개' }
+const DIRECTION_LABEL: Record<JudgmentStimulus['pointerDirection'], string> = { left: '왼쪽', up: '위', right: '오른쪽' }
 
-/** A mapping value is either a shape name or a dot count — `typeof` alone tells them apart, no rule-id context or casts needed. */
+/**
+ * A mapping value is a dot count, a shape name, or a pointer direction.
+ * `typeof` alone still separates the number case (dotCount), but shape and
+ * direction are both plain strings now — checked by set membership instead
+ * (their value sets are disjoint, so this is unambiguous).
+ */
 function mappingValueLabel(value: JudgmentMappingValue): string {
-  return typeof value === 'number' ? COUNT_LABEL[value] : SHAPE_LABEL[value]
+  if (typeof value === 'number') return COUNT_LABEL[value]
+  if (value in SHAPE_LABEL) return SHAPE_LABEL[value as JudgmentStimulus['shape']]
+  return DIRECTION_LABEL[value as JudgmentStimulus['pointerDirection']]
 }
 
 /** What a given answer button maps to under the CURRENT (randomized, per-segment) mapping — shown directly on the button so nothing needs to be memorized by position. */
@@ -130,12 +138,13 @@ function labelForAnswer(mapping: JudgmentRuleMapping, answer: JudgmentAnswer): s
  */
 function buildSegmentBlocks(
   segmentIndex: number,
+  difficulty: GameDifficulty,
   forcedRuleId: JudgmentRuleId | null,
   startKey: number,
   previousMapping: JudgmentRuleMapping | null,
   lastMappingForRule: JudgmentRuleMapping | null,
 ): { blocks: QueueBlock[]; nextKey: number; mapping: JudgmentRuleMapping } {
-  const segmentConfig = getSegmentConfig(segmentIndex)
+  const segmentConfig = getSegmentConfig(segmentIndex, difficulty)
   const ruleId = forcedRuleId ?? segmentConfig.ruleId
   const { choiceCount, length, conflictRatioMin, conflictRatioMax } = segmentConfig
   const mapping = generateRuleMapping(ruleId, choiceCount, lastMappingForRule)
@@ -161,6 +170,7 @@ function buildSegmentBlocks(
 /** Keeps the queue topped up to JUDGMENT_QUEUE_PREVIEW_COUNT by generating whole segments ahead of time — the real queue is functionally endless until the Time Attack timer runs out. `forcedRuleId` is threaded straight through to buildSegmentBlocks — see its doc comment. */
 function fillQueue(
   current: QueueBlock[],
+  difficulty: GameDifficulty,
   forcedRuleId: JudgmentRuleId | null,
   nextKeyRef: { current: number },
   nextSegmentRef: { current: number },
@@ -170,9 +180,10 @@ function fillQueue(
   let q = current
   while (q.length < JUDGMENT_QUEUE_PREVIEW_COUNT) {
     const segmentIndex = nextSegmentRef.current
-    const ruleId = forcedRuleId ?? getSegmentConfig(segmentIndex).ruleId
+    const ruleId = forcedRuleId ?? getSegmentConfig(segmentIndex, difficulty).ruleId
     const { blocks, nextKey, mapping } = buildSegmentBlocks(
       segmentIndex,
+      difficulty,
       forcedRuleId,
       nextKeyRef.current,
       previousMappingRef.current,
@@ -289,7 +300,7 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
    */
   const sessionRuleIdRef = useRef<JudgmentRuleId | null>(null)
   const previousMappingRef = useRef<JudgmentRuleMapping | null>(null)
-  const lastMappingByRuleRef = useRef<LastMappingByRule>({ shape: null, count: null })
+  const lastMappingByRuleRef = useRef<LastMappingByRule>({ shape: null, count: null, direction: null })
   const trialsRef = useRef<JudgmentTrial[]>([])
   const blockShownAtRef = useRef(0)
   const endAtRef = useRef(0)
@@ -358,7 +369,7 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
     nextKeyRef.current = 0
     nextSegmentToGenerateRef.current = 0
     previousMappingRef.current = null
-    lastMappingByRuleRef.current = { shape: null, count: null }
+    lastMappingByRuleRef.current = { shape: null, count: null, direction: null }
     trialsRef.current = []
     setTrials([])
     setCombo(0)
@@ -370,6 +381,7 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
     setQueue(
       fillQueue(
         [],
+        difficulty,
         sessionRuleIdRef.current,
         nextKeyRef,
         nextSegmentToGenerateRef,
@@ -411,7 +423,7 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
       // "previous segment's rule" is always this same rule; mode 'free' looks
       // it up from the original per-segment derivation (the one Rule Switch).
       const previousRuleId =
-        current.segmentIndex > 0 ? (sessionRuleIdRef.current ?? getSegmentConfig(current.segmentIndex - 1).ruleId) : null
+        current.segmentIndex > 0 ? (sessionRuleIdRef.current ?? getSegmentConfig(current.segmentIndex - 1, difficulty).ruleId) : null
       const trial: JudgmentTrial = {
         trialIndex: trialsRef.current.length,
         segmentIndex: current.segmentIndex,
@@ -477,7 +489,7 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
     }
 
     const filled = current.recorded
-      ? fillQueue(rest, sessionRuleIdRef.current, nextKeyRef, nextSegmentToGenerateRef, previousMappingRef, lastMappingByRuleRef)
+      ? fillQueue(rest, difficulty, sessionRuleIdRef.current, nextKeyRef, nextSegmentToGenerateRef, previousMappingRef, lastMappingByRuleRef)
       : rest
     setQueue(filled)
     blockShownAtRef.current = performance.now()
@@ -623,7 +635,7 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
             className="grid h-24 w-24 place-items-center rounded-3xl toy-border toy-shadow"
             style={{ backgroundColor: `var(${stat.colorVar})` } as CSSProperties}
           >
-            {renderStimulus({ shape: 'circle', dotCount: 1 }, 'var(--card)', 44)}
+            {renderStimulus({ shape: 'circle', dotCount: 1, pointerDirection: 'up' }, 'var(--card)', 44)}
           </span>
           <div className="max-w-sm">
             <p className="font-display text-lg font-bold leading-snug text-foreground">

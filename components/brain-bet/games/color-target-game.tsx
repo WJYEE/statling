@@ -7,22 +7,20 @@ import { GameTutorialModal, type TutorialContent } from '@/components/brain-bet/
 import { ToyButton } from '@/components/brain-bet/toy-button'
 import { STATS } from '@/lib/brain-bet'
 import {
-  COLOR_TARGET_CHANGE_HIGHLIGHT_MS,
-  COLOR_TARGET_GAME_DURATION_MS,
-  COLOR_TARGET_INTRO_COUNTDOWN_SECONDS,
-  COLOR_TARGET_OBJECT_COUNT_MAX,
-  COLOR_TARGET_OBJECT_COUNT_MIN,
-  COLOR_TARGET_PALETTE,
-  getColorTargetChangeIntervalStagesForDifficulty,
-  getColorTargetReshuffleIntervalForDifficulty,
+  STROOP_COLOR_PALETTE,
+  STROOP_INTRO_COUNTDOWN_SECONDS,
+  STROOP_RULE_SWITCH_COUNTDOWN_SECONDS,
+  getStroopTierConfig,
+  type StroopRule,
 } from '@/lib/config/color-target.config'
 import { GAME_DIFFICULTIES, type GameDifficulty } from '@/lib/game/difficulty'
+import { generateStroopSession, type StroopTrialSpec } from '@/lib/game/stroop-session'
 import type { ColorTargetClickEvent, ColorTargetRawSummary } from '@/lib/game/types'
 import { calculateColorTargetScore, summarizeColorTargetEvents } from '@/lib/scoring/color-target'
 import { cn } from '@/lib/utils'
 import { useSound } from '@/hooks/use-sound'
 
-type Stage = 'intro' | 'countdown' | 'playing'
+type Stage = 'intro' | 'rule-announce' | 'trial' | 'feedback'
 
 interface ColorTargetGameProps {
   index: number
@@ -32,175 +30,131 @@ interface ColorTargetGameProps {
   onBack: () => void
 }
 
-/** 16 fixed non-overlapping slot positions (percent coordinates, 4x4 layout) — avoids real collision math while still keeping objects visually scattered (spec §5 "겹치지 않도록 배치"). */
-const SLOTS = [
-  { left: 12, top: 14 }, { left: 38, top: 14 }, { left: 62, top: 14 }, { left: 88, top: 14 },
-  { left: 12, top: 38 }, { left: 38, top: 38 }, { left: 62, top: 38 }, { left: 88, top: 38 },
-  { left: 12, top: 62 }, { left: 38, top: 62 }, { left: 62, top: 62 }, { left: 88, top: 62 },
-  { left: 12, top: 86 }, { left: 38, top: 86 }, { left: 62, top: 86 }, { left: 88, top: 86 },
-]
-
-/** How long the correct/wrong click flash plays before the clicked object is swapped out. */
-const CLICK_FLASH_MS = 200
-
-interface ActiveObject {
-  key: string
-  colorId: string
-  slotIndex: number
-  scale: number
+const RULE_LABEL: Record<StroopRule, string> = {
+  ink: '글자색을 클릭!',
+  meaning: '텍스트가 가리키는 색을 클릭!',
 }
 
 const TUTORIAL: TutorialContent = {
-  goal: '화면 위에 뜨는 여러 색 오브젝트 중, 지금 목표 색과 같은 것만 클릭해요.',
-  steps: ['상단에 표시된 목표 색을 확인하세요.', '목표 색과 같은 오브젝트만 클릭하세요.', '목표 색은 시간이 지나면 자동으로 바뀌어요.'],
-  scoring: '정확도와 반응 속도를 함께 반영해요. 다른 색을 클릭하면 감점돼요.',
+  goal: '화면에 뜨는 색깔 단어를 보고, 지금 규칙에 맞는 색 버튼을 눌러요.',
+  steps: ['"글자색을 클릭!" 규칙이면 실제로 보이는 글자 색을 고르세요.', '"텍스트가 가리키는 색을 클릭!" 규칙이면 단어가 뜻하는 색을 고르세요.', '규칙이 바뀔 때마다 화면에 크게 안내되니 놓치지 마세요.'],
+  scoring: '정확도와 반응 속도를 함께 반영해요. 글자 색과 단어 뜻이 다를 때 더 헷갈릴 수 있어요.',
+  example: '"파랑"이라는 글자가 빨간색으로 보인다면 -> "글자색을 클릭!" 규칙에서는 빨강이 정답.',
 }
 
-function randomObjects(targetColorId: string): ActiveObject[] {
-  const count = Math.floor(
-    COLOR_TARGET_OBJECT_COUNT_MIN + Math.random() * (COLOR_TARGET_OBJECT_COUNT_MAX - COLOR_TARGET_OBJECT_COUNT_MIN),
-  )
-  const slotOrder = [...SLOTS.keys()].sort(() => Math.random() - 0.5).slice(0, count)
-  const others = COLOR_TARGET_PALETTE.filter((c) => c.id !== targetColorId)
-
-  return slotOrder.map((slotIndex, i) => {
-    // Exactly one object is ever the target color — deterministic, not a
-    // per-object chance, so "목표 색이 판에 없음" can never happen and the
-    // decoy density stays consistent instead of sometimes handing out 2-4
-    // matches by luck.
-    const colorId = i === 0 ? targetColorId : others[Math.floor(Math.random() * others.length)].id
-    return { key: `${slotIndex}-${Date.now()}-${i}`, colorId, slotIndex, scale: 0.85 + Math.random() * 0.3 }
-  })
-}
-
-/** "특정 색만 클릭" — new Focus-stat game (spec §5). */
+/** "특정 색만 클릭" — Focus-stat game, now a Stroop interference task (2026-08 rework). */
 export function ColorTargetGame({ index, mode, difficulty, onComplete, onBack }: ColorTargetGameProps) {
   const stat = STATS.focus
   const { play } = useSound()
-  const changeIntervalStagesMs = useMemo(
-    () => getColorTargetChangeIntervalStagesForDifficulty(difficulty),
-    [difficulty],
-  )
-  const reshuffleIntervalMs = useMemo(
-    () => getColorTargetReshuffleIntervalForDifficulty(difficulty),
-    [difficulty],
-  )
+  const config = useMemo(() => getStroopTierConfig(difficulty), [difficulty])
+  const colors = useMemo(() => STROOP_COLOR_PALETTE.slice(0, config.colorCount), [config])
+  const [trials] = useState<StroopTrialSpec[]>(() => generateStroopSession(config))
+
   const [stage, setStage] = useState<Stage>('intro')
+  const [trialIndex, setTrialIndex] = useState(0)
+  const [selectedColorId, setSelectedColorId] = useState<string | null>(null)
+  const [lastCorrect, setLastCorrect] = useState<boolean | null>(null)
   const [tutorialOpen, setTutorialOpen] = useState(false)
-  const [remainingMs, setRemainingMs] = useState(COLOR_TARGET_GAME_DURATION_MS)
-  const [targetColorId, setTargetColorId] = useState(COLOR_TARGET_PALETTE[0].id)
-  const [objects, setObjects] = useState<ActiveObject[]>([])
-  const [justChanged, setJustChanged] = useState(false)
-  const [lastClick, setLastClick] = useState<{ key: string; correct: boolean } | null>(null)
 
   const eventsRef = useRef<ColorTargetClickEvent[]>([])
-  const targetChangesRef = useRef(0)
-  const targetSetAtRef = useRef(0)
-  const hasHitSinceChangeRef = useRef(false)
-  const elapsedMsRef = useRef(0)
+  const stimulusShownAtRef = useRef(0)
+  const hasResolvedRef = useRef(true)
+  const timeoutRef = useRef<number | null>(null)
+  const tutorialOpenRef = useRef(false)
+  tutorialOpenRef.current = tutorialOpen
 
-  const changeIntervalMs = () => {
-    const stageIndex = Math.min(
-      changeIntervalStagesMs.length - 1,
-      Math.floor((elapsedMsRef.current / COLOR_TARGET_GAME_DURATION_MS) * changeIntervalStagesMs.length),
-    )
-    return changeIntervalStagesMs[stageIndex]
-  }
-
-  const pickNewTarget = (isFirst: boolean) => {
-    if (!isFirst && !hasHitSinceChangeRef.current) {
-      eventsRef.current.push({
-        kind: 'missed',
-        colorId: targetColorId,
-        targetColorId,
-        reactionTimeMs: null,
-        createdAt: new Date().toISOString(),
-      })
+  const clearScheduled = () => {
+    if (timeoutRef.current != null) {
+      window.clearTimeout(timeoutRef.current)
+      timeoutRef.current = null
     }
-    // Never repeat the immediately-previous target color (spec §5: "직전 색과 연속되지 않도록").
-    const candidates = isFirst ? COLOR_TARGET_PALETTE : COLOR_TARGET_PALETTE.filter((c) => c.id !== targetColorId)
-    const next = candidates[Math.floor(Math.random() * candidates.length)]
-    setTargetColorId(next.id)
-    setObjects(randomObjects(next.id))
-    targetSetAtRef.current = performance.now()
-    hasHitSinceChangeRef.current = false
-    targetChangesRef.current += 1
-    setJustChanged(true)
-    window.setTimeout(() => setJustChanged(false), COLOR_TARGET_CHANGE_HIGHLIGHT_MS)
   }
+  useEffect(() => clearScheduled, [])
 
   const finish = () => {
-    const rawSummary = summarizeColorTargetEvents(eventsRef.current, targetChangesRef.current)
+    const rawSummary = summarizeColorTargetEvents(eventsRef.current)
     const gameScore = calculateColorTargetScore(rawSummary)
     onComplete({ events: eventsRef.current, rawSummary, gameScore })
   }
 
-  // Main game clock: ticks down remainingMs. Paused entirely while the tutorial is open. Completion itself is handled by the single dedicated effect below (keyed on remainingMs reaching 0) so onComplete can never fire twice.
-  useEffect(() => {
-    if (stage !== 'playing' || tutorialOpen || remainingMs <= 0) return
-    const t = window.setInterval(() => {
-      elapsedMsRef.current += 100
-      setRemainingMs((ms) => Math.max(0, ms - 100))
-    }, 100)
-    return () => window.clearInterval(t)
-  }, [stage, tutorialOpen, remainingMs])
-
-  useEffect(() => {
-    if (stage !== 'playing' || remainingMs <= 0) return
-    if (tutorialOpen) return
-    const t = window.setTimeout(() => pickNewTarget(false), changeIntervalMs())
-    return () => window.clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reschedules purely off targetColorId changing (a full "target change" tick)
-  }, [targetColorId, stage, tutorialOpen])
-
-  useEffect(() => {
-    if (stage !== 'playing' || tutorialOpen) return
-    const t = window.setInterval(() => setObjects(randomObjects(targetColorId)), reshuffleIntervalMs)
-    return () => window.clearInterval(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- targetColorId read fresh via closure is fine; only stage/tutorialOpen should restart this interval
-  }, [stage, tutorialOpen, reshuffleIntervalMs])
-
-  useEffect(() => {
-    if (remainingMs <= 0 && stage === 'playing') finish()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [remainingMs])
-
-  const startGame = () => setStage('countdown')
-  const startPlaying = () => {
-    elapsedMsRef.current = 0
-    targetChangesRef.current = 0
-    eventsRef.current = []
-    setRemainingMs(COLOR_TARGET_GAME_DURATION_MS)
-    setStage('playing')
-    pickNewTarget(true)
+  const beginTrial = (index: number) => {
+    clearScheduled()
+    hasResolvedRef.current = false
+    stimulusShownAtRef.current = performance.now()
+    setTrialIndex(index)
+    setSelectedColorId(null)
+    setLastCorrect(null)
+    setStage('trial')
+    const armTimeout = () => {
+      timeoutRef.current = window.setTimeout(() => {
+        // The help modal pauses the per-trial clock rather than letting it silently time out underneath it — reschedule instead of resolving while it's open.
+        if (tutorialOpenRef.current) {
+          armTimeout()
+          return
+        }
+        resolveTrial(index, null)
+      }, config.perTrialTimeLimitMs)
+    }
+    armTimeout()
   }
 
-  const handleClick = (obj: ActiveObject) => {
-    if (stage !== 'playing') return
-    const correct = obj.colorId === targetColorId
-    const reactionTimeMs = correct ? Math.round(performance.now() - targetSetAtRef.current) : null
-    play(correct ? 'answer-correct' : 'wrong')
+  const advanceAfter = (index: number) => {
+    const nextIndex = index + 1
+    if (nextIndex >= trials.length) {
+      finish()
+      return
+    }
+    if (trials[nextIndex].isSwitchTrial) {
+      setTrialIndex(nextIndex)
+      setStage('rule-announce')
+      return
+    }
+    window.setTimeout(() => beginTrial(nextIndex), 350)
+  }
+
+  const resolveTrial = (index: number, choiceColorId: string | null) => {
+    if (hasResolvedRef.current) return
+    hasResolvedRef.current = true
+    clearScheduled()
+
+    const trial = trials[index]
+    const reactionTimeMs = choiceColorId ? Math.round(performance.now() - stimulusShownAtRef.current) : null
+    const correct = choiceColorId === trial.correctColorId
+    const kind: ColorTargetClickEvent['kind'] = choiceColorId === null ? 'timeout' : correct ? 'correct' : 'wrong'
+
     eventsRef.current.push({
-      kind: correct ? 'correct' : 'wrong',
-      colorId: obj.colorId,
-      targetColorId,
+      kind,
+      rule: trial.rule,
+      isIncongruent: trial.isIncongruent,
+      isSwitchTrial: trial.isSwitchTrial,
+      colorId: trial.correctColorId,
+      selectedColorId: choiceColorId,
       reactionTimeMs,
       createdAt: new Date().toISOString(),
     })
-    if (correct) hasHitSinceChangeRef.current = true
-    setLastClick({ key: obj.key, correct })
-    window.setTimeout(() => {
-      setLastClick((c) => (c?.key === obj.key ? null : c))
-      // Spawn a fresh target-color object right after the flash instead of
-      // waiting up to COLOR_TARGET_RESHUFFLE_INTERVAL_MS for the next
-      // periodic reshuffle — otherwise the board could sit with zero
-      // matching objects for up to 1.4s right after the only one is found.
-      if (correct) setObjects(randomObjects(targetColorId))
-    }, CLICK_FLASH_MS)
+
+    play(kind === 'correct' ? 'answer-correct' : 'wrong')
+    setSelectedColorId(choiceColorId)
+    setLastCorrect(kind === 'correct')
+    setStage('feedback')
+
+    window.setTimeout(() => advanceAfter(index), 450)
   }
 
-  const targetMeta = COLOR_TARGET_PALETTE.find((c) => c.id === targetColorId) ?? COLOR_TARGET_PALETTE[0]
-  const secondsLeft = Math.ceil(remainingMs / 1000)
+  const startGame = () => setStage('rule-announce')
+  const handleIntroCountdownDone = () => {
+    // The very first rule also gets the announce+countdown treatment, same as every later switch — a player should never start not knowing the active rule.
+    beginTrial(0)
+  }
+
+  const handleChoice = (colorId: string) => {
+    if (stage !== 'trial') return
+    resolveTrial(trialIndex, colorId)
+  }
+
+  const currentTrial = trials[trialIndex]
+  const currentColor = colors.find((c) => c.id === currentTrial?.inkColorId)
+  const wordColor = colors.find((c) => c.id === currentTrial?.wordColorId)
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-6">
@@ -209,11 +163,11 @@ export function ColorTargetGame({ index, mode, difficulty, onComplete, onBack }:
         gameName="특정 색만 클릭"
         mode={mode}
         index={index}
-        objective="목표 색과 같은 오브젝트만 클릭하세요."
+        objective="지금 규칙에 맞는 색을 클릭하세요."
         statusSlot={
-          stage === 'playing' ? (
-            <span className="rounded-xl bg-secondary px-3 py-1.5 text-xs font-bold text-secondary-foreground toy-border" aria-label={`남은 시간 ${secondsLeft}초`}>
-              {secondsLeft}s
+          stage === 'trial' || stage === 'feedback' ? (
+            <span className="rounded-xl bg-secondary px-3 py-1.5 text-xs font-bold text-secondary-foreground toy-border">
+              {trialIndex + 1} / {trials.length}
             </span>
           ) : undefined
         }
@@ -226,56 +180,64 @@ export function ColorTargetGame({ index, mode, difficulty, onComplete, onBack }:
         {stage === 'intro' && (
           <div className="flex flex-1 flex-col items-center justify-center gap-5 rounded-3xl bg-card px-6 py-12 text-center toy-border toy-shadow-lg">
             <p className="font-display text-lg font-bold leading-snug text-foreground">
-              목표 색과 같은 오브젝트만 빠르게 클릭하세요.
+              색깔 단어를 보고, 지금 규칙에 맞는 색을 골라보세요.
             </p>
             <ToyButton onClick={startGame}>시작하기</ToyButton>
           </div>
         )}
 
-        {stage === 'countdown' && (
-          <GameCountdown seconds={COLOR_TARGET_INTRO_COUNTDOWN_SECONDS} onDone={startPlaying} label="곧 시작해요" />
+        {stage === 'rule-announce' && trials[trialIndex] && (
+          <GameCountdown
+            seconds={trialIndex === 0 ? STROOP_INTRO_COUNTDOWN_SECONDS : STROOP_RULE_SWITCH_COUNTDOWN_SECONDS}
+            onDone={trialIndex === 0 ? handleIntroCountdownDone : () => beginTrial(trialIndex)}
+            label={`이번에는 ${RULE_LABEL[trials[trialIndex].rule]}`}
+          />
         )}
 
-        {stage === 'playing' && (
-          <div className="flex flex-1 flex-col rounded-3xl bg-card px-4 py-4 toy-border toy-shadow-lg">
-            <div
-              className={cn(
-                'mx-auto flex items-center gap-2 rounded-2xl px-4 py-2 transition-transform',
-                justChanged && 'scale-110',
-              )}
-              style={{ backgroundColor: `var(${targetMeta.colorVar})` }}
-            >
-              <span className="text-lg" aria-hidden="true">{targetMeta.symbol}</span>
-              <span className="font-display text-sm font-extrabold text-[color:var(--ink)]">목표 색</span>
-            </div>
+        {(stage === 'trial' || stage === 'feedback') && currentTrial && (
+          <div className="flex flex-1 flex-col items-center justify-center gap-8 rounded-3xl bg-card px-6 py-10 toy-border toy-shadow-lg">
+            <span className="rounded-xl bg-secondary px-3 py-1.5 text-xs font-bold text-secondary-foreground toy-border">
+              {RULE_LABEL[currentTrial.rule]}
+            </span>
 
-            <div className="relative mt-3 flex-1 overflow-hidden rounded-2xl bg-secondary/40" style={{ minHeight: 300 }}>
-              {objects.map((obj) => {
-                const meta = COLOR_TARGET_PALETTE.find((c) => c.id === obj.colorId)!
-                const slot = SLOTS[obj.slotIndex]
-                const flash = lastClick?.key === obj.key
+            <p
+              className="font-display text-5xl font-extrabold"
+              style={{ color: `var(${currentColor?.colorVar})` }}
+              aria-label={`${wordColor?.label} 단어가 ${currentColor?.label}으로 표시됨`}
+            >
+              {wordColor?.label}
+            </p>
+
+            <div className="grid w-full grid-cols-3 gap-2.5 sm:grid-cols-5">
+              {colors.map((c) => {
+                const isSelected = selectedColorId === c.id
+                const isCorrectChoice = stage === 'feedback' && c.id === currentTrial.correctColorId
+                const isWrongSelected = stage === 'feedback' && isSelected && c.id !== currentTrial.correctColorId
                 return (
                   <button
-                    key={obj.key}
+                    key={c.id}
                     type="button"
-                    onClick={() => handleClick(obj)}
-                    aria-label={`${meta.symbol} 오브젝트`}
+                    disabled={stage === 'feedback'}
+                    onClick={() => handleChoice(c.id)}
+                    aria-label={c.label}
                     className={cn(
-                      'absolute grid h-14 w-14 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full text-lg font-bold text-[color:var(--ink)] toy-border transition-transform',
-                      flash && (lastClick?.correct ? 'scale-125' : 'scale-90'),
+                      'flex h-14 items-center justify-center rounded-2xl text-sm font-bold text-[color:var(--ink)] toy-border transition-transform active:translate-y-0.5',
+                      isCorrectChoice && 'ring-4 ring-primary',
+                      isWrongSelected && 'ring-4 ring-destructive',
                     )}
-                    style={{
-                      left: `${slot.left}%`,
-                      top: `${slot.top}%`,
-                      backgroundColor: `var(${meta.colorVar})`,
-                      transform: `translate(-50%, -50%) scale(${obj.scale})`,
-                    }}
+                    style={{ backgroundColor: `var(${c.colorVar})` }}
                   >
-                    {meta.symbol}
+                    {c.label}
                   </button>
                 )
               })}
             </div>
+
+            {stage === 'feedback' && (
+              <p className={cn('font-display text-sm font-bold', lastCorrect ? 'text-primary' : 'text-destructive')}>
+                {lastCorrect ? '정답!' : '아쉬워요!'}
+              </p>
+            )}
           </div>
         )}
       </div>

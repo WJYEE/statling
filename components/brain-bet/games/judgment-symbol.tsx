@@ -8,10 +8,20 @@ interface JudgmentSymbolViewProps {
   className?: string
 }
 
+/** Rotation (deg) that turns the base up-pointing arrow into each pointerDirection — see DIRECTION_ARROW_ROTATION below. */
+const DIRECTION_ARROW_ROTATION: Record<JudgmentStimulus['pointerDirection'], number> = {
+  up: 0,
+  right: 90,
+  left: -90,
+}
+
 /**
  * CSS/SVG-only symbol. Shape (circle/square/triangle) carries the Shape Rule
- * cue, dot count (1/2/3) carries the Count Rule cue — color is decorative
- * only, never the deciding cue (GAME_SPEC-style color-vision independence).
+ * cue, dot count (1/2/3) carries the Count Rule cue, the small arrow badge
+ * (top-right) carries the Direction Rule cue (Hard+ only — see
+ * lib/game/types.ts's JudgmentStimulus doc comment for why 'direction' was
+ * used instead of a color-based rule) — color is otherwise decorative only,
+ * never the deciding cue (GAME_SPEC-style color-vision independence).
  */
 export function JudgmentSymbolView({ stimulus, color, size = 64, className }: JudgmentSymbolViewProps) {
   const dotPositions: [number, number][] =
@@ -38,6 +48,11 @@ export function JudgmentSymbolView({ stimulus, color, size = 64, className }: Ju
       {dotPositions.map(([cx, cy]) => (
         <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={5} fill="var(--ink)" />
       ))}
+      <polygon
+        points="54,45 60,55 48,55"
+        fill="var(--ink)"
+        transform={`rotate(${DIRECTION_ARROW_ROTATION[stimulus.pointerDirection]} 54 51)`}
+      />
     </svg>
   )
 }

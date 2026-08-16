@@ -3,26 +3,43 @@ import type { GameDifficulty } from '@/lib/game/difficulty'
 import type { SpatialDistractorType } from '@/lib/game/types'
 
 /** Spatial ("2D Mental Rotation") tuning constants — GAME_SPEC §64-73. */
-/** v2: gameScore reworked to accuracy 60% + mirror 20% + time 15% + timeout 5%, clamped 0-100 (was an unbounded ~800+-scale formula). */
-export const SPATIAL_GAME_VERSION = 'spatial_v2'
+/**
+ * v2: gameScore reworked to accuracy 60% + mirror 20% + time 15% + timeout
+ * 5%, clamped 0-100 (was an unbounded ~800+-scale formula).
+ * v3 (2026-08 difficulty rework): question count AND distractor-type mix
+ * both now vary by tier (SPATIAL_QUESTIONS_PER_LEVEL_BY_TIER /
+ * SPATIAL_LEVEL_DISTRACTOR_TYPES_BY_TIER) instead of one shared table —
+ * Hard/Extreme lean on mirror distractors much more heavily and see more
+ * questions at the hardest levels. 3D/isometric rotation is explicitly OUT
+ * of scope this rework (kept as a documented future extension) — this stays
+ * 2D, same shape-pool/rendering as before.
+ */
+export const SPATIAL_GAME_VERSION = 'spatial_v3'
 
 export const SPATIAL_LEVELS = [1, 2, 3, 4] as const
 
 /**
- * Real question count per Level. Compressed three times now (First Play
- * fatigue reduction): originally a uniform 2/2/2/2 (8 total), then 1/1/1/2,
- * then 1/1/1/1 (4 total), and now 1/0/1/1 (3 total) — Level 2 (the
- * "similar"-only step, the least distinct from Level 1's baseline) dropped
- * entirely. mirrorAccuracy is still measurable (Level 3 already introduces
- * the Mirror distractor too, per SPATIAL_LEVEL_DISTRACTOR_TYPES below), just
- * from fewer samples; retune if that signal turns out too noisy after Beta
- * data.
+ * Real question count per Level, per tier. Easy/Normal keep the original
+ * compressed 1/0/1/1 (3 total) sequence; Hard adds one more Level-4
+ * question (4 total), Extreme adds one more at both Level 3 and 4 (5
+ * total) — the hardest levels get more exposure rather than the whole
+ * session simply getting longer uniformly.
  */
-export const SPATIAL_QUESTIONS_PER_LEVEL: Record<number, number> = { 1: 1, 2: 0, 3: 1, 4: 1 }
-export const SPATIAL_REAL_QUESTIONS = SPATIAL_LEVELS.reduce(
-  (sum, level) => sum + SPATIAL_QUESTIONS_PER_LEVEL[level],
-  0,
-)
+export const SPATIAL_QUESTIONS_PER_LEVEL_BY_TIER: Record<GameDifficulty, Record<number, number>> = {
+  easy: { 1: 1, 2: 0, 3: 1, 4: 1 },
+  normal: { 1: 1, 2: 0, 3: 1, 4: 1 },
+  hard: { 1: 1, 2: 0, 3: 1, 4: 2 },
+  extreme: { 1: 1, 2: 0, 3: 2, 4: 2 },
+}
+
+export function getSpatialQuestionsPerLevelForDifficulty(difficulty: GameDifficulty): Record<number, number> {
+  return SPATIAL_QUESTIONS_PER_LEVEL_BY_TIER[difficulty]
+}
+
+export function getSpatialQuestionCountForDifficulty(difficulty: GameDifficulty): number {
+  const perLevel = SPATIAL_QUESTIONS_PER_LEVEL_BY_TIER[difficulty]
+  return SPATIAL_LEVELS.reduce((sum, level) => sum + perLevel[level], 0)
+}
 
 /**
  * Per-question time limit by Level — GAME_SPEC's "8~12초, 난이도에 따라 조정"
@@ -56,12 +73,39 @@ export const SPATIAL_DIFFICULTY_WEIGHTS: Record<number, number> = {
   4: 2.0,
 }
 
-/** Which 3 distractor types fill a question's non-correct options, by Level — GAME_SPEC §68's 4-step progression, one new element per Level. */
-export const SPATIAL_LEVEL_DISTRACTOR_TYPES: Record<number, SpatialDistractorType[]> = {
-  1: ['unrelated', 'unrelated', 'unrelated'],
-  2: ['similar', 'similar', 'similar'],
-  3: ['mirror', 'similar', 'similar'],
-  4: ['mirror', 'similar', 'unrelated'],
+/**
+ * Which 3 distractor types fill a question's non-correct options, by Level
+ * AND tier — GAME_SPEC §68's 4-step progression, now scaled per tier: Easy
+ * stays gentle even at Level 4 (still mostly unrelated/similar), Normal
+ * introduces mirror only at Level 4, Hard leans on mirror from Level 3
+ * onward, Extreme is mirror-heavy across the board — "가장 헷갈리는 2D
+ * 문제" per the design brief.
+ */
+export const SPATIAL_LEVEL_DISTRACTOR_TYPES_BY_TIER: Record<GameDifficulty, Record<number, SpatialDistractorType[]>> = {
+  easy: {
+    1: ['unrelated', 'unrelated', 'unrelated'],
+    3: ['unrelated', 'unrelated', 'similar'],
+    4: ['similar', 'unrelated', 'unrelated'],
+  },
+  normal: {
+    1: ['unrelated', 'unrelated', 'unrelated'],
+    3: ['similar', 'similar', 'unrelated'],
+    4: ['mirror', 'similar', 'unrelated'],
+  },
+  hard: {
+    1: ['similar', 'unrelated', 'unrelated'],
+    3: ['mirror', 'similar', 'similar'],
+    4: ['mirror', 'mirror', 'similar'],
+  },
+  extreme: {
+    1: ['similar', 'similar', 'unrelated'],
+    3: ['mirror', 'mirror', 'similar'],
+    4: ['mirror', 'mirror', 'mirror'],
+  },
+}
+
+export function getSpatialLevelDistractorTypesForDifficulty(difficulty: GameDifficulty): Record<number, SpatialDistractorType[]> {
+  return SPATIAL_LEVEL_DISTRACTOR_TYPES_BY_TIER[difficulty]
 }
 
 export const SPATIAL_OPTION_COUNT = 4

@@ -766,7 +766,7 @@ export function GameFlow() {
     const isRetry = isRetryAttemptRef.current
     isRetryAttemptRef.current = false
     // gameScore is on BaseGameResult, safe regardless of which of the stat's
-    // two games (패턴 기억 vs 이야기 기억) set the current best.
+    // two games (패턴 기억 vs 물건 기억) set the current best.
     const prevBest = statStatus.memory.current
     // A retry's score always becomes the record, win or lose — see
     // onReactionComplete's isPersonalBest doc comment.
@@ -1098,7 +1098,7 @@ export function GameFlow() {
     setStatStatus((map) => applyGameResult('focus', map, result))
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('focus', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageReactionTimeMs: rawSummary.averageReactionTimeMs }, isPersonalBest)
+    if (result.isValidAttempt) recordSkillCompletion('focus', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageReactionTimeMs: rawSummary.averageReactionTimeMs, switchAccuracy: rawSummary.switchAccuracy }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('focus', activeGameKey, gameScore, false)
     setFinals((f) => ({ ...f, focus: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
@@ -1178,7 +1178,7 @@ export function GameFlow() {
     setStatStatus((map) => applyGameResult('judgment', map, result))
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('judgment', gameScore, result.raw, { averageChoiceQuality: rawSummary.averageChoiceQuality, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
+    if (result.isValidAttempt) recordSkillCompletion('judgment', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('judgment', activeGameKey, gameScore, false)
     setFinals((f) => ({ ...f, judgment: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')

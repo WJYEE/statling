@@ -160,16 +160,30 @@ export interface FocusGameResult extends BaseGameResult {
   rawSummary: FocusRawSummary
 }
 
-export type JudgmentRuleId = 'shape' | 'count'
+/**
+ * 2026-08 difficulty rework added 'direction' as a 3rd rule (Hard/Extreme
+ * only — see lib/config/judgment.config.ts's JUDGMENT_TIER_RULE_CONFIG).
+ * 'color' was the other candidate on the table but deliberately NOT used —
+ * lib/game/judgment-symbol.tsx's existing doc comment states color is
+ * "decorative only, never the deciding cue" as a documented, intentional
+ * color-vision-independence choice for this exact game (mirrors Focus's own
+ * "never color-only" distractor rule) — adding a judged color rule would
+ * have directly reversed that. 'direction' slots into the same
+ * Rule-value-shuffled-onto-Left/Down/Right machinery shape/count already
+ * use, so nothing about that machinery needed to change shape.
+ */
+export type JudgmentRuleId = 'shape' | 'count' | 'direction'
 export type JudgmentAnswer = 'left' | 'right' | 'down'
 
 export interface JudgmentStimulus {
   shape: 'circle' | 'square' | 'triangle'
   dotCount: 1 | 2 | 3
+  /** Which way the small arrow badge (see judgment-symbol.tsx) points — the Direction Rule's cue, decorrelated from shape/dotCount (every shape/count combo sees every direction) so it can't be inferred from the other two attributes. */
+  pointerDirection: 'left' | 'up' | 'right'
 }
 
-/** A value a Rule Mapping can point Left/Down/Right at — a shape identity or a dot count. Extending this later (e.g. a Color union) is what lets a future Color Rule slot in without reworking this type. */
-export type JudgmentMappingValue = JudgmentStimulus['shape'] | JudgmentStimulus['dotCount']
+/** A value a Rule Mapping can point Left/Down/Right at — a shape identity, a dot count, or a pointer direction. */
+export type JudgmentMappingValue = JudgmentStimulus['shape'] | JudgmentStimulus['dotCount'] | JudgmentStimulus['pointerDirection']
 
 /**
  * Which on-screen direction each rule value is currently assigned to — regenerated
@@ -371,7 +385,20 @@ export interface ReasoningGameResult extends BaseGameResult {
 // common with the grid-recall Memory game's per-cell trial log.
 // ---------------------------------------------------------------------------
 
-export type StoryQuestionCategory = 'person' | 'place' | 'order' | 'number' | 'object'
+/**
+ * 2026-08 content rework: this game's underlying task changed from a
+ * read-a-story-then-answer-questions format to a Visual Object Memory
+ * format (show objects, hide them, ask a 4-choice question about what was/
+ * wasn't there — see lib/game/story-memory-data.ts). The gameId/variant
+ * wire strings (`gameId: 'memory'`, `variant: 'story-recall'` below) and
+ * this whole type's field NAMES were deliberately left exactly as they were
+ * — only this union's two literal values changed — so existing
+ * PlayerSkillState records / Hard+Extreme unlock progress for this exact
+ * slot keep working; only the question categories actually being asked
+ * changed. 'absent' = "방금 보지 못했던 물건은?", 'color' = "그 물건은 무슨
+ * 색이었나요?" (Hard/Extreme only).
+ */
+export type StoryQuestionCategory = 'absent' | 'color'
 
 export interface StoryMemoryAnswer {
   questionIndex: number
@@ -383,6 +410,7 @@ export interface StoryMemoryAnswer {
 }
 
 export interface StoryMemoryRawSummary {
+  /** Kept for shape compatibility — no longer a real "story" id, just a per-session identifier (see lib/game/story-memory-data.ts#pickObjectMemorySession). */
   storyId: string
   totalQuestions: number
   correctAnswers: number
@@ -397,21 +425,40 @@ export interface StoryMemoryGameResult extends BaseGameResult {
   rawSummary: StoryMemoryRawSummary
 }
 
+/**
+ * 2026-08 content rework: this game's underlying task changed from "click
+ * the object matching a periodically-changing target color" to a Stroop
+ * interference task (a color word rendered in a mismatched ink color — see
+ * lib/config/color-target.config.ts). gameId/variant wire strings
+ * (`gameId: 'focus'`, `variant: 'color-target'` below) were deliberately
+ * left exactly as they were, same reasoning as StoryMemoryGameResult's doc
+ * comment — only this trial/summary shape changed.
+ */
 export interface ColorTargetClickEvent {
-  kind: 'correct' | 'wrong' | 'missed'
+  kind: 'correct' | 'wrong' | 'timeout'
+  /** Which rule was active for this trial — 'ink' = click the rendered color, 'meaning' = click the color the word names. */
+  rule: 'ink' | 'meaning'
+  /** True when the word's meaning and its rendered ink color differ (the real Stroop-interference trials). */
+  isIncongruent: boolean
+  /** True only for a rule-block's first trial, and only when that block isn't the session's first (no prior rule to switch from) — mirrors JudgmentTrial.isSwitchTrial. */
+  isSwitchTrial: boolean
+  /** The correct answer's color id for this trial. */
   colorId: string
-  targetColorId: string
+  selectedColorId: string | null
   reactionTimeMs: number | null
   createdAt: string
 }
 
 export interface ColorTargetRawSummary {
-  correctClicks: number
-  wrongClicks: number
-  missedTargets: number
-  averageReactionTimeMs: number
-  targetColorChanges: number
+  totalTrials: number
+  correctCount: number
+  wrongCount: number
+  timeoutCount: number
   accuracy: number
+  averageReactionTimeMs: number
+  switchTrials: number
+  switchCorrect: number
+  switchAccuracy: number
 }
 
 export interface ColorTargetGameResult extends BaseGameResult {
@@ -441,20 +488,30 @@ export interface DodgeObstacleGameResult extends BaseGameResult {
   rawSummary: DodgeObstacleRawSummary
 }
 
+/**
+ * 2026-08 content rework: this game's underlying task changed from a
+ * subjective multi-choice "best decision" scenario (0-100 partial-credit
+ * `selectedScore`) to a binary (A/B) fact-comparison quiz with one
+ * objectively correct answer — see lib/game/decision-scenarios.ts. Binary
+ * right/wrong doesn't have a meaningful "partial credit" concept, so this
+ * switched to the same isCorrect-based shape every other accuracy-scored
+ * game already uses. gameId/variant wire strings untouched (see
+ * StoryMemoryGameResult's doc comment for why).
+ */
 export interface BestChoiceAnswer {
   roundIndex: number
   scenarioId: string
-  selectedIndex: number | null
-  selectedScore: number
-  bestPossibleScore: number
+  selectedOption: 'A' | 'B' | null
+  correctOption: 'A' | 'B'
+  isCorrect: boolean
   responseTimeMs: number
   timedOut: boolean
 }
 
 export interface BestChoiceRawSummary {
   totalRounds: number
-  optimalChoices: number
-  averageChoiceQuality: number
+  correctCount: number
+  accuracy: number
   averageResponseTimeMs: number
   timeouts: number
 }
@@ -495,7 +552,7 @@ export interface FitPuzzleGameResult extends BaseGameResult {
 export interface NumberPatternAnswer {
   questionIndex: number
   ruleType: string
-  difficulty: 'easy' | 'normal' | 'hard'
+  difficulty: 'easy' | 'normal' | 'hard' | 'extreme'
   selectedValue: number | null
   correctValue: number
   isCorrect: boolean

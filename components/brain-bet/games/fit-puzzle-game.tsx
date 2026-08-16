@@ -1,6 +1,6 @@
 'use client'
 
-import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react'
+import { type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react'
 import { RotateCw } from 'lucide-react'
 import { GameCountdown } from '@/components/brain-bet/games/shared/game-countdown'
 import { GameHud } from '@/components/brain-bet/games/shared/game-hud'
@@ -40,7 +40,7 @@ interface FitPuzzleGameProps {
 
 const TUTORIAL: TutorialContent = {
   goal: '퍼즐 조각을 드래그해서 빈 공간(점선 테두리)에 알맞게 끼워요.',
-  steps: ['조각을 손가락으로 끌어 빈 공간 위로 옮기세요.', '조각을 탭하면 회전 버튼이 나타나요. 눌러서 90도씩 돌리세요.', '방향과 위치가 맞으면 자동으로 딸깍 끼워져요.'],
+  steps: ['조각을 손가락으로 끌어 빈 공간 위로 옮기세요.', '조각을 탭하면 회전 버튼이 나타나요. 눌러서 90도씩 돌리세요. (PC에서는 조각을 우클릭해도 돌릴 수 있어요)', '방향과 위치가 맞으면 자동으로 딸깍 끼워져요.'],
   scoring: '정확한 배치 수, 완성 시간, 불필요한 조작 횟수를 함께 반영해요.',
 }
 
@@ -61,7 +61,7 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
   const stat = STATS.spatial
   const { play } = useSound()
   const snapToleranceRef = useRef(getFitPuzzleSnapToleranceForDifficulty(difficulty))
-  const [levels] = useState(() => pickFitPuzzleSession())
+  const [levels] = useState(() => pickFitPuzzleSession(difficulty))
   const [stage, setStage] = useState<Stage>('intro')
   const [tutorialOpen, setTutorialOpen] = useState(false)
   const [levelIndex, setLevelIndex] = useState(0)
@@ -227,12 +227,27 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
     })
   }
 
-  const rotateSelected = () => {
-    if (!selectedId) return
+  /** Rotates one specific piece 90° — used by both the tap-to-select rotate button (mobile-first, still the primary control) and PC's right-click shortcut (see the piece's onContextMenu below). Whichever input triggered it, the resulting rotation feeds the exact same placement judgment in handlePointerUp. */
+  const rotatePiece = (id: string) => {
+    const piece = pieces.find((p) => p.spec.id === id)
+    if (!piece || piece.placed) return
     setRoundRotations((n) => n + 1)
     setPieces((prev) =>
-      prev.map((p) => (p.spec.id === selectedId ? { ...p, rotation: (((p.rotation + 90) % 360) as 0 | 90 | 180 | 270) } : p)),
+      prev.map((p) => (p.spec.id === id ? { ...p, rotation: (((p.rotation + 90) % 360) as 0 | 90 | 180 | 270) } : p)),
     )
+  }
+
+  const rotateSelected = () => {
+    if (!selectedId) return
+    rotatePiece(selectedId)
+  }
+
+  /** PC: right-click a piece to rotate it (Hard/Extreme lean on this the most, since more of their pieces start needing rotation — see puzzle-levels.ts's tier pools) — blocks the browser context menu only over a piece, not page-wide. */
+  const handlePieceContextMenu = (e: ReactMouseEvent<HTMLDivElement>, id: string) => {
+    e.preventDefault()
+    if (tutorialOpen) return
+    setSelectedId(id)
+    rotatePiece(id)
   }
 
   const secondsLeft = Math.ceil(remainingMs / 1000)
@@ -333,6 +348,7 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
                       onPointerDown={(e) => handlePointerDown(e, piece.spec.id)}
                       onPointerMove={handlePointerMove}
                       onPointerUp={(e) => handlePointerUp(e, piece.spec.id)}
+                      onContextMenu={(e) => handlePieceContextMenu(e, piece.spec.id)}
                       role="button"
                       tabIndex={piece.placed ? -1 : 0}
                       aria-label={`퍼즐 조각 ${piece.spec.id}${piece.placed ? ' (배치 완료)' : ''}`}

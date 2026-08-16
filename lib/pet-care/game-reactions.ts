@@ -51,10 +51,7 @@ export function normalizedScoreFor(result: GameResult): { normalizedScore: numbe
       accuracy = 'weightedAccuracy' in result.rawSummary ? result.rawSummary.weightedAccuracy : result.rawSummary.accuracy
       break
     case 'judgment':
-      accuracy =
-        'overallAccuracy' in result.rawSummary
-          ? result.rawSummary.overallAccuracy
-          : clamp01(result.rawSummary.averageChoiceQuality)
+      accuracy = 'overallAccuracy' in result.rawSummary ? result.rawSummary.overallAccuracy : result.rawSummary.accuracy
       break
     case 'spatial':
       accuracy =

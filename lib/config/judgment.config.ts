@@ -1,4 +1,3 @@
-import { DIFFICULTY_TIME_MULTIPLIER } from '@/lib/config/difficulty.config'
 import type { GameDifficulty } from '@/lib/game/difficulty'
 import type { JudgmentRuleId, JudgmentStimulus } from '@/lib/game/types'
 
@@ -21,15 +20,24 @@ import type { JudgmentRuleId, JudgmentStimulus } from '@/lib/game/types'
  * unchanged. Intro now fixes ONE rule for both its Tutorial and Real play
  * (picked once per session), never demoing or switching to the other rule at
  * all. Still purely a behavior change; gameScore formula untouched.
+ * v6 (2026-08 difficulty rework): session length no longer scales by tier at
+ * all (getJudgmentGameDurationForDifficulty now always returns
+ * JUDGMENT_GAME_DURATION_MS) — difficulty instead comes from rule COUNT and
+ * SWITCH FREQUENCY, both tier-specific (see JUDGMENT_TIER_RULE_CONFIG below
+ * and getSegmentConfig's new `difficulty` parameter). A 3rd rule
+ * ('direction') joins shape/count at Hard+. Free Play's Real session now
+ * genuinely rotates through its tier's rule pool instead of switching
+ * exactly once; Intro (First Play, `forcedRuleId`) is untouched — it still
+ * fixes one rule for the whole session regardless of tier.
  */
-export const JUDGMENT_GAME_VERSION = 'judgment_v5'
+export const JUDGMENT_GAME_VERSION = 'judgment_v6'
 
-/** Total real-play session length. Shortened four times now (First Play fatigue reduction): 35s → 25s → 20s → 15s, and now → 10s — see getSegmentConfig for how the segment lengths were compressed alongside each cut to still reach full 3-way/Conflict difficulty at least once inside the shorter window. Draft value — easy to retune after Beta data. */
+/** Total real-play session length — fixed across every difficulty tier now (see module doc comment v6). */
 export const JUDGMENT_GAME_DURATION_MS = 10_000
 
-/** Total real-play session length scaled by the shared difficulty Time multiplier — at 'normal' (multiplier 1) this returns exactly JUDGMENT_GAME_DURATION_MS, so First Play stays byte-identical. Only the global session clock scales; segment lengths, conflict ratios, combo bonuses, and scoring weights are untouched. */
-export function getJudgmentGameDurationForDifficulty(difficulty: GameDifficulty): number {
-  return Math.round(JUDGMENT_GAME_DURATION_MS * DIFFICULTY_TIME_MULTIPLIER[difficulty])
+/** Kept as a function (not read directly) so call sites didn't need to change shape — always returns JUDGMENT_GAME_DURATION_MS regardless of tier now; see module doc comment v6. */
+export function getJudgmentGameDurationForDifficulty(_difficulty: GameDifficulty): number {
+  return JUDGMENT_GAME_DURATION_MS
 }
 
 /** Default Block count per fixed-rule segment (used from segment index 2 onward — see getSegmentConfig for the shorter early-segment lengths). Processing-count-based switching (not time-based) keeps a fast player's extra throughput naturally reaching more/harder segments. */
@@ -70,59 +78,66 @@ export const JUDGMENT_MAX_COMBO_TIME_BONUSES = 2
 /** How long the "10 COMBO! +2초" pop-up stays visible. */
 export const JUDGMENT_COMBO_BONUS_FEEDBACK_MS = 700
 
-/** Tutorial: fixed, easy, always-2-way Blocks — 3 per rule, discarded from scoring, no timer. */
+/** Tutorial: fixed, easy, always-2-way Blocks — 3 per rule, discarded from scoring, no timer. pointerDirection is set but functionally irrelevant here since Tutorial only ever tests shape/count. */
 export const JUDGMENT_TUTORIAL_SEGMENT_LENGTH = 3
 export const JUDGMENT_TUTORIAL_SHAPE_STIMULI: JudgmentStimulus[] = [
-  { shape: 'circle', dotCount: 1 },
-  { shape: 'square', dotCount: 2 },
-  { shape: 'circle', dotCount: 2 },
+  { shape: 'circle', dotCount: 1, pointerDirection: 'left' },
+  { shape: 'square', dotCount: 2, pointerDirection: 'right' },
+  { shape: 'circle', dotCount: 2, pointerDirection: 'up' },
 ]
 export const JUDGMENT_TUTORIAL_COUNT_STIMULI: JudgmentStimulus[] = [
-  { shape: 'square', dotCount: 1 },
-  { shape: 'circle', dotCount: 2 },
-  { shape: 'square', dotCount: 2 },
+  { shape: 'square', dotCount: 1, pointerDirection: 'right' },
+  { shape: 'circle', dotCount: 2, pointerDirection: 'left' },
+  { shape: 'square', dotCount: 2, pointerDirection: 'up' },
 ]
 
 /**
- * The fixed rule/difficulty progression by segment index — the ORIGINAL
- * "Rule switches exactly once" behavior: segment 0 plays 'shape' (no switch
- * yet, no Conflict possible), segment 1 is the one-and-only Rule Switch to
- * 'count' (still 2-way, Conflict capped low), and segment 2+ keeps 'count'
- * fixed forever while ramping to 3-way + the full Conflict band.
+ * Which rules a tier's Free Play Real session rotates through, and how many
+ * Blocks per segment from segment index 2 onward (segments 0-1 always use
+ * JUDGMENT_EARLY_SEGMENT_LENGTH — a universal warm-up before full difficulty
+ * kicks in, same as before this rework). Smaller segmentLength = more
+ * frequent switches. Hard/Extreme add 'direction' as a genuine 3rd rule;
+ * Easy/Normal stay at the original 2 (shape/count), differing only by how
+ * often they switch.
+ */
+export interface JudgmentTierRuleConfig {
+  rules: JudgmentRuleId[]
+  segmentLength: number
+}
+
+export const JUDGMENT_TIER_RULE_CONFIG: Record<GameDifficulty, JudgmentTierRuleConfig> = {
+  easy: { rules: ['shape', 'count'], segmentLength: 8 },
+  normal: { rules: ['shape', 'count'], segmentLength: 5 },
+  hard: { rules: ['shape', 'count', 'direction'], segmentLength: 4 },
+  extreme: { rules: ['shape', 'count', 'direction'], segmentLength: 2 },
+}
+
+/**
+ * The rule/difficulty progression by segment index for a given tier. Segment
+ * 0 always plays 'shape' (a familiar, unswitched start for every tier);
+ * segment 1 is the tier's own rule pool's 2nd entry (still 2-way, Conflict
+ * capped low); segment 2+ cycles through the tier's full rule pool
+ * (`segmentIndex % rules.length`) at the tier's own segmentLength, ramped to
+ * 3-way + the full Conflict band.
  *
- * This is now Free Play's behavior only — Free Play keeps the original Rule
- * Switch logic unchanged. Intro (First Play) no longer calls this function's
- * ruleId as-is: judgment-game.tsx's beginRealGame/buildSegmentBlocks pick one
- * ruleId at random per Intro session and override the `ruleId` field this
- * function returns with that fixed value for every segment (difficulty ramp
- * — choiceCount/length/conflict ratios — still comes from here unchanged),
- * so Intro's Time Attack never switches rule while Free Play still does. The
- * per-segment mapping (Left/Down/Right assignment) still reshuffles every
- * segment regardless of ruleId, in both modes — that's a fresh read each
- * time even when the rule itself hasn't changed. Score/PB and Combo Bonus
- * Time are untouched, since both read from per-trial flags computed
- * generically regardless of which segment produced them (Intro's
- * switchAccuracy still has real trials to score, from the mapping reshuffle
- * and the 2-way→3-way step — see lib/scoring/judgment.ts).
- *
- * `length` is JUDGMENT_EARLY_SEGMENT_LENGTH (3, not the default 8) for
- * segments 0-1 — purely a pacing change (fewer Blocks before the Switch/full
- * difficulty), not a difficulty change (same Conflict ratios/choiceCount as
- * before) — so the shortened 10s Time Attack still reaches segment 2 (3-way
- * + full Conflict) at least once for a normally-paced player, without
- * touching how easy those early segments themselves feel.
+ * This is Free Play's behavior. Intro (First Play) still overrides the
+ * `ruleId` this returns with one fixed rule for the whole session (see
+ * judgment-game.tsx's `forcedRuleId` thread) — Intro's difficulty ramp
+ * (choiceCount/length/conflict ratios) still comes from here unchanged, but
+ * it's effectively always read at 'normal' (Intro is only ever played at
+ * Normal), so its pacing is unaffected by the Hard/Extreme rule pool.
  */
 export function getSegmentConfig(
   segmentIndex: number,
+  difficulty: GameDifficulty,
 ): { ruleId: JudgmentRuleId; choiceCount: 2 | 3; length: number; conflictRatioMin: number; conflictRatioMax: number } {
-  // The one-and-only switch (Free Play only — Intro overrides this ruleId at the call site): base rule at segment 0, the other rule from segment 1 onward, forever.
-  const ruleId: JudgmentRuleId = segmentIndex === 0 ? 'shape' : 'count'
+  const tierConfig = JUDGMENT_TIER_RULE_CONFIG[difficulty]
   if (segmentIndex === 0) {
-    return { ruleId, choiceCount: 2, length: JUDGMENT_EARLY_SEGMENT_LENGTH, conflictRatioMin: 0, conflictRatioMax: 0 }
+    return { ruleId: 'shape', choiceCount: 2, length: JUDGMENT_EARLY_SEGMENT_LENGTH, conflictRatioMin: 0, conflictRatioMax: 0 }
   }
   if (segmentIndex === 1) {
     return {
-      ruleId,
+      ruleId: tierConfig.rules[1 % tierConfig.rules.length],
       choiceCount: 2,
       length: JUDGMENT_EARLY_SEGMENT_LENGTH,
       conflictRatioMin: 0,
@@ -130,9 +145,9 @@ export function getSegmentConfig(
     }
   }
   return {
-    ruleId,
+    ruleId: tierConfig.rules[segmentIndex % tierConfig.rules.length],
     choiceCount: 3,
-    length: JUDGMENT_SEGMENT_LENGTH,
+    length: tierConfig.segmentLength,
     conflictRatioMin: JUDGMENT_CONFLICT_RATIO_MIN,
     conflictRatioMax: JUDGMENT_CONFLICT_RATIO_MAX,
   }

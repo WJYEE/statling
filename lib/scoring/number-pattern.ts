@@ -8,7 +8,11 @@ function clamp01(value: number): number {
 
 export function summarizeNumberPatternAnswers(answers: NumberPatternAnswer[]): NumberPatternRawSummary {
   const correctAnswers = answers.filter((a) => a.isCorrect).length
-  const hardAnswers = answers.filter((a) => a.difficulty === 'hard')
+  // v3: sessions are now drawn from a single tier-exclusive pool (see
+  // number-pattern-data.ts), so 'hard'/'extreme'-tagged questions only ever
+  // appear in a Hard/Extreme player's own session — count both as the
+  // "hardest content answered" bucket instead of only 'hard'.
+  const hardAnswers = answers.filter((a) => a.difficulty === 'hard' || a.difficulty === 'extreme')
   const answered = answers.filter((a) => !a.timedOut)
   const averageResponseTimeMs =
     answered.length > 0 ? answered.reduce((s, a) => s + a.responseTimeMs, 0) / answered.length : 0

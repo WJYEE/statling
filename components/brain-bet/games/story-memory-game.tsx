@@ -13,9 +13,10 @@ import {
 } from '@/lib/config/story-memory.config'
 import { GAME_DIFFICULTIES } from '@/lib/game/difficulty'
 import type { GameDifficulty } from '@/lib/game/difficulty'
-import { pickNextStoryRound } from '@/lib/game/story-memory-data'
+import { MEMORY_COLOR_PALETTE, pickObjectMemorySession } from '@/lib/game/story-memory-data'
 import type { StoryMemoryAnswer, StoryMemoryRawSummary } from '@/lib/game/types'
 import { calculateStoryMemoryScore, summarizeStoryMemoryAnswers } from '@/lib/scoring/story-memory'
+import { OBJECT_MEMORY_ICON_MAP } from '@/components/brain-bet/games/object-memory-icons'
 import { cn } from '@/lib/utils'
 import { useSound } from '@/hooks/use-sound'
 
@@ -30,19 +31,20 @@ interface StoryMemoryGameProps {
 }
 
 const TUTORIAL: TutorialContent = {
-  goal: '짧은 이야기를 읽고 세부 내용을 기억한 뒤, 질문에 답해요.',
-  steps: ['이야기를 읽을 시간이 충분히 주어져요.', '시간이 끝나면 이야기가 사라지고 질문이 나와요.', '기억나는 대로 선택지 중 하나를 골라요.'],
+  goal: '여러 물건을 잘 보고 기억한 뒤, 질문에 답해요.',
+  steps: ['물건들이 잠깐 보여져요. 잘 기억해두세요.', '시간이 끝나면 물건들이 사라지고 질문이 나와요.', '기억나는 대로 선택지 중 하나를 골라요.'],
   scoring: '정답률과 답변 속도를 함께 반영해요. 오답보다는 정확히 기억하는 것이 더 중요해요.',
-  example: '"민수는 빨간 우산을 들고 학교에 갔어요" -> "우산은 무슨 색이었나요?" 정답: 빨간색',
+  example: '우산, 사과, 별을 봤다면 -> "방금 보지 못했던 물건은?" 정답: (보지 않은 물건)',
 }
 
 /**
- * "이야기 기억" — Memory-stat game. Reading time is fixed and non-skippable
- * (no "다 읽었어요" early-exit) — a skippable reading phase would let a
- * player who rushes through in ~1s reach the questions "faster" without
- * actually reading, so every player reads for exactly the same short,
- * deliberately tight duration instead. Only the question-answering phase is
- * scored on speed.
+ * "물건 기억" — Memory-stat game (2026-08 rework, replacing the old
+ * read-a-story format — see lib/game/story-memory-data.ts's doc comment).
+ * Display time is fixed and non-skippable (no "다 봤어요" early-exit) — a
+ * skippable display phase would let a player who rushes through in ~1s
+ * reach the questions "faster" without actually looking, so every player
+ * views the objects for exactly the same short, deliberately tight
+ * duration instead. Only the question-answering phase is scored on speed.
  */
 export function StoryMemoryGame({ index, mode, difficulty, onComplete, onBack }: StoryMemoryGameProps) {
   const stat = STATS.memory
@@ -51,7 +53,7 @@ export function StoryMemoryGame({ index, mode, difficulty, onComplete, onBack }:
     () => getStoryMemoryQuestionTimeLimitForDifficulty(difficulty),
     [difficulty],
   )
-  const [round] = useState(() => pickNextStoryRound())
+  const [round] = useState(() => pickObjectMemorySession(difficulty))
   const [stage, setStage] = useState<Stage>('intro')
   const [questionIndex, setQuestionIndex] = useState(0)
   const [answers, setAnswers] = useState<StoryMemoryAnswer[]>([])
@@ -88,7 +90,7 @@ export function StoryMemoryGame({ index, mode, difficulty, onComplete, onBack }:
   const startGame = () => setStage('countdown')
 
   const startReading = () => {
-    setRemainingMs(round.readingSeconds * 1000)
+    setRemainingMs(round.displaySeconds * 1000)
     setStage('reading')
   }
 
@@ -130,16 +132,16 @@ export function StoryMemoryGame({ index, mode, difficulty, onComplete, onBack }:
   }
 
   const question = round.questions[questionIndex]
-  const readingProgressPct = stage === 'reading' ? Math.round((remainingMs / (round.readingSeconds * 1000)) * 100) : 0
+  const readingProgressPct = stage === 'reading' ? Math.round((remainingMs / (round.displaySeconds * 1000)) * 100) : 0
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-6">
       <GameHud
         stat={stat}
-        gameName="이야기 기억"
+        gameName="물건 기억"
         mode={mode}
         index={index}
-        objective="이야기를 읽고 세부 내용을 기억하세요."
+        objective="물건들을 잘 보고 기억하세요."
         statusSlot={
           stage === 'question' ? (
             <span className="rounded-xl bg-secondary px-3 py-1.5 text-xs font-bold text-secondary-foreground toy-border">
@@ -156,14 +158,14 @@ export function StoryMemoryGame({ index, mode, difficulty, onComplete, onBack }:
         {stage === 'intro' && (
           <div className="flex flex-1 flex-col items-center justify-center gap-5 rounded-3xl bg-card px-6 py-12 text-center toy-border toy-shadow-lg">
             <p className="font-display text-lg font-bold leading-snug text-foreground">
-              짧은 이야기를 읽고, 나중에 나오는 질문에 답해보세요.
+              여러 물건을 잘 보고, 나중에 나오는 질문에 답해보세요.
             </p>
             <ToyButton onClick={startGame}>시작하기</ToyButton>
           </div>
         )}
 
         {stage === 'countdown' && (
-          <GameCountdown seconds={STORY_MEMORY_INTRO_COUNTDOWN_SECONDS} onDone={startReading} label="이야기가 곧 나와요" />
+          <GameCountdown seconds={STORY_MEMORY_INTRO_COUNTDOWN_SECONDS} onDone={startReading} label="물건들이 곧 나와요" />
         )}
 
         {stage === 'reading' && (
@@ -171,16 +173,25 @@ export function StoryMemoryGame({ index, mode, difficulty, onComplete, onBack }:
             <div
               className="h-2 w-full overflow-hidden rounded-full bg-secondary"
               role="progressbar"
-              aria-label="읽기 시간"
+              aria-label="물건 표시 시간"
               aria-valuenow={readingProgressPct}
               aria-valuemin={0}
               aria-valuemax={100}
             >
               <div className="h-full rounded-full bg-primary transition-all duration-100" style={{ width: `${readingProgressPct}%` }} />
             </div>
-            <p className="mt-6 text-pretty text-center font-display text-xl font-bold leading-relaxed text-foreground">
-              {round.story}
-            </p>
+            <div className="mt-6 grid grid-cols-3 gap-3 sm:grid-cols-4">
+              {round.objects.map((obj) => {
+                const Icon = OBJECT_MEMORY_ICON_MAP[obj.iconKey]
+                const hex = MEMORY_COLOR_PALETTE.find((c) => c.id === obj.color)?.hex
+                return (
+                  <div key={obj.id} className="flex flex-col items-center gap-1.5 rounded-2xl bg-secondary/40 px-2 py-3">
+                    <Icon size={32} strokeWidth={2.2} style={{ color: hex }} aria-hidden="true" />
+                    <span className="text-[11px] font-bold text-foreground">{obj.name}</span>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
 
@@ -219,7 +230,7 @@ export function StoryMemoryGame({ index, mode, difficulty, onComplete, onBack }:
       <GameTutorialModal
         open={tutorialOpen}
         onOpenChange={setTutorialOpen}
-        gameName="이야기 기억"
+        gameName="물건 기억"
         tutorial={TUTORIAL}
         continueLabel={stage === 'intro' ? '시작하기' : '계속하기'}
       />

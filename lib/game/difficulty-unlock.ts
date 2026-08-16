@@ -22,9 +22,10 @@ export function isDifficultyUnlocked(state: PlayerSkillState, gameId: string, di
  * NORMAL_TO_HARD_SCORE/HARD_TO_EXTREME_SCORE threshold directly (read from
  * lib/config/difficulty.config.ts, never hardcoded here), so the number in
  * this copy always matches whatever isDifficultyUnlocked actually checks
- * against. Still never the player's own normalizedScore composite itself —
- * see unlockProgressPercent below for that, shown only as a bar/percent.
- * Null for Easy/Normal, which are never locked and need no hint.
+ * against and can never drift out of sync with it. Still never the
+ * player's own normalizedScore composite itself — see unlockProgressPercent
+ * below for that, shown only as a bar/percent. Null for Easy/Normal, which
+ * are never locked and need no hint.
  */
 export function unlockHintFor(difficulty: GameDifficulty): string | null {
   if (difficulty === 'hard') return `Normal에서 ${NORMAL_TO_HARD_SCORE}점 이상 달성 시 해금`

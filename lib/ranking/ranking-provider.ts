@@ -7,6 +7,7 @@ import {
   type GamePercentileInput,
 } from '@/lib/ranking/ranking-calculator'
 import { getGameRankingMetricConfig, type MetricDirection } from '@/lib/ranking/game-ranking-metrics.config'
+import { CURRENT_RANKING_SEASON } from '@/lib/ranking/ranking-season'
 
 export interface OverallRankingQuery {
   displayName: string
@@ -199,7 +200,10 @@ class LocalRankingProvider implements RankingProvider {
    */
   async getOverallRanking(query: OverallRankingQuery): Promise<OverallRankingEntry[]> {
     const hardRecords = getAllRecordsAtDifficulty(loadPlayerSkillState(), 'hard')
-    const gameIds = Object.keys(hardRecords)
+    // Same Ranking Season gate as getGameRanking below — a Hard record set
+    // under an old, no-longer-comparable game-rules version never feeds the
+    // composite percentile either.
+    const gameIds = Object.keys(hardRecords).filter((gameId) => hardRecords[gameId].recordVersion === CURRENT_RANKING_SEASON)
 
     const rivalEntries = buildOverallRivalPercentiles().map((percentile, i) => ({
       id: `overall_rival_${i}`,
@@ -273,9 +277,19 @@ class LocalRankingProvider implements RankingProvider {
     }))
 
     const myRecord = getRecordAtDifficulty(loadPlayerSkillState(), query.gameId, query.difficulty)
-    const myPrimary = myRecord?.metrics?.[metricConfig.primary.key]
+    // Ranking Season gate: a record set before the current game-rules rework
+    // (recordVersion missing or stale) never enters the CURRENT leaderboard —
+    // "나" simply won't show up here until she replays and sets a fresh
+    // record, same as a real player with no submitted score. This is
+    // deliberately separate from Hard/Extreme unlock (lib/game/
+    // difficulty-unlock.ts), which reads gameDifficultyBestRecords directly
+    // and never checks recordVersion — an old record still counts for
+    // unlock, it just can't win a new-season leaderboard. See
+    // lib/ranking/ranking-season.ts.
+    const myRecordIsCurrentSeason = myRecord?.recordVersion === CURRENT_RANKING_SEASON
+    const myPrimary = myRecordIsCurrentSeason ? myRecord?.metrics?.[metricConfig.primary.key] : undefined
     const myEntry: RivalRow | null =
-      myRecord && typeof myPrimary === 'number'
+      myRecord && myRecordIsCurrentSeason && typeof myPrimary === 'number'
         ? {
             id: query.userId ?? getOrCreateDeviceId(),
             displayName: query.displayName || '게스트',

@@ -11,7 +11,6 @@ import { FreePlayBadge } from '@/components/brain-bet/games/shared/free-play-bad
 import { STATS } from '@/lib/brain-bet'
 import {
   SPATIAL_FEEDBACK_MS,
-  SPATIAL_REAL_QUESTIONS,
   SPATIAL_TUTORIAL_TRANSITION_MS,
   getSpatialTimeLimitForDifficulty,
 } from '@/lib/config/spatial.config'
@@ -217,7 +216,7 @@ export function SpatialGame({ index, mode, difficulty, onComplete, onBack, avoid
     const updated = [...trialsRef.current, trial]
     trialsRef.current = updated
 
-    if (updated.length >= SPATIAL_REAL_QUESTIONS) {
+    if (updated.length >= realQuestionsRef.current.length) {
       const rawSummary = summarizeSpatialTrials(updated)
       const gameScore = calculateSpatialScore(rawSummary, detectDevice().inputType)
       schedule(() => onComplete({ trials: updated, rawSummary, gameScore }), SPATIAL_FEEDBACK_MS)
@@ -232,7 +231,7 @@ export function SpatialGame({ index, mode, difficulty, onComplete, onBack, avoid
   const startGame = () => {
     play('game-start')
     clearScheduled()
-    realQuestionsRef.current = generateSpatialSession(avoidShapeIds)
+    realQuestionsRef.current = generateSpatialSession(difficulty, avoidShapeIds)
     trialsRef.current = []
     beginQuestion('tutorial-1', 0)
   }
@@ -289,7 +288,7 @@ export function SpatialGame({ index, mode, difficulty, onComplete, onBack, avoid
         ) : (
           <span className="rounded-xl bg-secondary px-3 py-2 text-center font-display text-sm font-extrabold text-secondary-foreground toy-border">
             Lv.{currentQuestion?.difficultyLevel ?? 1} · <span className="text-primary">{realQuestionIndex + 1}</span> /{' '}
-            {SPATIAL_REAL_QUESTIONS}
+            {realQuestionsRef.current.length}
           </span>
         )}
       </div>

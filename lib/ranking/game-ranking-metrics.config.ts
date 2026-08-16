@@ -53,7 +53,6 @@ export interface GameRankingMetricsByDifficulty {
 const ms = (value: number) => `${Math.round(value)}ms`
 const seconds = (value: number) => `${(value / 1000).toFixed(1)}초`
 const percentFraction = (value: number) => `${Math.round(value * 100)}%`
-const percentWhole = (value: number) => `${Math.round(value)}%`
 const countUnit = (unit: string) => (value: number) => `${Math.round(value)}${unit}`
 
 /** Keyed by lib/game/game-registry.ts's GamePoolEntry.key — one entry per registered game, every stat's pool covered. */
@@ -66,8 +65,11 @@ export const GAME_RANKING_METRICS: Record<string, GameRankingMetricsByDifficulty
   },
   'reaction-dodge-run': {
     default: {
-      primary: { key: 'survivedMs', label: '생존 시간', direction: 'desc', format: seconds, syntheticRange: [5000, 45000] },
-      tiebreaker: { key: 'obstaclesDodged', label: '회피 횟수', direction: 'desc', format: countUnit('회'), syntheticRange: [5, 60] },
+      // Endless mode (2026-08 rework) — survivedMs now genuinely varies run
+      // to run (a run always ends on the first collision), so the
+      // placeholder-rival range widened from the old fixed-35s-session cap.
+      primary: { key: 'survivedMs', label: '생존 시간', direction: 'desc', format: seconds, syntheticRange: [3000, 90000] },
+      tiebreaker: { key: 'obstaclesDodged', label: '회피 횟수', direction: 'desc', format: countUnit('회'), syntheticRange: [3, 120] },
     },
   },
   'memory-classic': {
@@ -102,7 +104,7 @@ export const GAME_RANKING_METRICS: Record<string, GameRankingMetricsByDifficulty
   },
   'decision-best-choice': {
     default: {
-      primary: { key: 'averageChoiceQuality', label: '판단 정확도', direction: 'desc', format: percentWhole, syntheticRange: [40, 100] },
+      primary: { key: 'accuracy', label: '정답률', direction: 'desc', format: percentFraction, syntheticRange: [0.3, 1] },
       tiebreaker: { key: 'averageResponseTimeMs', label: '평균 응답시간', direction: 'asc', format: ms, syntheticRange: [1200, 6000] },
     },
   },

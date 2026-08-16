@@ -26,7 +26,7 @@ export const GAME_POOL: Record<StatId, GamePoolEntry[]> = {
   ],
   memory: [
     { key: 'memory-classic', stat: 'memory', name: '패턴 기억', estimatedSeconds: 30 },
-    { key: 'memory-story-recall', stat: 'memory', name: '이야기 기억', estimatedSeconds: 50 },
+    { key: 'memory-story-recall', stat: 'memory', name: '물건 기억', estimatedSeconds: 50 },
   ],
   focus: [
     { key: 'focus-classic', stat: 'focus', name: '표적 찾기', estimatedSeconds: 28 },
@@ -62,7 +62,7 @@ export function allGamePools(): GamePoolEntry[] {
   return PLAY_ORDER.flatMap((stat) => GAME_POOL[stat])
 }
 
-/** Display name for a registered game key (e.g. 'memory-story-recall' -> '이야기 기억') — used by StatusScreen's per-game stat breakdown. Falls back to the raw key so an unregistered/stale id never crashes the UI. */
+/** Display name for a registered game key (e.g. 'memory-story-recall' -> '물건 기억') — used by StatusScreen's per-game stat breakdown. Falls back to the raw key so an unregistered/stale id never crashes the UI. */
 export function getGameDisplayName(gameKey: string): string {
   return allGamePools().find((entry) => entry.key === gameKey)?.name ?? gameKey
 }

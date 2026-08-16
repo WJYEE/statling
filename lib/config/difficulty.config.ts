@@ -2,18 +2,20 @@ import type { GameDifficulty } from '@/lib/game/difficulty'
 
 /**
  * A game's own best `normalizedScore` at Normal must reach this before Hard
- * unlocks. Temporarily relaxed from 80 — revisit once overall mini-game
- * difficulty/normalizedScore balancing is done (see lib/game/
+ * unlocks. Lowered from 70 to 60 alongside the 2026-08 difficulty-structure
+ * rework (every game's Easy-Extreme now differs by real content, not just a
+ * time/load multiplier, so a game's *own* Normal ceiling is a meaningfully
+ * harder bar than before at the same raw number) — see lib/game/
  * difficulty-unlock.ts#unlockHintFor for the matching player-facing copy,
- * which reads this constant directly rather than repeating the number).
+ * which reads this constant directly rather than repeating the number.
  */
-export const NORMAL_TO_HARD_SCORE = 70
+export const NORMAL_TO_HARD_SCORE = 60
 /**
  * A game's own best `normalizedScore` at Hard must reach this before
- * Extreme unlocks. Temporarily relaxed from 85 — same balancing note as
+ * Extreme unlocks. Lowered from 80 to 70 — same rework note as
  * NORMAL_TO_HARD_SCORE above.
  */
-export const HARD_TO_EXTREME_SCORE = 80
+export const HARD_TO_EXTREME_SCORE = 70
 
 /**
  * The shared "how much time/budget do you get" multiplier — applied to any

@@ -1,24 +1,29 @@
 import type { JudgmentAnswer, JudgmentMappingValue, JudgmentRuleId, JudgmentRuleMapping, JudgmentStimulus } from '@/lib/game/types'
 
-/** Blocks 1-2 (2-way) draw only from this pool — no triangle, no 3rd dot. */
+/**
+ * Blocks 1-2 (2-way) draw only from this pool — no triangle, no 3rd dot, no
+ * 'up' pointer direction. `pointerDirection` is assigned decorrelated from
+ * shape/dotCount (a Latin-square-style pairing) so the Direction Rule can't
+ * be inferred from either of the other two attributes.
+ */
 export const JUDGMENT_STIMULI_2WAY: JudgmentStimulus[] = [
-  { shape: 'circle', dotCount: 1 },
-  { shape: 'circle', dotCount: 2 },
-  { shape: 'square', dotCount: 1 },
-  { shape: 'square', dotCount: 2 },
+  { shape: 'circle', dotCount: 1, pointerDirection: 'left' },
+  { shape: 'circle', dotCount: 2, pointerDirection: 'right' },
+  { shape: 'square', dotCount: 1, pointerDirection: 'right' },
+  { shape: 'square', dotCount: 2, pointerDirection: 'left' },
 ]
 
-/** Blocks 3-4 (3-way) draw from the full 3x3 pool once Down is introduced. */
+/** Blocks 3-4 (3-way) draw from the full 3x3x3 pool once Down is introduced — every shape/count combo sees every pointerDirection exactly once. */
 export const JUDGMENT_STIMULI_3WAY: JudgmentStimulus[] = [
-  { shape: 'circle', dotCount: 1 },
-  { shape: 'circle', dotCount: 2 },
-  { shape: 'circle', dotCount: 3 },
-  { shape: 'square', dotCount: 1 },
-  { shape: 'square', dotCount: 2 },
-  { shape: 'square', dotCount: 3 },
-  { shape: 'triangle', dotCount: 1 },
-  { shape: 'triangle', dotCount: 2 },
-  { shape: 'triangle', dotCount: 3 },
+  { shape: 'circle', dotCount: 1, pointerDirection: 'left' },
+  { shape: 'circle', dotCount: 2, pointerDirection: 'up' },
+  { shape: 'circle', dotCount: 3, pointerDirection: 'right' },
+  { shape: 'square', dotCount: 1, pointerDirection: 'up' },
+  { shape: 'square', dotCount: 2, pointerDirection: 'right' },
+  { shape: 'square', dotCount: 3, pointerDirection: 'left' },
+  { shape: 'triangle', dotCount: 1, pointerDirection: 'right' },
+  { shape: 'triangle', dotCount: 2, pointerDirection: 'left' },
+  { shape: 'triangle', dotCount: 3, pointerDirection: 'up' },
 ]
 
 function shuffled<T>(items: T[]): T[] {
@@ -31,12 +36,13 @@ function shuffled<T>(items: T[]): T[] {
 }
 
 function sameStimulus(a: JudgmentStimulus, b: JudgmentStimulus): boolean {
-  return a.shape === b.shape && a.dotCount === b.dotCount
+  return a.shape === b.shape && a.dotCount === b.dotCount && a.pointerDirection === b.pointerDirection
 }
 
-/** The domain of values a rule's mapping needs to cover — every shape/dotCount that can actually appear at this choiceCount. */
+/** The domain of values a rule's mapping needs to cover — every shape/dotCount/pointerDirection value that can actually appear at this choiceCount. */
 function mappingDomain(ruleId: JudgmentRuleId, choiceCount: 2 | 3): JudgmentMappingValue[] {
   if (ruleId === 'shape') return choiceCount === 3 ? ['circle', 'square', 'triangle'] : ['circle', 'square']
+  if (ruleId === 'direction') return choiceCount === 3 ? ['left', 'up', 'right'] : ['left', 'right']
   return choiceCount === 3 ? [1, 2, 3] : [1, 2]
 }
 
@@ -82,7 +88,8 @@ export function generateRuleMapping(
  * stimulus. Null means "not comparable", not "no answer".
  */
 export function computeJudgmentAnswerForMapping(mapping: JudgmentRuleMapping, stimulus: JudgmentStimulus): JudgmentAnswer | null {
-  const value: JudgmentMappingValue = mapping.ruleId === 'shape' ? stimulus.shape : stimulus.dotCount
+  const value: JudgmentMappingValue =
+    mapping.ruleId === 'shape' ? stimulus.shape : mapping.ruleId === 'direction' ? stimulus.pointerDirection : stimulus.dotCount
   if (mapping.left === value) return 'left'
   if (mapping.right === value) return 'right'
   if (mapping.down === value) return 'down'

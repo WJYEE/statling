@@ -1,5 +1,5 @@
 import { allCellIds } from '@/lib/game/memory-grid'
-import { FOCUS_TARGET_SYMBOL, generateDistractorSymbol, type FocusSymbolSpec } from '@/lib/game/focus-symbol'
+import { generateDistractorSymbol, type FocusSymbolSpec } from '@/lib/game/focus-symbol'
 
 function shuffled(cells: string[]): string[] {
   const result = [...cells]
@@ -54,19 +54,23 @@ export function generateFocusLayout(
 /**
  * Builds a full round's view — layout AND symbols together, validated before
  * being handed back — in one call. Always use this (not generateFocusLayout
- * directly) when setting up a round to play.
+ * directly) when setting up a round to play. `targetSymbol` is this
+ * session's actual target (see lib/game/focus-symbol.ts#buildFocusTargetSymbol) —
+ * passed in rather than assumed, since which shape is the target now varies
+ * by the player's chosen difficulty tier.
  */
 export function buildFocusRound(
   gridSize: number,
   distractorCount: number,
   targetPresent: boolean,
   similarityLevel: number,
+  targetSymbol: FocusSymbolSpec,
 ): FocusRoundView {
   const layout = generateFocusLayout(gridSize, distractorCount, targetPresent)
 
   const symbols: Record<string, FocusSymbolSpec> = {}
   layout.occupiedCells.forEach((cellId) => {
-    symbols[cellId] = cellId === layout.targetCellId ? FOCUS_TARGET_SYMBOL : generateDistractorSymbol(similarityLevel)
+    symbols[cellId] = cellId === layout.targetCellId ? targetSymbol : generateDistractorSymbol(targetSymbol.shape, similarityLevel)
   })
 
   const view: FocusRoundView = {

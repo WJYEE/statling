@@ -1,17 +1,21 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Hand, Save, Zap } from 'lucide-react'
+import { AlertTriangle, Hand, Save, Zap } from 'lucide-react'
 import { Logo } from '@/components/brain-bet/logo'
 import { ProgressTrack } from '@/components/brain-bet/progress-track'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { FreePlayBadge } from '@/components/brain-bet/games/shared/free-play-badge'
 import { STATS } from '@/lib/brain-bet'
 import {
+  REACTION_DECOY_FLASH_MS,
+  REACTION_DECOY_WINDOW,
   REACTION_DELAY_MS_MAX,
   REACTION_DELAY_MS_MIN,
+  REACTION_FALSE_START_PENALTY_MS,
   REACTION_PRACTICE_TRIALS,
   REACTION_TRIAL_FEEDBACK_MS,
+  getReactionDecoyChanceForDifficulty,
   getReactionRealTrialsForDifficulty,
 } from '@/lib/config/reaction.config'
 import { calculateReactionScore, summarizeReactionTrials } from '@/lib/scoring/reaction'
@@ -22,7 +26,7 @@ import type { ReactionRawSummary, ReactionTrial } from '@/lib/game/types'
 import { cn } from '@/lib/utils'
 import { useSound } from '@/hooks/use-sound'
 
-type Stage = 'intro' | 'waiting' | 'target' | 'feedback'
+type Stage = 'intro' | 'waiting' | 'decoy' | 'target' | 'feedback'
 type Round = 'practice' | 'real'
 
 interface ReactionGameProps {
@@ -109,14 +113,24 @@ export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: Re
   const [recordFeedback, setRecordFeedback] = useState<RecordFeedback | null>(null)
 
   const timeoutRef = useRef<number | null>(null)
+  const decoyTimeoutRef = useRef<number | null>(null)
   const targetShownAtRef = useRef(0)
   const pendingDelayRef = useRef(0)
   const nextTrialIndexRef = useRef(0)
+  /** Reads the latest `round` inside scheduleAttempt, which — like every other timer-driven callback in this component — is only ever (re)created relative to a stable identity, not on every `round` change. */
+  const roundRef = useRef<Round>('practice')
+  roundRef.current = round
+  /** False starts (including decoy taps) since the current trial slot last started waiting — folded into that slot's eventual recorded reactionMs as REACTION_FALSE_START_PENALTY_MS each, then reset. See lib/config/reaction.config.ts's False Start policy doc comment. */
+  const falseStartsThisAttemptRef = useRef(0)
 
   const clearScheduled = () => {
     if (timeoutRef.current != null) {
       window.clearTimeout(timeoutRef.current)
       timeoutRef.current = null
+    }
+    if (decoyTimeoutRef.current != null) {
+      window.clearTimeout(decoyTimeoutRef.current)
+      decoyTimeoutRef.current = null
     }
   }
 
@@ -128,12 +142,32 @@ export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: Re
     setMessage('신호를 기다리세요...')
     const delayMs = randomDelay()
     pendingDelayRef.current = delayMs
+
+    // Decoy: a brief, visually distinct flash the player must NOT tap —
+    // Hard+ only, never during Tutorial. Always resolves (and the decoy
+    // timeout clears itself) well before the real target can appear, since
+    // REACTION_DECOY_WINDOW caps how late into the delay it can fire.
+    const decoyChance = roundRef.current === 'real' ? getReactionDecoyChanceForDifficulty(difficulty) : 0
+    if (decoyChance > 0 && Math.random() < decoyChance) {
+      const ratio = REACTION_DECOY_WINDOW.minRatio + Math.random() * (REACTION_DECOY_WINDOW.maxRatio - REACTION_DECOY_WINDOW.minRatio)
+      const decoyAtMs = Math.round(delayMs * ratio)
+      decoyTimeoutRef.current = window.setTimeout(() => {
+        setStage('decoy')
+        setMessage('가짜 신호예요! 누르지 마세요.')
+        decoyTimeoutRef.current = window.setTimeout(() => {
+          decoyTimeoutRef.current = null
+          setStage('waiting')
+          setMessage('신호를 기다리세요...')
+        }, REACTION_DECOY_FLASH_MS)
+      }, decoyAtMs)
+    }
+
     timeoutRef.current = window.setTimeout(() => {
       targetShownAtRef.current = performance.now()
       setStage('target')
       setMessage('지금 탭하세요!')
     }, delayMs)
-  }, [])
+  }, [difficulty])
 
   const startGame = () => {
     play('game-start')
@@ -142,14 +176,20 @@ export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: Re
     setSessionFastestReactionMs(null)
     setRecordFeedback(null)
     nextTrialIndexRef.current = 0
+    falseStartsThisAttemptRef.current = 0
     scheduleAttempt()
   }
 
   const handleTap = () => {
     if (stage === 'intro' || stage === 'feedback') return
 
-    if (stage === 'waiting') {
-      // False start: input arrived before the signal appeared.
+    if (stage === 'waiting' || stage === 'decoy') {
+      // False start (early tap) or a decoy tap — both are "jumped the gun"
+      // and treated identically: the attempt isn't discarded, it just
+      // retries the same trial slot, and REACTION_FALSE_START_PENALTY_MS
+      // per occurrence gets folded into that slot's eventual recorded
+      // reactionMs once it finally succeeds (see the 'target' branch below).
+      const wasDecoy = stage === 'decoy'
       clearScheduled()
       const trial: ReactionTrial = {
         trialIndex: nextTrialIndexRef.current,
@@ -160,19 +200,22 @@ export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: Re
       }
       if (round === 'real') {
         nextTrialIndexRef.current += 1
+        falseStartsThisAttemptRef.current += 1
         setTrials((t) => [...t, trial])
       }
       setLastReactionMs(null)
       // False Start is never a valid reaction — it never participates in the Session-Best comparison.
       setRecordFeedback(null)
-      setMessage('앗, 너무 빨랐어요! 신호가 나타난 뒤 눌러주세요.')
+      setMessage(wasDecoy ? '가짜 신호였어요! 조심하세요.' : '앗, 너무 빨랐어요! 신호가 나타난 뒤 눌러주세요.')
       setStage('feedback')
       window.setTimeout(scheduleAttempt, 900)
       return
     }
 
     if (stage === 'target') {
-      const reactionMs = Math.round(performance.now() - targetShownAtRef.current)
+      const penaltyMs = falseStartsThisAttemptRef.current * REACTION_FALSE_START_PENALTY_MS
+      falseStartsThisAttemptRef.current = 0
+      const reactionMs = Math.round(performance.now() - targetShownAtRef.current) + penaltyMs
       setLastReactionMs(reactionMs)
 
       if (round === 'practice') {
@@ -299,7 +342,7 @@ export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: Re
         onClick={stage === 'intro' ? startGame : handleTap}
         className={cn(
           'mt-5 flex flex-1 flex-col items-center justify-center gap-5 rounded-3xl px-6 py-12 text-center toy-border toy-shadow-lg transition-colors duration-150',
-          stage === 'target' ? 'bg-primary' : 'bg-card',
+          stage === 'target' ? 'bg-primary' : stage === 'decoy' ? 'bg-destructive/20' : 'bg-card',
         )}
       >
         {/* relative anchor for the floating Session-Best feedback — absolutely
@@ -309,11 +352,13 @@ export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: Re
           <span
             className={cn(
               'grid h-24 w-24 place-items-center rounded-3xl toy-border toy-shadow text-[color:var(--ink)]',
-              stage === 'target' ? 'bg-accent' : 'bg-secondary',
+              stage === 'target' ? 'bg-accent' : stage === 'decoy' ? 'bg-destructive/40' : 'bg-secondary',
             )}
           >
             {stage === 'target' ? (
               <Zap size={48} strokeWidth={2.2} />
+            ) : stage === 'decoy' ? (
+              <AlertTriangle size={48} strokeWidth={2.2} />
             ) : (
               <Hand size={48} strokeWidth={2.2} />
             )}

@@ -1,5 +1,6 @@
 import { PLAY_ORDER, type RawRecord, type StatId } from '@/lib/brain-bet'
 import { GAME_DIFFICULTY_ORDER, type GameDifficulty } from '@/lib/game/difficulty'
+import { CURRENT_RANKING_SEASON } from '@/lib/ranking/ranking-season'
 import { clampScore, isBetterByGameScore } from '@/lib/scoring/shared'
 
 /**
@@ -36,6 +37,15 @@ export interface MiniGamePerformanceRecord {
    * saved before this field existed have none.
    */
   metrics?: Record<string, number>
+  /**
+   * The CURRENT_RANKING_SEASON value at the moment this record was written
+   * (see lib/ranking/ranking-season.ts) — lets the leaderboard read path
+   * tell "set under the current game rules" apart from "set before a
+   * difficulty-structure rework," without touching the unlock check at all.
+   * Optional/undefined for every record written before this field existed —
+   * always treated as pre-current-season, never coerced to a real number.
+   */
+  recordVersion?: number
 }
 
 function recordKey(gameId: string, difficulty: GameDifficulty): string {
@@ -99,15 +109,18 @@ function isValidMetrics(value: unknown): value is Record<string, number> {
  * Despite the name, this runs on EVERY load (see loadPlayerSkillState below
  * — there's no `parsed.version === 2` short-circuit), not just a real v1->v2
  * upgrade, so it doubles as this file's general load-time reconstruction/
- * validation pass. That's exactly why `raw`/`metrics` must be carried
- * through here rather than left off the rebuilt `record` object: dropping
- * them was a real bug — every record's own raw display (grow-game-screen.tsx's
- * "최고 기록: ...") silently went back to "아직 기록이 없어요." the very next
- * time this ran, even though `savePlayerSkillState` had written them
- * correctly and they were sitting right there in the parsed JSON. Unlock
- * detection (isDifficultyUnlocked/getBestScoreAtDifficulty) was never
- * affected — it only ever reads `normalizedScore`, which this function did
- * already carry through.
+ * validation pass. That's exactly why `raw`/`metrics`/`recordVersion` must
+ * be carried through here rather than left off the rebuilt `record` object:
+ * dropping them was a real bug — every record's own raw display
+ * (grow-game-screen.tsx's "최고 기록: ...") silently went back to "아직 기록이
+ * 없어요." the very next time this ran, and a record's `recordVersion` tag
+ * (see lib/ranking/ranking-season.ts) would silently vanish on reload too,
+ * incorrectly dropping an up-to-date record out of the current-season
+ * leaderboard — even though `savePlayerSkillState`/`recordMiniGameCompletion`
+ * had written all three correctly and they were sitting right there in the
+ * parsed JSON. Unlock detection (isDifficultyUnlocked/getBestScoreAtDifficulty)
+ * was never affected either way — it only ever reads `normalizedScore`,
+ * which this function did already carry through.
  */
 function migrateToV2(parsed: Record<string, unknown>): PlayerSkillState {
   const fallback = createDefaultPlayerSkillState()
@@ -130,8 +143,13 @@ function migrateToV2(parsed: Record<string, unknown>): PlayerSkillState {
       difficulty,
       normalizedScore: clampScore(v.normalizedScore),
       completedAt: typeof v.completedAt === 'string' ? v.completedAt : fallback.updatedAt,
+      // This function runs on every load (not just a true v1->v2 migration —
+      // see loadPlayerSkillState below), so these three must be carried
+      // forward explicitly or a normal reload would silently erase a
+      // player's own raw record / leaderboard metrics / ranking-season tag.
       raw: isValidRaw(v.raw) ? v.raw : undefined,
       metrics: isValidMetrics(v.metrics) ? v.metrics : undefined,
+      recordVersion: typeof v.recordVersion === 'number' ? v.recordVersion : undefined,
     }
     gameDifficultyBestRecords[recordKey(record.gameId, record.difficulty)] = record
   }
@@ -220,6 +238,7 @@ export function recordMiniGameCompletion(
           completedAt: input.completedAt,
           raw: input.raw,
           metrics: input.metrics,
+          recordVersion: CURRENT_RANKING_SEASON,
         },
       }
     : state.gameDifficultyBestRecords

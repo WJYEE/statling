@@ -10,21 +10,24 @@ import { STATS } from '@/lib/brain-bet'
 import {
   DODGE_OBSTACLE_COLLISION_COOLDOWN_MS,
   DODGE_OBSTACLE_DOUBLE_SPAWN_UNLOCK_MS,
-  DODGE_OBSTACLE_DURATION_MS,
   DODGE_OBSTACLE_INTRO_COUNTDOWN_SECONDS,
   DODGE_OBSTACLE_LANE_COUNT,
-  getDodgeObstacleSpawnIntervalForDifficulty,
-  getDodgeObstacleSpeedForDifficulty,
+  DODGE_OBSTACLE_SCRIPTED_PATTERN_CHANCE,
+  DODGE_OBSTACLE_SCRIPTED_PATTERN_UNLOCK_MS,
+  dodgeObstacleSpawnIntervalAt,
+  dodgeObstacleSpeedAt,
+  getDodgeObstacleTierConfig,
 } from '@/lib/config/dodge-obstacle.config'
 import { GAME_DIFFICULTIES } from '@/lib/game/difficulty'
 import type { GameDifficulty } from '@/lib/game/difficulty'
+import { pickDefaultSpawn, pickScriptedPattern, type DodgeLane } from '@/lib/game/dodge-obstacle-patterns'
 import type { DodgeObstacleEvent, DodgeObstacleRawSummary } from '@/lib/game/types'
 import { calculateDodgeObstacleScore, summarizeDodgeObstacleEvents } from '@/lib/scoring/dodge-obstacle'
 import { cn } from '@/lib/utils'
 import { useSound } from '@/hooks/use-sound'
 
 type Stage = 'intro' | 'countdown' | 'playing' | 'ended'
-type Lane = 0 | 1 | 2
+type Lane = DodgeLane
 
 interface Obstacle {
   id: number
@@ -37,14 +40,20 @@ const PLAY_HEIGHT_PX = 380
 const HIT_LINE_PX = PLAY_HEIGHT_PX - 64
 
 const TUTORIAL: TutorialContent = {
-  goal: '좌우로 이동하며 위에서 떨어지는 장애물을 피해요.',
-  steps: ['화면 왼쪽/오른쪽을 탭하면 그쪽 레인으로 이동해요.', '키보드 좌우 화살표로도 이동할 수 있어요.', '장애물과 부딪히지 않도록 미리 레인을 옮기세요.'],
-  scoring: '회피한 개수, 충돌 횟수, 생존 시간을 함께 반영해요.',
+  goal: '좌우로 이동하며 위에서 떨어지는 장애물을 계속 피해요. 끝없이 이어지는 생존 모드예요.',
+  steps: ['화면 왼쪽/오른쪽을 탭하면 그쪽 레인으로 이동해요.', '키보드 좌우 화살표로도 이동할 수 있어요.', '장애물에 한 번이라도 부딪히면 그 즉시 끝나요. 시간이 지날수록 점점 빨라져요.'],
+  scoring: '회피율, 반응 속도, 생존 시간을 함께 반영해요.',
 }
 
 let obstacleIdCounter = 0
 
-/** "장애물 피하기" — new Reaction-stat game (spec §6). 3-lane dodge-run, ramping speed/spawn-rate, always leaving at least one open lane. */
+/**
+ * "장애물 피하기" — the app's one true endless/survival mini-game (2026-08
+ * rework). No fixed session length: a run keeps going, ramping speed/spawn
+ * rate every second, until the very first collision ends it. Difficulty
+ * only ever changes the starting speed/spawn interval and how fast both
+ * ramp — see lib/config/dodge-obstacle.config.ts.
+ */
 export function DodgeObstacleGame({
   index,
   mode,
@@ -60,13 +69,13 @@ export function DodgeObstacleGame({
 }) {
   const stat = STATS.reaction
   const { play } = useSound()
-  const speed = useMemo(() => getDodgeObstacleSpeedForDifficulty(difficulty), [difficulty])
-  const spawnInterval = useMemo(() => getDodgeObstacleSpawnIntervalForDifficulty(difficulty), [difficulty])
+  const tierConfig = useMemo(() => getDodgeObstacleTierConfig(difficulty), [difficulty])
   const [stage, setStage] = useState<Stage>('intro')
   const [tutorialOpen, setTutorialOpen] = useState(false)
   const [playerLane, setPlayerLane] = useState<Lane>(1)
   const [obstacles, setObstacles] = useState<Obstacle[]>([])
-  const [remainingMs, setRemainingMs] = useState(DODGE_OBSTACLE_DURATION_MS)
+  /** Count-up display — this game has no clock to count down from anymore. */
+  const [survivedDisplayMs, setSurvivedDisplayMs] = useState(0)
   const [flash, setFlash] = useState<'dodge' | 'hit' | null>(null)
 
   const playerLaneRef = useRef<Lane>(1)
@@ -80,17 +89,21 @@ export function DodgeObstacleGame({
   const rafRef = useRef<number | null>(null)
   const pausedAccumRef = useRef(0)
   const pausedAtRef = useRef<number | null>(null)
+  /** Pending multi-tick scripted pattern (sweep/gap-shift) — one entry consumed per spawn tick when non-empty, see spawnObstacle. */
+  const scriptedQueueRef = useRef<Lane[][]>([])
+  const finishedRef = useRef(false)
 
   useEffect(() => {
     playerLaneRef.current = playerLane
   }, [playerLane])
 
-  const finish = () => {
+  const finish = (survivedMs: number) => {
+    if (finishedRef.current) return
+    finishedRef.current = true
     if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
     setStage('ended')
-    const survivedMs = DODGE_OBSTACLE_DURATION_MS
     const rawSummary = summarizeDodgeObstacleEvents(eventsRef.current, survivedMs, moveReactionTimesRef.current)
-    const gameScore = calculateDodgeObstacleScore(rawSummary, survivedMs)
+    const gameScore = calculateDodgeObstacleScore(rawSummary)
     onComplete({ events: eventsRef.current, rawSummary, gameScore })
   }
 
@@ -117,17 +130,21 @@ export function DodgeObstacleGame({
   }, [stage])
 
   const spawnObstacle = (elapsedMs: number) => {
-    const canDouble = elapsedMs >= DODGE_OBSTACLE_DOUBLE_SPAWN_UNLOCK_MS && Math.random() < 0.3
-    const allLanes: Lane[] = [0, 1, 2]
     let lanesToSpawn: Lane[]
 
-    if (canDouble) {
-      const shuffled = [...allLanes].sort(() => Math.random() - 0.5)
-      lanesToSpawn = shuffled.slice(0, 2) // always leaves exactly one lane open
+    if (scriptedQueueRef.current.length > 0) {
+      lanesToSpawn = scriptedQueueRef.current.shift() as Lane[]
     } else {
-      const candidates = allLanes.filter((l) => l !== lastSpawnLaneRef.current)
-      const pool = candidates.length > 0 ? candidates : allLanes
-      lanesToSpawn = [pool[Math.floor(Math.random() * pool.length)]]
+      const canDouble = elapsedMs >= DODGE_OBSTACLE_DOUBLE_SPAWN_UNLOCK_MS
+      const scriptedEligible = elapsedMs >= DODGE_OBSTACLE_SCRIPTED_PATTERN_UNLOCK_MS
+      if (scriptedEligible && Math.random() < DODGE_OBSTACLE_SCRIPTED_PATTERN_CHANCE) {
+        const pattern = pickScriptedPattern()
+        // Spawn this tick's first step now, queue the rest for the following ticks.
+        lanesToSpawn = pattern[0]
+        scriptedQueueRef.current = pattern.slice(1)
+      } else {
+        lanesToSpawn = pickDefaultSpawn({ canDouble, lastLane: lastSpawnLaneRef.current })
+      }
     }
     lastSpawnLaneRef.current = lanesToSpawn[0]
 
@@ -141,15 +158,8 @@ export function DodgeObstacleGame({
     }
   }
 
-  const speedAt = (elapsedMs: number) => {
-    const ratio = Math.min(1, elapsedMs / DODGE_OBSTACLE_DURATION_MS)
-    return speed.start + ratio * (speed.end - speed.start)
-  }
-
-  const spawnIntervalAt = (elapsedMs: number) => {
-    const ratio = Math.min(1, elapsedMs / DODGE_OBSTACLE_DURATION_MS)
-    return spawnInterval.start + ratio * (spawnInterval.end - spawnInterval.start)
-  }
+  const speedAt = (elapsedMs: number) => dodgeObstacleSpeedAt(tierConfig, elapsedMs)
+  const spawnIntervalAt = (elapsedMs: number) => dodgeObstacleSpawnIntervalAt(tierConfig, elapsedMs)
 
   // Pause/resume bookkeeping: while the tutorial is open, freeze the elapsed-time clock the rAF loop reads from.
   useEffect(() => {
@@ -172,13 +182,14 @@ export function DodgeObstacleGame({
       }
       const now = performance.now()
       const elapsed = now - startedAtRef.current - pausedAccumRef.current
-      const remaining = Math.max(0, DODGE_OBSTACLE_DURATION_MS - elapsed)
-      setRemainingMs(remaining)
+      setSurvivedDisplayMs(elapsed)
 
       if (now >= nextSpawnAtRef.current) {
         spawnObstacle(elapsed)
         nextSpawnAtRef.current = now + spawnIntervalAt(elapsed)
       }
+
+      let collisionSurvivedMs: number | null = null
 
       setObstacles((prev) => {
         const speed = speedAt(elapsed)
@@ -190,12 +201,16 @@ export function DodgeObstacleGame({
             changed = true
             const collided = o.lane === playerLaneRef.current
             eventsRef.current.push({ kind: collided ? 'collided' : 'dodged', lane: o.lane, atMs: elapsed })
-            play(collided ? 'wrong' : 'answer-correct')
-            if (collided && now - lastCollisionAtRef.current > DODGE_OBSTACLE_COLLISION_COOLDOWN_MS) {
-              lastCollisionAtRef.current = now
-              setFlash('hit')
-              window.setTimeout(() => setFlash(null), 200)
-            } else if (!collided) {
+            if (collided) {
+              play('wrong')
+              if (now - lastCollisionAtRef.current > DODGE_OBSTACLE_COLLISION_COOLDOWN_MS) {
+                lastCollisionAtRef.current = now
+                setFlash('hit')
+              }
+              // First collision ends the run — capture elapsed now, finish() is called once after this state update settles.
+              if (collisionSurvivedMs === null) collisionSurvivedMs = elapsed
+            } else {
+              play('answer-correct')
               setFlash((f) => f ?? 'dodge')
               window.setTimeout(() => setFlash((f) => (f === 'dodge' ? null : f)), 150)
             }
@@ -203,15 +218,16 @@ export function DodgeObstacleGame({
           }
           return o
         })
-        // Drop long-resolved obstacles so the array doesn't grow unbounded over a 35s session.
+        // Drop long-resolved obstacles so the array doesn't grow unbounded over a long run.
         const trimmed = next.filter((o) => now - o.spawnedAt < 4000)
         return changed || trimmed.length !== prev.length ? trimmed : prev
       })
 
-      if (remaining <= 0) {
-        finish()
+      if (collisionSurvivedMs !== null) {
+        finish(collisionSurvivedMs)
         return
       }
+
       rafRef.current = requestAnimationFrame(loop)
     }
 
@@ -219,7 +235,7 @@ export function DodgeObstacleGame({
     return () => {
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally a single long-lived rAF loop for the 'playing' stage; tutorialOpen is read fresh each frame via closure
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally a single long-lived rAF loop for the 'playing' stage; tutorialOpen/tierConfig are read fresh each frame via closure
   }, [stage])
 
   const startGame = () => setStage('countdown')
@@ -231,15 +247,17 @@ export function DodgeObstacleGame({
     pausedAccumRef.current = 0
     pausedAtRef.current = null
     lastSpawnLaneRef.current = null
+    scriptedQueueRef.current = []
+    finishedRef.current = false
     setObstacles([])
     setPlayerLane(1)
     startedAtRef.current = performance.now()
     nextSpawnAtRef.current = performance.now() + 400
-    setRemainingMs(DODGE_OBSTACLE_DURATION_MS)
+    setSurvivedDisplayMs(0)
     setStage('playing')
   }
 
-  const secondsLeft = Math.ceil(remainingMs / 1000)
+  const survivedSeconds = (survivedDisplayMs / 1000).toFixed(1)
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-6">
@@ -248,11 +266,11 @@ export function DodgeObstacleGame({
         gameName="장애물 피하기"
         mode={mode}
         index={index}
-        objective="좌우로 이동해 장애물을 피하세요."
+        objective="좌우로 이동해 장애물을 계속 피하세요. 한 번이라도 부딪히면 끝나요."
         statusSlot={
           stage === 'playing' ? (
-            <span className="rounded-xl bg-secondary px-3 py-1.5 text-xs font-bold text-secondary-foreground toy-border" aria-label={`남은 시간 ${secondsLeft}초`}>
-              {secondsLeft}s
+            <span className="rounded-xl bg-secondary px-3 py-1.5 text-xs font-bold text-secondary-foreground toy-border" aria-label={`생존 시간 ${survivedSeconds}초`}>
+              생존 {survivedSeconds}s
             </span>
           ) : undefined
         }
@@ -265,7 +283,7 @@ export function DodgeObstacleGame({
         {stage === 'intro' && (
           <div className="flex flex-1 flex-col items-center justify-center gap-5 rounded-3xl bg-card px-6 py-12 text-center toy-border toy-shadow-lg">
             <p className="font-display text-lg font-bold leading-snug text-foreground">
-              좌우로 이동하며 떨어지는 장애물을 피해보세요.
+              좌우로 이동하며 떨어지는 장애물을 계속 피해보세요. 한 번이라도 부딪히면 바로 끝나요.
             </p>
             <ToyButton onClick={startGame}>시작하기</ToyButton>
           </div>

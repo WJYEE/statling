@@ -1,23 +1,46 @@
 /** Reasoning ("Pattern Reasoning") tuning constants — GAME_SPEC §74-84. */
-/** v2: gameScore reworked to difficultyWeightedAccuracy 75% + time 15% + timeout-solve-rate 10%, clamped 0-100 (was an unbounded ~800+-scale formula). */
+/**
+ * v2: gameScore reworked to difficultyWeightedAccuracy 75% + time 15% +
+ * timeout-solve-rate 10%, clamped 0-100 (was an unbounded ~800+-scale
+ * formula).
+ * v3 (2026-08 difficulty rework): which Levels a session draws its
+ * REASONING_TEMPLATES questions from is now tied to the player's chosen
+ * tier (REASONING_QUESTIONS_PER_LEVEL_BY_TIER) instead of always pulling
+ * from all 4 Levels regardless of tier — Easy stays single-rule (Level 1
+ * only), Normal mixes in Level 2, Hard moves to the already-`compound`
+ * Level 3 templates, Extreme to the more deeply compound Level 4 ones. The
+ * 20 hand-authored templates themselves (lib/game/reasoning-templates.ts)
+ * are untouched — Level 3/4 were already exactly the "두 규칙 조합"/"복합
+ * 규칙" structure this rework asked for, just never tier-gated before.
+ */
 import { DIFFICULTY_TIME_MULTIPLIER } from '@/lib/config/difficulty.config'
 import type { GameDifficulty } from '@/lib/game/difficulty'
 
-export const REASONING_GAME_VERSION = 'reasoning_v2'
+export const REASONING_GAME_VERSION = 'reasoning_v3'
 
 export const REASONING_LEVELS = [1, 2, 3, 4] as const
 
 /**
- * Real question count per Level. Compressed three times now (First Play
- * fatigue reduction): originally a uniform 2/2/2/2 (8 total), then 1/1/2/1,
- * then 1/1/1/1 (4 total), and now 1/0/1/1 (3 total) — Level 2 dropped
- * entirely as the step closest in difficulty to its neighbors.
+ * Real question count per Level, per tier. Each of the 4 Levels has exactly
+ * 5 hand-authored Templates (see reasoning-templates.ts), so no tier ever
+ * asks for more than 4 from one Level (leaves room to sample without
+ * replacement).
  */
-export const REASONING_QUESTIONS_PER_LEVEL: Record<number, number> = { 1: 1, 2: 0, 3: 1, 4: 1 }
-export const REASONING_REAL_QUESTIONS = REASONING_LEVELS.reduce(
-  (sum, level) => sum + REASONING_QUESTIONS_PER_LEVEL[level],
-  0,
-)
+export const REASONING_QUESTIONS_PER_LEVEL_BY_TIER: Record<GameDifficulty, Record<number, number>> = {
+  easy: { 1: 3, 2: 0, 3: 0, 4: 0 },
+  normal: { 1: 1, 2: 2, 3: 0, 4: 0 },
+  hard: { 1: 0, 2: 0, 3: 4, 4: 0 },
+  extreme: { 1: 0, 2: 0, 3: 0, 4: 4 },
+}
+
+export function getReasoningQuestionsPerLevelForDifficulty(difficulty: GameDifficulty): Record<number, number> {
+  return REASONING_QUESTIONS_PER_LEVEL_BY_TIER[difficulty]
+}
+
+export function getReasoningQuestionCountForDifficulty(difficulty: GameDifficulty): number {
+  const perLevel = REASONING_QUESTIONS_PER_LEVEL_BY_TIER[difficulty]
+  return REASONING_LEVELS.reduce((sum, level) => sum + perLevel[level], 0)
+}
 
 export const REASONING_OPTION_COUNT = 4
 

@@ -1,8 +1,9 @@
 import {
   REASONING_LEVELS,
   REASONING_OPTION_COUNT,
-  REASONING_QUESTIONS_PER_LEVEL,
+  getReasoningQuestionsPerLevelForDifficulty,
 } from '@/lib/config/reasoning.config'
+import type { GameDifficulty } from '@/lib/game/difficulty'
 import {
   buildTutorial1Instance,
   buildTutorial2Instance,
@@ -92,15 +93,16 @@ function buildQuestionFromTemplate(template: ReasoningTemplate, instance: Reason
 }
 
 /**
- * Builds the fixed REASONING_REAL_QUESTIONS-question real session: each
- * Level's own REASONING_QUESTIONS_PER_LEVEL count of Templates, sampled
- * without replacement from that Level's 5 hand-authored Templates — no
- * Template is ever reused twice in one session.
+ * Builds the real session for `difficulty`'s own per-Level question counts
+ * (see lib/config/reasoning.config.ts#REASONING_QUESTIONS_PER_LEVEL_BY_TIER),
+ * sampled without replacement from each Level's 5 hand-authored Templates —
+ * no Template is ever reused twice in one session.
  */
-export function generateReasoningSession(): GeneratedReasoningQuestion[] {
+export function generateReasoningSession(difficulty: GameDifficulty): GeneratedReasoningQuestion[] {
+  const questionsPerLevel = getReasoningQuestionsPerLevelForDifficulty(difficulty)
   const questions: GeneratedReasoningQuestion[] = []
   for (const level of REASONING_LEVELS) {
-    const picked = shuffled(templatesForLevel(level)).slice(0, REASONING_QUESTIONS_PER_LEVEL[level])
+    const picked = shuffled(templatesForLevel(level)).slice(0, questionsPerLevel[level])
     for (const template of picked) {
       questions.push(buildQuestionFromTemplate(template, template.generate()))
     }

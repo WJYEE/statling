@@ -12,7 +12,6 @@ import { STATS } from '@/lib/brain-bet'
 import {
   getReasoningTimeLimitForDifficulty,
   REASONING_FEEDBACK_MS,
-  REASONING_REAL_QUESTIONS,
   REASONING_TUTORIAL_TRANSITION_MS,
 } from '@/lib/config/reasoning.config'
 import { GAME_DIFFICULTIES } from '@/lib/game/difficulty'
@@ -201,7 +200,7 @@ export function ReasoningGame({ index, mode, difficulty, onComplete, onBack }: R
     const updated = [...trialsRef.current, trial]
     trialsRef.current = updated
 
-    if (updated.length >= REASONING_REAL_QUESTIONS) {
+    if (updated.length >= realQuestionsRef.current.length) {
       const rawSummary = summarizeReasoningTrials(updated)
       const gameScore = calculateReasoningScore(rawSummary, detectDevice().inputType)
       schedule(() => onComplete({ trials: updated, rawSummary, gameScore }), REASONING_FEEDBACK_MS)
@@ -216,7 +215,7 @@ export function ReasoningGame({ index, mode, difficulty, onComplete, onBack }: R
   const startGame = () => {
     play('game-start')
     clearScheduled()
-    realQuestionsRef.current = generateReasoningSession()
+    realQuestionsRef.current = generateReasoningSession(difficulty)
     trialsRef.current = []
     beginQuestion('tutorial-1', 0)
   }
@@ -281,7 +280,7 @@ export function ReasoningGame({ index, mode, difficulty, onComplete, onBack }: R
         ) : (
           <span className="rounded-xl bg-secondary px-3 py-2 text-center font-display text-sm font-extrabold text-secondary-foreground toy-border">
             Lv.{currentQuestion?.difficultyLevel ?? 1} · <span className="text-primary">{realQuestionIndex + 1}</span> /{' '}
-            {REASONING_REAL_QUESTIONS}
+            {realQuestionsRef.current.length}
           </span>
         )}
       </div>

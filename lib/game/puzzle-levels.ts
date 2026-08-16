@@ -1,3 +1,5 @@
+import type { GameDifficulty } from '@/lib/game/difficulty'
+
 export type PuzzleRotation = 0 | 90
 
 export interface PuzzlePieceSpec {
@@ -199,15 +201,35 @@ export const PUZZLE_LEVELS: PuzzleLevel[] = [
 ]
 
 /**
- * Draws one session's worth of levels (1 easy + 2 normal + 1 hard = 4
- * rounds, ascending difficulty), matching the original fixed 4-round ramp
- * shape while sampling from the larger 12-level pool so replays vary.
+ * 2026-08 difficulty rework: which levels a session draws from is now tied
+ * directly to the player's chosen GameDifficulty tier instead of sampling
+ * across all 3 internal difficulty bands regardless of tier (the exact bug
+ * this fixes — Extreme could previously draw the same levels as Easy).
+ * Pools were hand-picked by actually checking each level's real
+ * piece.correctRotation values, not just its `difficulty` field:
+ * - easy: the only two difficulty-1 levels where NO piece needs rotation at
+ *   all (level-1, level-6) — matches "회전 불필요".
+ * - normal: difficulty-1/2 levels with exactly 1 rotated piece each — "회전
+ *   없음 또는 매우 제한적".
+ * - hard: difficulty-2 levels with 2 rotated pieces each — "일부 조각 회전
+ *   필요".
+ * - extreme: all 4 difficulty-3 levels (6 pieces, similarly-shaped pieces
+ *   by design — see this file's earlier doc comment) — "대부분/전부 회전
+ *   필요, 가장 복잡한 조각 구성".
+ * Round count naturally varies by tier as a result (2/3/3/4) since each
+ * pool is used in full rather than padded with repeats or trimmed.
  */
-export function pickFitPuzzleSession(): PuzzleLevel[] {
-  const byDifficulty = (d: 1 | 2 | 3) => PUZZLE_LEVELS.filter((l) => l.difficulty === d)
-  const pick = (pool: PuzzleLevel[], count: number) => {
-    const shuffled = [...pool].sort(() => Math.random() - 0.5)
-    return shuffled.slice(0, Math.min(count, shuffled.length))
-  }
-  return [...pick(byDifficulty(1), 1), ...pick(byDifficulty(2), 2), ...pick(byDifficulty(3), 1)]
+export const PUZZLE_LEVEL_IDS_BY_DIFFICULTY: Record<GameDifficulty, string[]> = {
+  easy: ['level-1', 'level-6'],
+  normal: ['level-2', 'level-5', 'level-3'],
+  hard: ['level-4', 'level-7', 'level-8'],
+  extreme: ['level-9', 'level-10', 'level-11', 'level-12'],
+}
+
+/** Draws one session's worth of levels for `difficulty`'s own pool, order shuffled for replay variety (selection itself is fixed — see PUZZLE_LEVEL_IDS_BY_DIFFICULTY). */
+export function pickFitPuzzleSession(difficulty: GameDifficulty): PuzzleLevel[] {
+  const byId = new Map(PUZZLE_LEVELS.map((level) => [level.id, level]))
+  const ids = PUZZLE_LEVEL_IDS_BY_DIFFICULTY[difficulty]
+  const levels = ids.map((id) => byId.get(id)).filter((level): level is PuzzleLevel => level != null)
+  return [...levels].sort(() => Math.random() - 0.5)
 }

@@ -11,21 +11,22 @@ import { GameRuleReminder } from '@/components/brain-bet/games/shared/game-rule-
 import { FreePlayBadge } from '@/components/brain-bet/games/shared/free-play-badge'
 import { STATS } from '@/lib/brain-bet'
 import {
-  FOCUS_DIFFICULTY_SEQUENCE,
   FOCUS_NO_TARGET_ROUND_COUNT,
   FOCUS_REAL_GRID_SIZE,
   FOCUS_REAL_ROUNDS,
   FOCUS_ROUND_FEEDBACK_MS,
+  FOCUS_TARGET_SHAPE_POOL_BY_DIFFICULTY,
   FOCUS_TUTORIAL_DIFFICULTY,
   FOCUS_TUTORIAL_GRID_SIZE,
   FOCUS_TUTORIAL_ROUNDS,
   FOCUS_TUTORIAL_TRANSITION_MS,
+  getFocusDifficultySequenceForDifficulty,
   getFocusRoundTimeLimitForDifficulty,
 } from '@/lib/config/focus.config'
 import { buildFocusRound, type FocusRoundView } from '@/lib/game/focus-grid'
 import { GAME_DIFFICULTIES, type GameDifficulty } from '@/lib/game/difficulty'
 import { selectNoTargetRoundIndices } from '@/lib/game/focus-rounds'
-import { FOCUS_TARGET_SYMBOL } from '@/lib/game/focus-symbol'
+import { buildFocusTargetSymbol, type FocusShape } from '@/lib/game/focus-symbol'
 import type { FocusRawSummary, FocusRoundTrial } from '@/lib/game/types'
 import { calculateFocusScore, summarizeFocusRounds } from '@/lib/scoring/focus'
 import { cn } from '@/lib/utils'
@@ -107,6 +108,13 @@ export function FocusGame({ index, mode, difficulty, onComplete, onBack }: Focus
   const { play } = useSound()
 
   const roundTimeLimitMs = useMemo(() => getFocusRoundTimeLimitForDifficulty(difficulty), [difficulty])
+  const focusSequence = useMemo(() => getFocusDifficultySequenceForDifficulty(difficulty), [difficulty])
+  // Picked once per session (never per-round) — Focus measures sustained attention to ONE constant target, so the shape itself must not change mid-session even though which shape it is now depends on the tier.
+  const [sessionTargetShape] = useState<FocusShape>(() => {
+    const pool = FOCUS_TARGET_SHAPE_POOL_BY_DIFFICULTY[difficulty]
+    return pool[Math.floor(Math.random() * pool.length)]
+  })
+  const sessionTargetSymbol = useMemo(() => buildFocusTargetSymbol(sessionTargetShape), [sessionTargetShape])
 
   const [stage, setStage] = useState<Stage>('intro')
   const [round, setRound] = useState<Round>('tutorial-target')
@@ -155,7 +163,7 @@ export function FocusGame({ index, mode, difficulty, onComplete, onBack }: Focus
     hasResolvedRef.current = false
 
     const isReal = nextRound === 'real'
-    const difficultyNow = isReal ? FOCUS_DIFFICULTY_SEQUENCE[nextRealIndex] : FOCUS_TUTORIAL_DIFFICULTY
+    const difficultyNow = isReal ? focusSequence[nextRealIndex] : FOCUS_TUTORIAL_DIFFICULTY
     const gridSizeNow = isReal ? FOCUS_REAL_GRID_SIZE : FOCUS_TUTORIAL_GRID_SIZE
     const targetPresentNow =
       nextRound === 'tutorial-target' ? true : !noTargetRoundIndicesRef.current.has(nextRealIndex)
@@ -163,7 +171,7 @@ export function FocusGame({ index, mode, difficulty, onComplete, onBack }: Focus
 
     // Layout + symbols are built and validated together as one atomic value —
     // they can never end up describing two different rounds.
-    const viewNow = buildFocusRound(gridSizeNow, distractorCountNow, targetPresentNow, difficultyNow.similarityLevel)
+    const viewNow = buildFocusRound(gridSizeNow, distractorCountNow, targetPresentNow, difficultyNow.similarityLevel, sessionTargetSymbol)
 
     const limit = isReal ? roundTimeLimitMs[nextRealIndex] : null
     const startedAt = performance.now()
@@ -241,7 +249,7 @@ export function FocusGame({ index, mode, difficulty, onComplete, onBack }: Focus
     }
 
     const realRoundIndexNow = realRoundIndexRef.current
-    const difficultyNow = FOCUS_DIFFICULTY_SEQUENCE[realRoundIndexNow]
+    const difficultyNow = focusSequence[realRoundIndexNow]
     const trial: FocusRoundTrial = {
       roundIndex: realRoundIndexNow,
       difficultyLevel: difficultyNow.level,
@@ -364,7 +372,7 @@ export function FocusGame({ index, mode, difficulty, onComplete, onBack }: Focus
             className="grid h-24 w-24 place-items-center rounded-3xl toy-border toy-shadow"
             style={{ backgroundColor: `var(${stat.colorVar})` } as CSSProperties}
           >
-            <FocusSymbolView {...FOCUS_TARGET_SYMBOL} color="var(--card)" size={44} />
+            <FocusSymbolView {...sessionTargetSymbol} color="var(--card)" size={44} />
           </span>
           <div className="max-w-sm">
             <p className="font-display text-lg font-bold leading-snug text-foreground">
@@ -381,7 +389,7 @@ export function FocusGame({ index, mode, difficulty, onComplete, onBack }: Focus
           {/* Target Preview — always visible, never changes round to round. */}
           <div className="flex items-center gap-2 rounded-2xl bg-secondary px-4 py-2 toy-border">
             <span className="text-xs font-bold text-secondary-foreground">이 모양을 찾아주세요</span>
-            <FocusSymbolView {...FOCUS_TARGET_SYMBOL} color={`var(${stat.colorVar})`} size={24} />
+            <FocusSymbolView {...sessionTargetSymbol} color={`var(${stat.colorVar})`} size={24} />
           </div>
 
           {/* Fixed-height message + Tutorial caption slot. */}

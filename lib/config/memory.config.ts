@@ -1,9 +1,19 @@
 /** Memory ("Memory Tiles") tuning constants — GAME_SPEC §34-44. */
-/** v2: gameScore reworked to weightedAccuracy 85% + 응답속도 15%, clamped 0-100 (was an unbounded ~1000-scale formula). */
-import { DIFFICULTY_TIME_MULTIPLIER } from '@/lib/config/difficulty.config'
+/**
+ * v2: gameScore reworked to weightedAccuracy 85% + 응답속도 15%, clamped
+ * 0-100 (was an unbounded ~1000-scale formula).
+ * v3 (2026-08 difficulty rework): grid size + target count are now the
+ * PRIMARY difficulty axis, one full 3-round sequence per tier
+ * (MEMORY_TIER_SEQUENCES) instead of one shared sequence scaled only by
+ * exposureMs. exposureMs still shrinks tier over tier, but only as a
+ * secondary nudge — see each tier's own numbers below. Every gridSize used
+ * here (up to 7) renders inside memory-game.tsx's existing fixed-footprint,
+ * `minmax(0,1fr)`-column grid, which already scales to any N without a
+ * layout change.
+ */
 import type { GameDifficulty } from '@/lib/game/difficulty'
 
-export const MEMORY_GAME_VERSION = 'memory_v2'
+export const MEMORY_GAME_VERSION = 'memory_v3'
 
 export const MEMORY_PRACTICE_ROUNDS = 1
 export const MEMORY_REAL_ROUNDS = 3
@@ -16,7 +26,7 @@ export interface MemoryDifficultyLevel {
   exposureMs: number
 }
 
-/** Tutorial has its own (easier) difficulty, separate from the real sequence; its result is always discarded. */
+/** Tutorial has its own (easier) difficulty, separate from the real sequence; its result is always discarded. Unaffected by the player's chosen tier — every tier's Tutorial round is identical, since it's purely there to teach the rule. */
 export const MEMORY_TUTORIAL_DIFFICULTY: MemoryDifficultyLevel = {
   level: 0,
   gridSize: 3,
@@ -25,44 +35,45 @@ export const MEMORY_TUTORIAL_DIFFICULTY: MemoryDifficultyLevel = {
 }
 
 /**
- * Fixed difficulty sequence — every user plays the same 3 rounds regardless
- * of performance (no Life system, no early termination). Values are a draft
- * per product decision; adjust here after Beta testing.
- *
- * Compressed three times now (First Play fatigue reduction): 6 → 5 → 4 → 3
- * rounds, each cut thinning the middle further (this pass drops the old
- * level 2 — 4x4/5 targets/850ms). Both ends of the curve are still intact
- * (level 1's easy 3x3/4-target intro and level 3's hardest 6x6/9
- * target/650ms finish, unchanged from before), so a fast player still hits
- * the same peak difficulty — only the middle kept getting thinner.
+ * One full 3-round sequence per tier — every player still plays exactly 3
+ * real rounds (no Life system, no early termination, same as before), but
+ * which grid/target-count ramp they climb depends on their chosen
+ * difficulty. Each tier's own 3 rounds still ramp internally (so even a
+ * single tier doesn't feel flat), and each successive tier starts at
+ * roughly where the previous tier's hardest round left off.
  */
-export const MEMORY_DIFFICULTY_SEQUENCE: MemoryDifficultyLevel[] = [
-  { level: 1, gridSize: 3, targetCount: 4, exposureMs: 900 },
-  { level: 2, gridSize: 5, targetCount: 7, exposureMs: 750 },
-  { level: 3, gridSize: 6, targetCount: 9, exposureMs: 650 },
-]
+export const MEMORY_TIER_SEQUENCES: Record<GameDifficulty, MemoryDifficultyLevel[]> = {
+  easy: [
+    { level: 1, gridSize: 3, targetCount: 3, exposureMs: 1000 },
+    { level: 2, gridSize: 3, targetCount: 4, exposureMs: 950 },
+    { level: 3, gridSize: 4, targetCount: 5, exposureMs: 900 },
+  ],
+  normal: [
+    { level: 1, gridSize: 4, targetCount: 5, exposureMs: 900 },
+    { level: 2, gridSize: 4, targetCount: 6, exposureMs: 850 },
+    { level: 3, gridSize: 5, targetCount: 7, exposureMs: 800 },
+  ],
+  hard: [
+    { level: 1, gridSize: 5, targetCount: 7, exposureMs: 800 },
+    { level: 2, gridSize: 5, targetCount: 8, exposureMs: 700 },
+    { level: 3, gridSize: 6, targetCount: 9, exposureMs: 650 },
+  ],
+  extreme: [
+    { level: 1, gridSize: 6, targetCount: 9, exposureMs: 700 },
+    { level: 2, gridSize: 6, targetCount: 10, exposureMs: 600 },
+    { level: 3, gridSize: 7, targetCount: 12, exposureMs: 500 },
+  ],
+}
 
-/**
- * MEMORY_DIFFICULTY_SEQUENCE scaled by the player's chosen game difficulty —
- * only `exposureMs` (the "how long until X" time-budget knob) is scaled;
- * `gridSize`/`targetCount` are unaffected. At 'normal' DIFFICULTY_TIME_MULTIPLIER
- * is exactly 1, so this returns entries identical to the base sequence.
- */
 export function getMemoryDifficultySequenceForDifficulty(difficulty: GameDifficulty): MemoryDifficultyLevel[] {
-  return MEMORY_DIFFICULTY_SEQUENCE.map((level) => ({
-    ...level,
-    exposureMs: Math.round(level.exposureMs * DIFFICULTY_TIME_MULTIPLIER[difficulty]),
-  }))
+  return MEMORY_TIER_SEQUENCES[difficulty]
 }
 
 /**
  * Per-round weight for Weighted Accuracy — harder rounds count slightly more.
- * Index matches MEMORY_DIFFICULTY_SEQUENCE (round 1 = index 0, ...). Kept
- * modest (1.0 → 1.25) so difficulty nudges the score without dominating it —
- * re-spread across 3 entries (was 4, was 5, was 6) to match the compressed
- * sequence above; each dropped entry's weight was simply removed rather than
- * redistributed, since these are relative nudges, not a normalized
- * distribution.
+ * Index matches each tier's own MEMORY_TIER_SEQUENCES entry (round 1 = index
+ * 0, ...) — same 3 weights apply within every tier's own 3-round ramp. Kept
+ * modest (1.0 → 1.25) so difficulty nudges the score without dominating it.
  */
 export const MEMORY_DIFFICULTY_ACCURACY_WEIGHTS = [1.0, 1.19, 1.25]
 

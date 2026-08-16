@@ -1,9 +1,10 @@
 import {
   SPATIAL_LEVELS,
-  SPATIAL_LEVEL_DISTRACTOR_TYPES,
   SPATIAL_OPTION_COUNT,
-  SPATIAL_QUESTIONS_PER_LEVEL,
+  getSpatialLevelDistractorTypesForDifficulty,
+  getSpatialQuestionsPerLevelForDifficulty,
 } from '@/lib/config/spatial.config'
+import type { GameDifficulty } from '@/lib/game/difficulty'
 import {
   MIRROR_PARTNER_ID,
   SHAPE_BY_ID,
@@ -185,11 +186,12 @@ function buildQuestion(
 }
 
 /**
- * Builds the fixed 5-question real session (SPATIAL_REAL_QUESTIONS): Level 1
- * draws 1 'simple' (tetromino) shape; Levels 2-4 sample distinct 'complex'
- * (pentomino) shapes without replacement across the whole session per each
- * Level's own SPATIAL_QUESTIONS_PER_LEVEL count — no base shape is ever the
- * correct answer twice in one session.
+ * Builds the real session for `difficulty`'s own question count (see
+ * lib/config/spatial.config.ts#SPATIAL_QUESTIONS_PER_LEVEL_BY_TIER — 3 to 5
+ * questions depending on tier): Level 1 draws 1 'simple' (tetromino) shape;
+ * Levels 2-4 sample distinct 'complex' (pentomino) shapes without
+ * replacement across the whole session per each Level's own per-tier count
+ * — no base shape is ever the correct answer twice in one session.
  *
  * `avoidShapeIds` — used only for a stat's 1 Initial-Assessment retry (see
  * game-flow.tsx's spatialFirstAttemptShapeIdsRef): every shape id (reference
@@ -201,10 +203,16 @@ function buildQuestion(
  * tier alone has just 2, so "avoid everything already seen" could easily be
  * infeasible. Defaults to empty (a normal first attempt has nothing to avoid).
  */
-export function generateSpatialSession(avoidShapeIds: ReadonlySet<string> = new Set()): GeneratedSpatialQuestion[] {
+export function generateSpatialSession(
+  difficulty: GameDifficulty,
+  avoidShapeIds: ReadonlySet<string> = new Set(),
+): GeneratedSpatialQuestion[] {
+  const questionsPerLevel = getSpatialQuestionsPerLevelForDifficulty(difficulty)
+  const distractorTypesPerLevel = getSpatialLevelDistractorTypesForDifficulty(difficulty)
+
   const simpleShapeIds = preferUnseen(shuffled(shapeIdsInTier('simple')), avoidShapeIds)
   const totalComplexNeeded = SPATIAL_LEVELS.filter((level) => level !== 1).reduce(
-    (sum, level) => sum + SPATIAL_QUESTIONS_PER_LEVEL[level],
+    (sum, level) => sum + questionsPerLevel[level],
     0,
   )
   const complexShapeIds = preferUnseen(shuffled(shapeIdsInTier('complex')), avoidShapeIds).slice(
@@ -220,7 +228,7 @@ export function generateSpatialSession(avoidShapeIds: ReadonlySet<string> = new 
   let complexCursor = 0
 
   for (const level of SPATIAL_LEVELS) {
-    const countForLevel = SPATIAL_QUESTIONS_PER_LEVEL[level]
+    const countForLevel = questionsPerLevel[level]
     const shapeIdsForLevel =
       level === 1
         ? simpleShapeIds.slice(0, countForLevel)
@@ -229,7 +237,7 @@ export function generateSpatialSession(avoidShapeIds: ReadonlySet<string> = new 
 
     for (const shapeId of shapeIdsForLevel) {
       usedShapeIds.add(shapeId)
-      questions.push(buildQuestion(level, shapeId, SPATIAL_LEVEL_DISTRACTOR_TYPES[level], usedShapeIds))
+      questions.push(buildQuestion(level, shapeId, distractorTypesPerLevel[level], usedShapeIds))
     }
   }
   return questions
