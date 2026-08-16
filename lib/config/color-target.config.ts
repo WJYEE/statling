@@ -26,9 +26,18 @@ export interface StroopColorDef {
   colorVar: string
 }
 
-/** 5 colors total; a tier only ever uses its first `colorCount` of these. */
+/**
+ * 5 colors total; a tier only ever uses its first `colorCount` of these.
+ *
+ * v2 (2026-08 QA 보정): 'red' used to reuse `--stat-spatial`, whose real
+ * OKLCH hue (~52) actually renders as orange, not red — so the "빨강" label
+ * and its button visibly disagreed (exactly the "정답은 빨강인데 버튼은
+ * 주황" QA report). Swapped to `--stat-memory` (hue ~18, genuinely in the
+ * red band) — same 5 slots, same ids/labels/order, only the underlying CSS
+ * var corrected so every label now matches what's actually rendered.
+ */
 export const STROOP_COLOR_PALETTE: StroopColorDef[] = [
-  { id: 'red', label: '빨강', colorVar: '--stat-spatial' },
+  { id: 'red', label: '빨강', colorVar: '--stat-memory' },
   { id: 'blue', label: '파랑', colorVar: '--stat-focus' },
   { id: 'green', label: '초록', colorVar: '--stat-judgment' },
   { id: 'yellow', label: '노랑', colorVar: '--stat-reaction' },
@@ -49,7 +58,10 @@ export interface StroopTierConfig {
 }
 
 export const STROOP_TIER_CONFIG: Record<GameDifficulty, StroopTierConfig> = {
-  easy: { rules: ['ink'], blockSize: 16, trialCount: 16, incongruentRatio: 0.35, perTrialTimeLimitMs: 2200, colorCount: 3 },
+  // v2 QA: trialCount was 16 — noticeably longer than every other tier's
+  // relative pacing for a single-rule, no-switch tier. Cut to 5 (blockSize
+  // moot here since rules.length === 1, kept equal to trialCount for clarity).
+  easy: { rules: ['ink'], blockSize: 5, trialCount: 5, incongruentRatio: 0.35, perTrialTimeLimitMs: 2200, colorCount: 3 },
   normal: { rules: ['ink'], blockSize: 20, trialCount: 20, incongruentRatio: 0.5, perTrialTimeLimitMs: 1800, colorCount: 4 },
   hard: { rules: ['ink', 'meaning'], blockSize: 6, trialCount: 24, incongruentRatio: 0.6, perTrialTimeLimitMs: 1600, colorCount: 5 },
   extreme: { rules: ['ink', 'meaning'], blockSize: 3, trialCount: 24, incongruentRatio: 0.75, perTrialTimeLimitMs: 1400, colorCount: 5 },

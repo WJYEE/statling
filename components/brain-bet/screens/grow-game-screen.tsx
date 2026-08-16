@@ -100,11 +100,13 @@ export function GrowGameScreen({ statId, onSelect, onBack, initialGameKey }: Gro
                   </span>
                 )}
 
-                {/* record.raw only — the player's own actual measured record (ms/accuracy/time), never the internal normalizedScore composite it maps to. The locked-tier hint below (unlockHintFor) does state the config threshold itself, since that's the real bar to clear. */}
+                {/* record.raw is the player's own actual measured record (ms/accuracy/time); record.normalizedScore is the SAME stored completion's already-computed 0-100 score — never recomputed here, just read alongside the raw text so a raw number like "243ms" always has a comparable score next to it. The locked-tier hint below (unlockHintFor) does state the config threshold itself, since that's the real bar to clear. */}
                 {unlocked ? (
                   record?.raw ? (
                     <div className="text-xs font-semibold leading-snug text-foreground">
-                      <p>최고 기록: {record.raw.primary}</p>
+                      <p>
+                        최고 기록: {record.raw.primary} · {record.normalizedScore}점
+                      </p>
                       {record.raw.secondary && <p className="text-muted-foreground">{record.raw.secondary}</p>}
                     </div>
                   ) : (

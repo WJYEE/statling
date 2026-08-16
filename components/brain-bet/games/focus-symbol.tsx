@@ -33,7 +33,7 @@ function ShapePath({ shape }: { shape: FocusSymbolSpec['shape'] }) {
 }
 
 /** CSS/SVG-only symbol — no external image assets, per the Focus visual theme guidance. */
-export function FocusSymbolView({ shape, rotationDeg, hasDot, dotOffset, color, size = 30 }: FocusSymbolViewProps) {
+export function FocusSymbolView({ shape, rotationDeg, hasDot, dotOffset, sizeScale, color, size = 30 }: FocusSymbolViewProps) {
   return (
     <svg
       width={size}
@@ -42,10 +42,12 @@ export function FocusSymbolView({ shape, rotationDeg, hasDot, dotOffset, color, 
       style={{ transform: `rotate(${rotationDeg}deg)` }}
       aria-hidden="true"
     >
-      <g fill={color} stroke="var(--ink)" strokeWidth={2} strokeLinejoin="round">
-        <ShapePath shape={shape} />
+      <g transform={sizeScale !== 1 ? `translate(20 20) scale(${sizeScale}) translate(-20 -20)` : undefined}>
+        <g fill={color} stroke="var(--ink)" strokeWidth={2} strokeLinejoin="round">
+          <ShapePath shape={shape} />
+        </g>
+        {hasDot && <circle cx={dotOffset ? 25 : 20} cy={20} r={3} fill="var(--ink)" />}
       </g>
-      {hasDot && <circle cx={dotOffset ? 25 : 20} cy={20} r={3} fill="var(--ink)" />}
     </svg>
   )
 }

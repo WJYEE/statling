@@ -13,13 +13,15 @@ interface FreePlayResultScreenProps {
   personalBestRaw?: RawRecord | null
   isNewRecord?: boolean
   isRecommended: boolean
+  /** The exact amount just added to XpState by addXp (lib/ranking/xp-ledger.ts) for this completion — the caller computes it the same way addXp does (Math.max(0, Math.round(gameScore))) so this display can never drift from what was actually granted. */
+  xpEarned: number
   onReturnToRoom: () => void
 }
 
 /**
  * Free Play completion screen (distinct from the first-play Stat Discovery
  * screen per GAME_SPEC §109-110). Shows the raw record plus Personal Best /
- * NEW RECORD — still no real XP math, just a flat "EXP 획득" label.
+ * NEW RECORD, and the real XP amount just granted (see `xpEarned`).
  */
 export function FreePlayResultScreen({
   statId,
@@ -27,6 +29,7 @@ export function FreePlayResultScreen({
   personalBestRaw,
   isNewRecord,
   isRecommended,
+  xpEarned,
   onReturnToRoom,
 }: FreePlayResultScreenProps) {
   const stat = STATS[statId]
@@ -76,7 +79,8 @@ export function FreePlayResultScreen({
       <div className="mt-4 flex items-center gap-2 rounded-2xl bg-secondary px-4 py-3 toy-border">
         <Trophy size={18} strokeWidth={2.4} className="text-primary" />
         <span className="font-display text-sm font-extrabold text-secondary-foreground">
-          EXP 획득{isRecommended ? ' · 추천 보너스 ×1.5' : ''}
+          EXP +{xpEarned}
+          {isRecommended ? ' · 추천 보너스 ×1.5' : ''}
         </span>
       </div>
 

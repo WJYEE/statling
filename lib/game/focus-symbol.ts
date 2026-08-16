@@ -6,6 +6,8 @@ export interface FocusSymbolSpec {
   hasDot: boolean
   /** True = the dot sits slightly off-center (Lv4's subtle structural tell). */
   dotOffset: boolean
+  /** 1 = the target's own true size. Lv5 distractors render slightly smaller ("작은 ○") — same shape, same dot state, only size tells them apart. */
+  sizeScale: number
 }
 
 export const ALL_FOCUS_SHAPES: FocusShape[] = ['star', 'diamond', 'circle', 'square', 'triangle']
@@ -20,7 +22,7 @@ export const ALL_FOCUS_SHAPES: FocusShape[] = ['star', 'diamond', 'circle', 'squ
  * the 5 shapes.
  */
 export function buildFocusTargetSymbol(shape: FocusShape): FocusSymbolSpec {
-  return { shape, rotationDeg: 0, hasDot: true, dotOffset: false }
+  return { shape, rotationDeg: 0, hasDot: true, dotOffset: false, sizeScale: 1 }
 }
 
 /** Each shape's "visually adjacent" cousin — the Lv2 distractor pick, generalized so it works for any target shape, not just the old star-only target. */
@@ -36,6 +38,9 @@ function randomRightAngle(): number {
   return Math.floor(Math.random() * 4) * 90
 }
 
+/** A distractor rendered at this scale next to the target's own 1.0 — small enough to require real inspection, never so small it reads as "obviously a different, smaller icon" from a glance. */
+const SMALL_DISTRACTOR_SCALE = 0.8
+
 /**
  * Distractor appearance by similarity level, relative to `targetShape`
  * (whichever shape this session's target actually is — see
@@ -46,19 +51,26 @@ function randomRightAngle(): number {
  * Lv3 — identical shape to the target, just missing the target's inner dot.
  * Lv4 — identical shape + dot, but the dot sits slightly off-center — a real
  *       structural difference that rewards close inspection, not a color trick.
+ * Lv5 (QA 2026-08, Extreme's peak — deliberately harder than Hard's Lv4
+ *      ceiling) — identical shape + dot + the same off-center tell as Lv4,
+ *      PLUS a slightly smaller render size ("작은 ○") — same shape, same dot
+ *      state, only size sets it apart from the target now.
  */
 export function generateDistractorSymbol(targetShape: FocusShape, similarityLevel: number): FocusSymbolSpec {
   if (similarityLevel <= 1) {
     const nearShape = NEAR_SHAPE[targetShape]
     const farShapes = ALL_FOCUS_SHAPES.filter((s) => s !== targetShape && s !== nearShape)
     const shape = farShapes[Math.floor(Math.random() * farShapes.length)]
-    return { shape, rotationDeg: randomRightAngle(), hasDot: false, dotOffset: false }
+    return { shape, rotationDeg: randomRightAngle(), hasDot: false, dotOffset: false, sizeScale: 1 }
   }
   if (similarityLevel === 2) {
-    return { shape: NEAR_SHAPE[targetShape], rotationDeg: randomRightAngle(), hasDot: false, dotOffset: false }
+    return { shape: NEAR_SHAPE[targetShape], rotationDeg: randomRightAngle(), hasDot: false, dotOffset: false, sizeScale: 1 }
   }
   if (similarityLevel === 3) {
-    return { shape: targetShape, rotationDeg: 0, hasDot: false, dotOffset: false }
+    return { shape: targetShape, rotationDeg: 0, hasDot: false, dotOffset: false, sizeScale: 1 }
   }
-  return { shape: targetShape, rotationDeg: 0, hasDot: true, dotOffset: true }
+  if (similarityLevel === 4) {
+    return { shape: targetShape, rotationDeg: 0, hasDot: true, dotOffset: true, sizeScale: 1 }
+  }
+  return { shape: targetShape, rotationDeg: 0, hasDot: true, dotOffset: true, sizeScale: SMALL_DISTRACTOR_SCALE }
 }

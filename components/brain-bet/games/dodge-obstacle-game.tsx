@@ -17,7 +17,7 @@ import {
 } from '@/lib/config/dodge-obstacle.config'
 import { GAME_DIFFICULTIES } from '@/lib/game/difficulty'
 import type { GameDifficulty } from '@/lib/game/difficulty'
-import { pickDefaultSpawn, pickScriptedPattern, type DodgeLane } from '@/lib/game/dodge-obstacle-patterns'
+import { pickDefaultSpawn, pickGreenGapPattern, pickScriptedPattern, type DodgeLane } from '@/lib/game/dodge-obstacle-patterns'
 import type { DodgeObstacleEvent, DodgeObstacleRawSummary } from '@/lib/game/types'
 import { calculateDodgeObstacleScore, summarizeDodgeObstacleEvents } from '@/lib/scoring/dodge-obstacle'
 import { cn } from '@/lib/utils'
@@ -31,6 +31,8 @@ interface Obstacle {
   lane: Lane
   spawnedAt: number
   resolved: boolean
+  /** 'safe' obstacles (green-gap pattern, Extreme only) are never a collision, in any lane — they only ever mark "stand here" — see the collision check in the rAF loop below. */
+  kind: 'hazard' | 'safe'
 }
 
 const PLAY_HEIGHT_PX = 380
@@ -44,7 +46,12 @@ const FIXED_TIME_TUTORIAL: TutorialContent = {
 
 const ENDLESS_TUTORIAL: TutorialContent = {
   goal: '좌우로 이동하며 위에서 떨어지는 장애물을 계속 피해요. 끝없이 이어지는 생존 모드예요.',
-  steps: ['화면 왼쪽/오른쪽을 탭하면 그쪽 레인으로 이동해요.', '키보드 좌우 화살표로도 이동할 수 있어요.', '장애물에 한 번이라도 부딪히면 그 즉시 끝나요. 시간이 지날수록 점점 빨라져요.'],
+  steps: [
+    '화면 왼쪽/오른쪽을 탭하면 그쪽 레인으로 이동해요.',
+    '키보드 좌우 화살표로도 이동할 수 있어요.',
+    '장애물에 한 번이라도 부딪히면 그 즉시 끝나요. 시간이 지날수록 점점 빨라져요.',
+    '가끔 초록색 안전 레인이 나타나요. 초록색 길을 따라 피하세요!',
+  ],
   scoring: '회피율, 반응 속도, 생존 시간을 함께 반영해요.',
 }
 
@@ -95,11 +102,28 @@ export function DodgeObstacleGame({
   const pausedAtRef = useRef<number | null>(null)
   /** Pending multi-tick scripted pattern (sweep/gap-shift) — one entry consumed per spawn tick when non-empty, see spawnObstacle. */
   const scriptedQueueRef = useRef<Lane[][]>([])
+  /** True right after a default-spawn tick double-spawned — blocks the very next tick's double roll, see pickDefaultSpawn's lastWasDouble. */
+  const lastSpawnWasDoubleRef = useRef(false)
   const finishedRef = useRef(false)
+  /**
+   * Mirrors `tutorialOpen` for the rAF loop below. The loop effect only
+   * depends on `[stage]` (recreating it on every tutorialOpen toggle would
+   * tear down and restart the whole animation loop), so its `loop` closure
+   * would otherwise capture whatever `tutorialOpen` was at the moment the
+   * effect was created and never see it change — a stale-closure bug that
+   * meant opening the tutorial mid-run never actually paused obstacle
+   * movement/collisions, since the loop kept using the closed-over `false`
+   * forever. Reading a ref instead always sees the live value.
+   */
+  const tutorialOpenRef = useRef(false)
 
   useEffect(() => {
     playerLaneRef.current = playerLane
   }, [playerLane])
+
+  useEffect(() => {
+    tutorialOpenRef.current = tutorialOpen
+  }, [tutorialOpen])
 
   const finish = (survivedMs: number) => {
     if (finishedRef.current) return
@@ -134,6 +158,29 @@ export function DodgeObstacleGame({
   }, [stage])
 
   const spawnObstacle = (elapsedMs: number) => {
+    const now = performance.now()
+
+    // Extreme-only green-gap special pattern (v4 QA) — checked first, and
+    // mutually exclusive with the scripted-queue/default roll below for
+    // this tick. Every other tier's greenGapChance is 0, so this branch
+    // never fires for them.
+    const greenGapEligible = elapsedMs >= tierConfig.greenGapUnlockMs
+    if (greenGapEligible && Math.random() < tierConfig.greenGapChance) {
+      const { hazardLanes, safeLane } = pickGreenGapPattern()
+      const newObstacles: Obstacle[] = [
+        ...hazardLanes.map((lane) => ({ id: obstacleIdCounter++, lane, spawnedAt: now, resolved: false, kind: 'hazard' as const })),
+        { id: obstacleIdCounter++, lane: safeLane, spawnedAt: now, resolved: false, kind: 'safe' as const },
+      ]
+      setObstacles((prev) => [...prev, ...newObstacles])
+      lastSpawnLaneRef.current = hazardLanes[0]
+      lastSpawnWasDoubleRef.current = false
+      if (!pendingThreatRef.current) {
+        const threatensPlayer = hazardLanes.includes(playerLaneRef.current)
+        if (threatensPlayer) pendingThreatRef.current = { lane: playerLaneRef.current, spawnedAt: now }
+      }
+      return
+    }
+
     let lanesToSpawn: Lane[]
 
     if (scriptedQueueRef.current.length > 0) {
@@ -147,13 +194,18 @@ export function DodgeObstacleGame({
         lanesToSpawn = pattern[0]
         scriptedQueueRef.current = pattern.slice(1)
       } else {
-        lanesToSpawn = pickDefaultSpawn({ canDouble, lastLane: lastSpawnLaneRef.current })
+        lanesToSpawn = pickDefaultSpawn({
+          canDouble,
+          lastLane: lastSpawnLaneRef.current,
+          lastWasDouble: lastSpawnWasDoubleRef.current,
+          doubleChance: tierConfig.doubleSpawnChance,
+        })
       }
     }
     lastSpawnLaneRef.current = lanesToSpawn[0]
+    lastSpawnWasDoubleRef.current = lanesToSpawn.length === 2
 
-    const now = performance.now()
-    const newObstacles = lanesToSpawn.map((lane) => ({ id: obstacleIdCounter++, lane, spawnedAt: now, resolved: false }))
+    const newObstacles: Obstacle[] = lanesToSpawn.map((lane) => ({ id: obstacleIdCounter++, lane, spawnedAt: now, resolved: false, kind: 'hazard' }))
     setObstacles((prev) => [...prev, ...newObstacles])
 
     if (!pendingThreatRef.current) {
@@ -180,7 +232,7 @@ export function DodgeObstacleGame({
     if (stage !== 'playing') return
 
     const loop = () => {
-      if (tutorialOpen) {
+      if (tutorialOpenRef.current) {
         rafRef.current = requestAnimationFrame(loop)
         return
       }
@@ -210,6 +262,13 @@ export function DodgeObstacleGame({
           const y = ((now - o.spawnedAt) / 1000) * speed
           if (y >= HIT_LINE_PX) {
             changed = true
+            // Green-gap's safe marker is never a collision, in any lane — it
+            // only ever means "stand here," so it always resolves as a
+            // harmless dodge regardless of where the player is standing.
+            if (o.kind === 'safe') {
+              eventsRef.current.push({ kind: 'dodged', lane: o.lane, atMs: elapsed })
+              return { ...o, resolved: true }
+            }
             const collided = o.lane === playerLaneRef.current
             eventsRef.current.push({ kind: collided ? 'collided' : 'dodged', lane: o.lane, atMs: elapsed })
             if (collided) {
@@ -258,6 +317,7 @@ export function DodgeObstacleGame({
     pausedAccumRef.current = 0
     pausedAtRef.current = null
     lastSpawnLaneRef.current = null
+    lastSpawnWasDoubleRef.current = false
     scriptedQueueRef.current = []
     finishedRef.current = false
     setObstacles([])
@@ -272,9 +332,14 @@ export function DodgeObstacleGame({
   const survivedSeconds = (survivedDisplayMs / 1000).toFixed(1)
   const remainingSeconds = Math.max(0, ((tierConfig.durationMs ?? 0) - survivedDisplayMs) / 1000).toFixed(1)
   const tutorial = isEndless ? ENDLESS_TUTORIAL : FIXED_TIME_TUTORIAL
+  // Short, single-clause — matches every other mini-game's GameHud objective
+  // convention (see e.g. color-target-game.tsx's "지금 규칙에 맞는 색을
+  // 클릭하세요."). The fuller collision-behavior explanation lives in the
+  // Tutorial modal only (FIXED_TIME_TUTORIAL/ENDLESS_TUTORIAL above), not
+  // duplicated here.
   const objective = isEndless
-    ? '좌우로 이동해 장애물을 계속 피하세요. 한 번이라도 부딪히면 끝나요.'
-    : '좌우로 이동해 장애물을 최대한 많이 피하세요. 부딪혀도 게임은 계속돼요.'
+    ? '좌우로 이동해 장애물을 계속 피하세요.'
+    : '좌우로 이동해 장애물을 최대한 많이 피하세요.'
   const introText = isEndless
     ? '좌우로 이동하며 떨어지는 장애물을 계속 피해보세요. 한 번이라도 부딪히면 바로 끝나요.'
     : '좌우로 이동하며 떨어지는 장애물을 제한 시간 동안 최대한 많이 피해보세요. 부딪혀도 게임은 계속돼요.'
@@ -303,7 +368,7 @@ export function DodgeObstacleGame({
         onHelp={() => setTutorialOpen(true)}
         onBack={onBack}
       />
-      <p className="-mt-2 text-xs font-semibold text-muted-foreground">{GAME_DIFFICULTIES[difficulty].hint}</p>
+      <p className="mt-1 text-xs font-semibold text-muted-foreground">{GAME_DIFFICULTIES[difficulty].hint}</p>
 
       <div className="mt-5 flex flex-1 flex-col">
         {stage === 'intro' && (
@@ -350,14 +415,17 @@ export function DodgeObstacleGame({
             {obstacles.map((o) => (
               <div
                 key={o.id}
-                className="pointer-events-none absolute grid h-10 w-10 -translate-x-1/2 place-items-center rounded-xl bg-destructive text-lg toy-border"
+                className={cn(
+                  'pointer-events-none absolute grid h-10 w-10 -translate-x-1/2 place-items-center rounded-xl text-lg toy-border',
+                  o.kind === 'safe' ? 'bg-chart-4' : 'bg-destructive',
+                )}
                 style={{
                   left: `${(o.lane + 0.5) * (100 / DODGE_OBSTACLE_LANE_COUNT)}%`,
                   top: Math.min(HIT_LINE_PX, ((performance.now() - o.spawnedAt) / 1000) * speedAt(performance.now() - startedAtRef.current - pausedAccumRef.current)),
                 }}
                 aria-hidden="true"
               >
-                ⚠
+                {o.kind === 'safe' ? '✓' : '⚠'}
               </div>
             ))}
 

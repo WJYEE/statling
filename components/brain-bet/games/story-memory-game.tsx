@@ -37,6 +37,49 @@ const TUTORIAL: TutorialContent = {
   example: '우산, 사과, 별을 봤다면 -> "방금 보지 못했던 물건은?" 정답: (보지 않은 물건)',
 }
 
+interface ScatterPosition {
+  leftPct: number
+  topPct: number
+  rotateDeg: number
+}
+
+/**
+ * A "jittered grid" — divides the display area into roughly
+ * `count` cells (wider than tall, matching the card's own aspect), shuffles
+ * which cell each object lands in, then nudges each object a small random
+ * amount within its own cell (plus a slight random tilt). This reads as
+ * objects "scattered on a table" rather than a neat list/grid, while still
+ * GUARANTEEING no two objects ever overlap (each stays inside its own,
+ * non-overlapping cell) and never drifts off-screen (positions are clamped
+ * well inside the container's own bounds). Position is never meaningful
+ * memory-test information — it's randomized fresh per round and the actual
+ * questions never ask about it (see story-memory-data.ts: no order/position
+ * question category exists).
+ */
+function computeScatterLayout(count: number): ScatterPosition[] {
+  if (count === 0) return []
+  const cols = Math.max(1, Math.ceil(Math.sqrt(count * 1.4)))
+  const rows = Math.max(1, Math.ceil(count / cols))
+  const cellWPct = 100 / cols
+  const cellHPct = 100 / rows
+  const cellOrder = Array.from({ length: rows * cols }, (_, i) => i)
+  for (let i = cellOrder.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[cellOrder[i], cellOrder[j]] = [cellOrder[j], cellOrder[i]]
+  }
+  return Array.from({ length: count }, (_, i) => {
+    const cell = cellOrder[i]
+    const col = cell % cols
+    const row = Math.floor(cell / cols)
+    const jitterX = (Math.random() - 0.5) * cellWPct * 0.55
+    const jitterY = (Math.random() - 0.5) * cellHPct * 0.55
+    const leftPct = Math.min(92, Math.max(8, col * cellWPct + cellWPct / 2 + jitterX))
+    const topPct = Math.min(88, Math.max(12, row * cellHPct + cellHPct / 2 + jitterY))
+    const rotateDeg = (Math.random() - 0.5) * 20
+    return { leftPct, topPct, rotateDeg }
+  })
+}
+
 /**
  * "물건 기억" — Memory-stat game (2026-08 rework, replacing the old
  * read-a-story format — see lib/game/story-memory-data.ts's doc comment).
@@ -54,6 +97,8 @@ export function StoryMemoryGame({ index, mode, difficulty, onComplete, onBack }:
     [difficulty],
   )
   const [round] = useState(() => pickObjectMemorySession(difficulty))
+  /** Computed once per round (round itself never changes after mount — see the lazy useState above), so the scatter is stable across re-renders but fresh every new game. */
+  const scatterLayout = useMemo(() => computeScatterLayout(round.objects.length), [round])
   const [stage, setStage] = useState<Stage>('intro')
   const [questionIndex, setQuestionIndex] = useState(0)
   const [answers, setAnswers] = useState<StoryMemoryAnswer[]>([])
@@ -67,12 +112,20 @@ export function StoryMemoryGame({ index, mode, difficulty, onComplete, onBack }:
   useEffect(() => {
     if (stage !== 'reading' || tutorialOpen) return
     if (remainingMs <= 0) {
-      setStage('question')
-      setQuestionIndex(0)
+      // Must go through startQuestion (not a bare setStage/setQuestionIndex)
+      // — that's the only place that resets remainingMs to
+      // questionTimeLimitMs and stamps questionShownAtRef. Setting stage
+      // directly here used to leave remainingMs at the reading phase's own
+      // already-expired 0, so the very next render's question-phase timer
+      // effect (below) immediately saw `remainingMs <= 0` and force-called
+      // handleAnswer(null) before the player had any chance to see or
+      // answer question 0 — a real, 100%-reproducible bug, not a rare race.
+      startQuestion(0)
       return
     }
     const t = window.setTimeout(() => setRemainingMs((ms) => Math.max(0, ms - 100)), 100)
     return () => window.clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- startQuestion closes over current round state intentionally re-created each render
   }, [stage, remainingMs, tutorialOpen])
 
   // Per-question countdown, paused while the tutorial is open.
@@ -180,14 +233,27 @@ export function StoryMemoryGame({ index, mode, difficulty, onComplete, onBack }:
             >
               <div className="h-full rounded-full bg-primary transition-all duration-100" style={{ width: `${readingProgressPct}%` }} />
             </div>
-            <div className="mt-6 grid grid-cols-3 gap-3 sm:grid-cols-4">
-              {round.objects.map((obj) => {
+            {/* Objects scattered across a bounded table area (not a tidy grid/list) —
+                each stays inside its own non-overlapping jittered-grid cell (see
+                computeScatterLayout), so nothing overlaps or drifts off-screen even
+                on narrow mobile widths. */}
+            <div className="relative mt-6 h-64 w-full overflow-hidden rounded-2xl bg-secondary/30 sm:h-72">
+              {round.objects.map((obj, i) => {
                 const Icon = OBJECT_MEMORY_ICON_MAP[obj.iconKey]
                 const hex = MEMORY_COLOR_PALETTE.find((c) => c.id === obj.color)?.hex
+                const pos = scatterLayout[i]
                 return (
-                  <div key={obj.id} className="flex flex-col items-center gap-1.5 rounded-2xl bg-secondary/40 px-2 py-3">
+                  <div
+                    key={obj.id}
+                    className="absolute flex flex-col items-center gap-1"
+                    style={{
+                      left: `${pos.leftPct}%`,
+                      top: `${pos.topPct}%`,
+                      transform: `translate(-50%, -50%) rotate(${pos.rotateDeg}deg)`,
+                    }}
+                  >
                     <Icon size={32} strokeWidth={2.2} style={{ color: hex }} aria-hidden="true" />
-                    <span className="text-[11px] font-bold text-foreground">{obj.name}</span>
+                    <span className="text-[10px] font-bold text-foreground">{obj.name}</span>
                   </div>
                 )
               })}

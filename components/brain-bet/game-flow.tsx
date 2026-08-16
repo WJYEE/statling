@@ -73,6 +73,7 @@ import type { GameDifficulty } from '@/lib/game/difficulty'
 import {
   computeCurrentStats,
   getAllRepresentativeRecords,
+  getRecordAtDifficulty,
   loadPlayerSkillState,
   recordMiniGameCompletion,
   savePlayerSkillState,
@@ -713,17 +714,19 @@ export function GameFlow() {
     const isRetry = isRetryAttemptRef.current
     isRetryAttemptRef.current = false
     const { isValidAttempt, invalidReason } = evaluateReactionValidity(trials)
-    // gameScore is on BaseGameResult, so this is safe regardless of which of
-    // the stat's two games (신호 반응 vs 장애물 피하기) set the current best —
-    // unlike a rawSummary-shaped comparator, which would assume the wrong
-    // shape whenever the sibling game set the record.
-    const prevBest = statStatus.reaction.current
+    // Compared against THIS exact game+difficulty's own stored best — never
+    // the sibling game's. 신호 반응 vs 장애물 피하기 share the 'reaction' stat
+    // (and therefore statStatus.reaction), but a Personal Best must never
+    // leak across variants — see player-skill-storage.ts's
+    // getRecordAtDifficulty, keyed by gameId:difficulty (activeGameKey
+    // already IS the specific variant, e.g. 'reaction-classic').
+    const prevBest = getRecordAtDifficulty(loadPlayerSkillState(), activeGameKey, activeDifficulty)
     // A retry's score always becomes the record, win or lose (product
     // policy — see startRetry's doc comment) — isRetry short-circuits the
     // usual "only if better" comparison rather than replacing it, so a
     // Free Play/first-attempt completion (isRetry always false there) keeps
     // the exact original best-of comparison.
-    const isPersonalBest = isValidAttempt && (isRetry || isBetterByGameScore(gameScore, prevBest?.gameScore ?? null))
+    const isPersonalBest = isValidAttempt && (isRetry || isBetterByGameScore(gameScore, prevBest?.normalizedScore ?? null))
 
     const result: ReactionGameResult = {
       sessionId: generateSessionId(),
@@ -749,7 +752,7 @@ export function GameFlow() {
     if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt && !isRetry) recordSkillCompletion('reaction', gameScore, result.raw, { medianReactionMs: rawSummary.medianReactionMs, consistency: rawSummary.consistency }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reaction', activeGameKey, gameScore, isRetry)
-    setFinals((f) => ({ ...f, reaction: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
+    setFinals((f) => ({ ...f, reaction: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
 
@@ -765,12 +768,13 @@ export function GameFlow() {
   }) => {
     const isRetry = isRetryAttemptRef.current
     isRetryAttemptRef.current = false
-    // gameScore is on BaseGameResult, safe regardless of which of the stat's
-    // two games (패턴 기억 vs 물건 기억) set the current best.
-    const prevBest = statStatus.memory.current
+    // Compared against THIS exact game+difficulty's own stored best, never
+    // the sibling game's (패턴 기억 vs 물건 기억) — see onReactionComplete's
+    // getRecordAtDifficulty doc comment.
+    const prevBest = getRecordAtDifficulty(loadPlayerSkillState(), activeGameKey, activeDifficulty)
     // A retry's score always becomes the record, win or lose — see
     // onReactionComplete's isPersonalBest doc comment.
-    const isPersonalBest = isRetry || isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
+    const isPersonalBest = isRetry || isBetterByGameScore(gameScore, prevBest?.normalizedScore ?? null)
 
     const result: MemoryGameResult = {
       sessionId: generateSessionId(),
@@ -798,7 +802,7 @@ export function GameFlow() {
     if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt && !isRetry) recordSkillCompletion('memory', gameScore, result.raw, { weightedAccuracy: rawSummary.weightedAccuracy, averageAdjustedResponseTimeMs: rawSummary.averageAdjustedResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('memory', activeGameKey, gameScore, isRetry)
-    setFinals((f) => ({ ...f, memory: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
+    setFinals((f) => ({ ...f, memory: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
 
@@ -814,12 +818,13 @@ export function GameFlow() {
   }) => {
     const isRetry = isRetryAttemptRef.current
     isRetryAttemptRef.current = false
-    // gameScore is on BaseGameResult, safe regardless of which of the stat's
-    // two games (표적 찾기 vs 특정 색만 클릭) set the current best.
-    const prevBest = statStatus.focus.current
+    // Compared against THIS exact game+difficulty's own stored best, never
+    // the sibling game's (표적 찾기 vs 특정 색만 클릭) — see onReactionComplete's
+    // getRecordAtDifficulty doc comment.
+    const prevBest = getRecordAtDifficulty(loadPlayerSkillState(), activeGameKey, activeDifficulty)
     // A retry's score always becomes the record, win or lose — see
     // onReactionComplete's isPersonalBest doc comment.
-    const isPersonalBest = isRetry || isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
+    const isPersonalBest = isRetry || isBetterByGameScore(gameScore, prevBest?.normalizedScore ?? null)
 
     const result: FocusGameResult = {
       sessionId: generateSessionId(),
@@ -847,7 +852,7 @@ export function GameFlow() {
     if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt && !isRetry) recordSkillCompletion('focus', gameScore, result.raw, { weightedAccuracy: rawSummary.weightedAccuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('focus', activeGameKey, gameScore, isRetry)
-    setFinals((f) => ({ ...f, focus: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
+    setFinals((f) => ({ ...f, focus: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
 
@@ -863,12 +868,13 @@ export function GameFlow() {
   }) => {
     const isRetry = isRetryAttemptRef.current
     isRetryAttemptRef.current = false
-    // gameScore is on BaseGameResult, safe regardless of which of the stat's
-    // two games (규칙 전환 vs 무엇을 선택할까) set the current best.
-    const prevBest = statStatus.judgment.current
+    // Compared against THIS exact game+difficulty's own stored best, never
+    // the sibling game's (규칙 전환 vs 무엇을 선택할까) — see onReactionComplete's
+    // getRecordAtDifficulty doc comment.
+    const prevBest = getRecordAtDifficulty(loadPlayerSkillState(), activeGameKey, activeDifficulty)
     // A retry's score always becomes the record, win or lose — see
     // onReactionComplete's isPersonalBest doc comment.
-    const isPersonalBest = isRetry || isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
+    const isPersonalBest = isRetry || isBetterByGameScore(gameScore, prevBest?.normalizedScore ?? null)
 
     const result: JudgmentGameResult = {
       sessionId: generateSessionId(),
@@ -903,7 +909,7 @@ export function GameFlow() {
         isPersonalBest,
       )
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('judgment', activeGameKey, gameScore, isRetry)
-    setFinals((f) => ({ ...f, judgment: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
+    setFinals((f) => ({ ...f, judgment: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
 
@@ -919,12 +925,13 @@ export function GameFlow() {
   }) => {
     const isRetry = isRetryAttemptRef.current
     isRetryAttemptRef.current = false
-    // gameScore is on BaseGameResult, safe regardless of which of the stat's
-    // two games (회전 도형 찾기 vs 퍼즐 끼우기) set the current best.
-    const prevBest = statStatus.spatial.current
+    // Compared against THIS exact game+difficulty's own stored best, never
+    // the sibling game's (회전 도형 찾기 vs 퍼즐 끼우기) — see onReactionComplete's
+    // getRecordAtDifficulty doc comment.
+    const prevBest = getRecordAtDifficulty(loadPlayerSkillState(), activeGameKey, activeDifficulty)
     // A retry's score always becomes the record, win or lose — see
     // onReactionComplete's isPersonalBest doc comment.
-    const isPersonalBest = isRetry || isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
+    const isPersonalBest = isRetry || isBetterByGameScore(gameScore, prevBest?.normalizedScore ?? null)
 
     const result: SpatialGameResult = {
       sessionId: generateSessionId(),
@@ -965,7 +972,7 @@ export function GameFlow() {
       }
       spatialFirstAttemptShapeIdsRef.current = shownShapeIds
     }
-    setFinals((f) => ({ ...f, spatial: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
+    setFinals((f) => ({ ...f, spatial: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
 
@@ -981,12 +988,13 @@ export function GameFlow() {
   }) => {
     const isRetry = isRetryAttemptRef.current
     isRetryAttemptRef.current = false
-    // gameScore is on BaseGameResult, safe regardless of which of the stat's
-    // two games (규칙 찾기 vs 숫자 규칙) set the current best.
-    const prevBest = statStatus.reasoning.current
+    // Compared against THIS exact game+difficulty's own stored best, never
+    // the sibling game's (규칙 찾기 vs 숫자 규칙) — see onReactionComplete's
+    // getRecordAtDifficulty doc comment.
+    const prevBest = getRecordAtDifficulty(loadPlayerSkillState(), activeGameKey, activeDifficulty)
     // A retry's score always becomes the record, win or lose — see
     // onReactionComplete's isPersonalBest doc comment.
-    const isPersonalBest = isRetry || isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
+    const isPersonalBest = isRetry || isBetterByGameScore(gameScore, prevBest?.normalizedScore ?? null)
 
     const result: ReasoningGameResult = {
       sessionId: generateSessionId(),
@@ -1014,7 +1022,7 @@ export function GameFlow() {
     if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt && !isRetry) recordSkillCompletion('reasoning', gameScore, result.raw, { difficultyWeightedAccuracy: rawSummary.difficultyWeightedAccuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reasoning', activeGameKey, gameScore, isRetry)
-    setFinals((f) => ({ ...f, reasoning: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
+    setFinals((f) => ({ ...f, reasoning: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
 
@@ -1040,8 +1048,10 @@ export function GameFlow() {
     rawSummary: StoryMemoryRawSummary
     gameScore: number
   }) => {
-    const prevBest = statStatus.memory.current
-    const isPersonalBest = isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
+    // Compared against THIS exact game+difficulty's own stored best, never
+    // the sibling game's — see onReactionComplete's getRecordAtDifficulty doc comment.
+    const prevBest = getRecordAtDifficulty(loadPlayerSkillState(), activeGameKey, activeDifficulty)
+    const isPersonalBest = isBetterByGameScore(gameScore, prevBest?.normalizedScore ?? null)
 
     const result: StoryMemoryGameResult = {
       sessionId: generateSessionId(),
@@ -1067,7 +1077,7 @@ export function GameFlow() {
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt) recordSkillCompletion('memory', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('memory', activeGameKey, gameScore, false)
-    setFinals((f) => ({ ...f, memory: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
+    setFinals((f) => ({ ...f, memory: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
 
@@ -1080,8 +1090,10 @@ export function GameFlow() {
     rawSummary: ColorTargetRawSummary
     gameScore: number
   }) => {
-    const prevBest = statStatus.focus.current
-    const isPersonalBest = isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
+    // Compared against THIS exact game+difficulty's own stored best, never
+    // the sibling game's — see onReactionComplete's getRecordAtDifficulty doc comment.
+    const prevBest = getRecordAtDifficulty(loadPlayerSkillState(), activeGameKey, activeDifficulty)
+    const isPersonalBest = isBetterByGameScore(gameScore, prevBest?.normalizedScore ?? null)
 
     const result: ColorTargetGameResult = {
       sessionId: generateSessionId(),
@@ -1107,7 +1119,7 @@ export function GameFlow() {
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt) recordSkillCompletion('focus', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageReactionTimeMs: rawSummary.averageReactionTimeMs, switchAccuracy: rawSummary.switchAccuracy }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('focus', activeGameKey, gameScore, false)
-    setFinals((f) => ({ ...f, focus: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
+    setFinals((f) => ({ ...f, focus: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
 
@@ -1120,8 +1132,11 @@ export function GameFlow() {
     rawSummary: DodgeObstacleRawSummary
     gameScore: number
   }) => {
-    const prevBest = statStatus.reaction.current
-    const isPersonalBest = isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
+    // Compared against THIS exact game+difficulty's own stored best, never
+    // the sibling game's (신호 반응 vs 장애물 피하기) — see onReactionComplete's
+    // getRecordAtDifficulty doc comment.
+    const prevBest = getRecordAtDifficulty(loadPlayerSkillState(), activeGameKey, activeDifficulty)
+    const isPersonalBest = isBetterByGameScore(gameScore, prevBest?.normalizedScore ?? null)
 
     const dodgeMode = getDodgeObstacleTierConfig(activeDifficulty).mode
 
@@ -1161,7 +1176,7 @@ export function GameFlow() {
         isPersonalBest,
       )
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reaction', activeGameKey, gameScore, false)
-    setFinals((f) => ({ ...f, reaction: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
+    setFinals((f) => ({ ...f, reaction: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
 
@@ -1174,8 +1189,10 @@ export function GameFlow() {
     rawSummary: BestChoiceRawSummary
     gameScore: number
   }) => {
-    const prevBest = statStatus.judgment.current
-    const isPersonalBest = isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
+    // Compared against THIS exact game+difficulty's own stored best, never
+    // the sibling game's — see onReactionComplete's getRecordAtDifficulty doc comment.
+    const prevBest = getRecordAtDifficulty(loadPlayerSkillState(), activeGameKey, activeDifficulty)
+    const isPersonalBest = isBetterByGameScore(gameScore, prevBest?.normalizedScore ?? null)
 
     const result: BestChoiceGameResult = {
       sessionId: generateSessionId(),
@@ -1201,7 +1218,7 @@ export function GameFlow() {
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt) recordSkillCompletion('judgment', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('judgment', activeGameKey, gameScore, false)
-    setFinals((f) => ({ ...f, judgment: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
+    setFinals((f) => ({ ...f, judgment: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
 
@@ -1214,8 +1231,10 @@ export function GameFlow() {
     rawSummary: FitPuzzleRawSummary
     gameScore: number
   }) => {
-    const prevBest = statStatus.spatial.current
-    const isPersonalBest = isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
+    // Compared against THIS exact game+difficulty's own stored best, never
+    // the sibling game's — see onReactionComplete's getRecordAtDifficulty doc comment.
+    const prevBest = getRecordAtDifficulty(loadPlayerSkillState(), activeGameKey, activeDifficulty)
+    const isPersonalBest = isBetterByGameScore(gameScore, prevBest?.normalizedScore ?? null)
 
     const result: FitPuzzleGameResult = {
       sessionId: generateSessionId(),
@@ -1241,7 +1260,7 @@ export function GameFlow() {
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt) recordSkillCompletion('spatial', gameScore, result.raw, { totalCompletionMs: rawSummary.totalCompletionMs, misplacements: rawSummary.misplacements }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('spatial', activeGameKey, gameScore, false)
-    setFinals((f) => ({ ...f, spatial: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
+    setFinals((f) => ({ ...f, spatial: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
 
@@ -1254,8 +1273,10 @@ export function GameFlow() {
     rawSummary: NumberPatternRawSummary
     gameScore: number
   }) => {
-    const prevBest = statStatus.reasoning.current
-    const isPersonalBest = isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
+    // Compared against THIS exact game+difficulty's own stored best, never
+    // the sibling game's — see onReactionComplete's getRecordAtDifficulty doc comment.
+    const prevBest = getRecordAtDifficulty(loadPlayerSkillState(), activeGameKey, activeDifficulty)
+    const isPersonalBest = isBetterByGameScore(gameScore, prevBest?.normalizedScore ?? null)
 
     const result: NumberPatternGameResult = {
       sessionId: generateSessionId(),
@@ -1281,7 +1302,7 @@ export function GameFlow() {
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt) recordSkillCompletion('reasoning', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reasoning', activeGameKey, gameScore, false)
-    setFinals((f) => ({ ...f, reasoning: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
+    setFinals((f) => ({ ...f, reasoning: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
 
@@ -1559,6 +1580,7 @@ export function GameFlow() {
             personalBestRaw={currentBestRaw}
             isNewRecord={lastResult.isPersonalBest}
             isRecommended={activeStatId === recommendedStat}
+            xpEarned={Math.max(0, Math.round(lastResult.gameScore))}
             onReturnToRoom={returnToRoom}
           />
         )}

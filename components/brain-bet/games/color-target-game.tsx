@@ -208,7 +208,14 @@ export function ColorTargetGame({ index, mode, difficulty, onComplete, onBack }:
               {wordColor?.label}
             </p>
 
-            <div className="grid w-full grid-cols-3 gap-2.5 sm:grid-cols-5">
+            {/* flex-wrap + justify-center (not a fixed grid-cols-N) so any color
+                count — 3 (Easy practice), 4, or 5 — always centers as a whole,
+                including a short last row (e.g. 5 wraps to 2+2+1, the trailing
+                1 centered rather than stuck on the left). Button width is
+                fixed and wide enough that mobile widths reliably wrap to 2
+                per row, while the wider desktop card fits every count on one
+                centered row. */}
+            <div className="flex w-full flex-wrap justify-center gap-2.5">
               {colors.map((c) => {
                 const isSelected = selectedColorId === c.id
                 const isCorrectChoice = stage === 'feedback' && c.id === currentTrial.correctColorId
@@ -221,7 +228,7 @@ export function ColorTargetGame({ index, mode, difficulty, onComplete, onBack }:
                     onClick={() => handleChoice(c.id)}
                     aria-label={c.label}
                     className={cn(
-                      'flex h-14 items-center justify-center rounded-2xl text-sm font-bold text-[color:var(--ink)] toy-border transition-transform active:translate-y-0.5',
+                      'flex h-14 w-36 shrink-0 items-center justify-center rounded-2xl text-sm font-bold text-[color:var(--ink)] toy-border transition-transform active:translate-y-0.5 sm:w-28',
                       isCorrectChoice && 'ring-4 ring-primary',
                       isWrongSelected && 'ring-4 ring-destructive',
                     )}

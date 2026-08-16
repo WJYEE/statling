@@ -102,6 +102,8 @@ export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: Re
   const stat = STATS.reaction
   const { play } = useSound()
   const realTrials = useMemo(() => getReactionRealTrialsForDifficulty(difficulty), [difficulty])
+  /** Decoy flashes only exist at Hard+ (see REACTION_DECOY_CHANCE_BY_DIFFICULTY) — the intro's false-start-penalty notice mentions decoys only when this tier actually has them. */
+  const hasDecoy = getReactionDecoyChanceForDifficulty(difficulty) > 0
 
   const [stage, setStage] = useState<Stage>('intro')
   const [round, setRound] = useState<Round>('practice')
@@ -387,6 +389,11 @@ export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: Re
             <>
               <p className="font-display text-lg font-bold leading-snug text-foreground">
                 {stat.howTo}
+              </p>
+              <p className="mt-2 text-xs font-semibold text-muted-foreground">
+                {hasDecoy
+                  ? `신호 전에 누르거나 가짜 신호를 누르면 반응시간에 +${REACTION_FALSE_START_PENALTY_MS}ms가 추가돼요.`
+                  : `신호 전에 누르면 반응시간에 +${REACTION_FALSE_START_PENALTY_MS}ms가 추가돼요.`}
               </p>
               <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-card px-3 py-1 text-xs font-bold text-muted-foreground toy-border">
                 탭해서 시작하기

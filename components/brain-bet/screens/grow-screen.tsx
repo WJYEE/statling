@@ -41,8 +41,15 @@ export function GrowScreen({ statStatus, recommendedStat, onSelect, onBack }: Gr
           const stat = STATS[id]
           const status = statStatus[id]
           const isRecommended = id === recommendedStat
-          const personalBest = status.current?.raw.primary ?? '--'
-          const recent = status.history[status.history.length - 1]?.raw.primary ?? '--'
+          // Normalized score (0-100), never raw.primary — a stat's 2 games
+          // (e.g. 신호 반응 vs 장애물 피하기) have incompatible raw record
+          // formats (ms vs count vs accuracy%), so a stat-level "개인 최고"
+          // widget spanning both games can only ever show a fair, comparable
+          // number here. Per-game raw records still show correctly on their
+          // own difficulty-select card (see grow-game-screen.tsx).
+          const personalBest = status.current ? `${Math.round(status.current.gameScore)}점` : '--'
+          const lastResult = status.history[status.history.length - 1]
+          const recent = lastResult ? `${Math.round(lastResult.gameScore)}점` : '--'
           return (
             <button
               key={id}
