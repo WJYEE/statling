@@ -8,6 +8,7 @@ import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { ReasoningSymbolView } from '@/components/brain-bet/games/reasoning-symbol'
 import { GameRuleReminder } from '@/components/brain-bet/games/shared/game-rule-reminder'
 import { FreePlayBadge } from '@/components/brain-bet/games/shared/free-play-badge'
+import { SkipTutorialButton } from '@/components/brain-bet/games/shared/skip-tutorial-button'
 import { STATS } from '@/lib/brain-bet'
 import {
   getReasoningTimeLimitForDifficulty,
@@ -220,6 +221,12 @@ export function ReasoningGame({ index, mode, difficulty, onComplete, onBack }: R
     beginQuestion('tutorial-1', 0)
   }
 
+  /** Normal/Hard/Extreme only (see SkipTutorialButton) — abandons the in-progress Tutorial question and starts real question 0 directly (realQuestionsRef is already populated by startGame by this point). */
+  const skipTutorial = () => {
+    clearScheduled()
+    beginQuestion('real', 0)
+  }
+
   const handleOptionClick = (optionIndex: number) => {
     if (stage !== 'playing') return
     resolveQuestion({ kind: 'option', optionIndex })
@@ -274,9 +281,12 @@ export function ReasoningGame({ index, mode, difficulty, onComplete, onBack }: R
           <h1 className="font-display text-2xl font-extrabold leading-none text-foreground">{stat.name}</h1>
         </div>
         {round !== 'real' ? (
-          <span className="rounded-xl bg-secondary px-3 py-2 text-center font-display text-sm font-extrabold text-secondary-foreground toy-border">
-            튜토리얼 <span className="text-primary">1</span> / 1
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="rounded-xl bg-secondary px-3 py-2 text-center font-display text-sm font-extrabold text-secondary-foreground toy-border">
+              튜토리얼 <span className="text-primary">1</span> / 1
+            </span>
+            {difficulty !== 'easy' && stage !== 'intro' && <SkipTutorialButton onSkip={skipTutorial} />}
+          </div>
         ) : (
           <span className="rounded-xl bg-secondary px-3 py-2 text-center font-display text-sm font-extrabold text-secondary-foreground toy-border">
             Lv.{currentQuestion?.difficultyLevel ?? 1} · <span className="text-primary">{realQuestionIndex + 1}</span> /{' '}

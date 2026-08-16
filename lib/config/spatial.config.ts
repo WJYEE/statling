@@ -80,6 +80,21 @@ export const SPATIAL_DIFFICULTY_WEIGHTS: Record<number, number> = {
  * introduces mirror only at Level 4, Hard leans on mirror from Level 3
  * onward, Extreme is mirror-heavy across the board — "가장 헷갈리는 2D
  * 문제" per the design brief.
+ *
+ * Two hard pool-topology constraints, both enforced by a dev-time assertion
+ * in lib/game/spatial-problems.ts (assertDistractorTypesFeasible):
+ * - Level 1 draws from the 'simple' tier, which has only 2 shapes and they
+ *   are each other's sole mirror partner — after excluding the correct
+ *   shape and its mirror, 0 candidates remain for a 'similar' distractor
+ *   (this used to crash Hard/Extreme's very first question with "Cannot
+ *   read properties of undefined (reading 'cells')" — 2026-08 QA 2차 보정).
+ *   Level 1 can carry at most one 'mirror' distractor (see below) plus
+ *   'unrelated' — never 'similar'.
+ * - 'mirror' always resolves to one single fixed shape id (a shape's one
+ *   registered partner) — requesting it more than once in the same
+ *   question's distractor list doesn't add difficulty, it risks two options
+ *   silently rendering as the same shape at the same rotation (this used to
+ *   affect Hard's Level 4 and Extreme's Level 3/4).
  */
 export const SPATIAL_LEVEL_DISTRACTOR_TYPES_BY_TIER: Record<GameDifficulty, Record<number, SpatialDistractorType[]>> = {
   easy: {
@@ -93,14 +108,14 @@ export const SPATIAL_LEVEL_DISTRACTOR_TYPES_BY_TIER: Record<GameDifficulty, Reco
     4: ['mirror', 'similar', 'unrelated'],
   },
   hard: {
-    1: ['similar', 'unrelated', 'unrelated'],
+    1: ['mirror', 'unrelated', 'unrelated'],
     3: ['mirror', 'similar', 'similar'],
-    4: ['mirror', 'mirror', 'similar'],
+    4: ['mirror', 'similar', 'similar'],
   },
   extreme: {
-    1: ['similar', 'similar', 'unrelated'],
-    3: ['mirror', 'mirror', 'similar'],
-    4: ['mirror', 'mirror', 'mirror'],
+    1: ['mirror', 'unrelated', 'unrelated'],
+    3: ['mirror', 'similar', 'similar'],
+    4: ['mirror', 'similar', 'similar'],
   },
 }
 

@@ -9,6 +9,7 @@ import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { FocusSymbolView } from '@/components/brain-bet/games/focus-symbol'
 import { GameRuleReminder } from '@/components/brain-bet/games/shared/game-rule-reminder'
 import { FreePlayBadge } from '@/components/brain-bet/games/shared/free-play-badge'
+import { SkipTutorialButton } from '@/components/brain-bet/games/shared/skip-tutorial-button'
 import { STATS } from '@/lib/brain-bet'
 import {
   FOCUS_NO_TARGET_ROUND_COUNT,
@@ -283,6 +284,12 @@ export function FocusGame({ index, mode, difficulty, onComplete, onBack }: Focus
     }, FOCUS_ROUND_FEEDBACK_MS)
   }
 
+  /** Normal/Hard/Extreme only (see SkipTutorialButton) — abandons the in-progress Tutorial round and starts Real round 0 directly. */
+  const skipTutorial = () => {
+    clearScheduled()
+    beginRound('real', 0)
+  }
+
   const startGame = () => {
     play('game-start')
     const picked = selectNoTargetRoundIndices(FOCUS_REAL_ROUNDS, FOCUS_NO_TARGET_ROUND_COUNT)
@@ -351,9 +358,12 @@ export function FocusGame({ index, mode, difficulty, onComplete, onBack }: Focus
           <h1 className="font-display text-2xl font-extrabold leading-none text-foreground">{stat.name}</h1>
         </div>
         {round !== 'real' ? (
-          <span className="rounded-xl bg-secondary px-3 py-2 text-center font-display text-sm font-extrabold text-secondary-foreground toy-border">
-            튜토리얼 <span className="text-primary">1</span> / {FOCUS_TUTORIAL_ROUNDS}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="rounded-xl bg-secondary px-3 py-2 text-center font-display text-sm font-extrabold text-secondary-foreground toy-border">
+              튜토리얼 <span className="text-primary">1</span> / {FOCUS_TUTORIAL_ROUNDS}
+            </span>
+            {difficulty !== 'easy' && stage !== 'intro' && <SkipTutorialButton onSkip={skipTutorial} />}
+          </div>
         ) : (
           <span className="rounded-xl bg-secondary px-3 py-2 text-center font-display text-sm font-extrabold text-secondary-foreground toy-border">
             실전 <span className="text-primary">{realRoundIndex + 1}</span> / {FOCUS_REAL_ROUNDS}

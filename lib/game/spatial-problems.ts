@@ -1,4 +1,5 @@
 import {
+  SPATIAL_LEVEL_DISTRACTOR_TYPES_BY_TIER,
   SPATIAL_LEVELS,
   SPATIAL_OPTION_COUNT,
   getSpatialLevelDistractorTypesForDifficulty,
@@ -110,6 +111,47 @@ function shuffleOptionsPreservingCorrectIndex(
   const reordered = order.map((i) => options[i])
   return { options: reordered, correctIndex: reordered.findIndex((o) => o.isCorrect) }
 }
+
+/**
+ * Dev-time static check (module load, non-production only): verifies every
+ * SPATIAL_LEVEL_DISTRACTOR_TYPES_BY_TIER entry is actually satisfiable
+ * against the real shape pool topology, so a bad config throws a clear,
+ * actionable error here instead of a cryptic "Cannot read properties of
+ * undefined (reading 'cells')" deep inside pickDistractorShapeId the next
+ * time that tier/level combo happens to get rolled (this is exactly how
+ * Hard's Level 1 crashed on every entry — see spatial.config.ts's doc
+ * comment on SPATIAL_LEVEL_DISTRACTOR_TYPES_BY_TIER). Level 1 always draws
+ * from the 'simple' tier (2 shapes, each other's sole mirror partner); every
+ * other level draws from 'complex' (10 shapes).
+ */
+function assertDistractorTypesFeasible(): void {
+  const difficulties = Object.keys(SPATIAL_LEVEL_DISTRACTOR_TYPES_BY_TIER) as GameDifficulty[]
+  for (const difficulty of difficulties) {
+    const byLevel = SPATIAL_LEVEL_DISTRACTOR_TYPES_BY_TIER[difficulty]
+    for (const level of SPATIAL_LEVELS) {
+      const types = byLevel[level]
+      if (!types) continue
+      const tier: SpatialShapeTier = level === 1 ? 'simple' : 'complex'
+      const poolSize = shapeIdsInTier(tier).length
+
+      const mirrorCount = types.filter((t) => t === 'mirror').length
+      if (mirrorCount > 1) {
+        throw new Error(
+          `Spatial config error: ${difficulty} level ${level} requests 'mirror' ${mirrorCount} times, but each shape has exactly one mirror partner — repeats can only collide, never add difficulty.`,
+        )
+      }
+
+      const similarCount = types.filter((t) => t === 'similar').length
+      const similarCandidates = poolSize - 2 // minus the correct shape itself and its mirror partner, both always hard-excluded
+      if (similarCount > similarCandidates) {
+        throw new Error(
+          `Spatial config error: ${difficulty} level ${level} requests 'similar' ${similarCount} times, but the '${tier}' tier only has ${Math.max(0, similarCandidates)} valid candidate(s) after excluding the correct shape and its mirror.`,
+        )
+      }
+    }
+  }
+}
+if (process.env.NODE_ENV !== 'production') assertDistractorTypesFeasible()
 
 /**
  * Dev-time safety net (GAME_SPEC §73's exact concerns): asserts exactly one

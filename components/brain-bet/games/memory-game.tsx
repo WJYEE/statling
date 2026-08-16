@@ -8,6 +8,7 @@ import { ProgressTrack } from '@/components/brain-bet/progress-track'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { GameRuleReminder } from '@/components/brain-bet/games/shared/game-rule-reminder'
 import { FreePlayBadge } from '@/components/brain-bet/games/shared/free-play-badge'
+import { SkipTutorialButton } from '@/components/brain-bet/games/shared/skip-tutorial-button'
 import { STATS } from '@/lib/brain-bet'
 import {
   MEMORY_CLICK_FEEDBACK_MS,
@@ -137,6 +138,13 @@ export function MemoryGame({ index, mode, difficulty: gameDifficulty, onComplete
     setRounds([])
     setRealRoundIndex(0)
     beginRound('practice', 0)
+  }
+
+  /** Normal/Hard/Extreme only (see SkipTutorialButton) — abandons the in-progress practice round and starts real round 0 directly. */
+  const skipTutorial = () => {
+    clearScheduled()
+    setRound('real')
+    beginRound('real', 0)
   }
 
   const finishRound = (
@@ -278,9 +286,12 @@ export function MemoryGame({ index, mode, difficulty: gameDifficulty, onComplete
           <h1 className="font-display text-2xl font-extrabold leading-none text-foreground">{stat.name}</h1>
         </div>
         {round === 'practice' ? (
-          <span className="rounded-xl bg-secondary px-3 py-2 text-center font-display text-sm font-extrabold text-secondary-foreground toy-border">
-            튜토리얼 <span className="text-primary">1</span> / {MEMORY_PRACTICE_ROUNDS}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="rounded-xl bg-secondary px-3 py-2 text-center font-display text-sm font-extrabold text-secondary-foreground toy-border">
+              튜토리얼 <span className="text-primary">1</span> / {MEMORY_PRACTICE_ROUNDS}
+            </span>
+            {gameDifficulty !== 'easy' && stage !== 'intro' && <SkipTutorialButton onSkip={skipTutorial} />}
+          </div>
         ) : (
           <span className="rounded-xl bg-secondary px-3 py-2 text-center font-display text-sm font-extrabold text-secondary-foreground toy-border">
             실전 <span className="text-primary">{realRoundIndex + 1}</span> / {MEMORY_REAL_ROUNDS}

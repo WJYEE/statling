@@ -32,14 +32,18 @@ import type { JudgmentRuleId, JudgmentStimulus } from '@/lib/game/types'
  * v7 (2026-08 후속 보정): the answer domain is now genuinely 4-way
  * (Left/Up/Right/Down) at Hard/Extreme instead of a direction badge bolted
  * onto the old 3-way (Left/Down/Right) domain — see
- * lib/game/judgment-stimulus.ts. Easy/Normal are capped at choiceCount 2 for
- * the WHOLE session (no 3-/4-way step ever fires for them — "4방향을
- * 강제하지 않음"); Hard/Extreme still warm up at choiceCount 2 for segments
- * 0-1 (same universal warm-up shape as before), then jump straight to
- * choiceCount 4 from segment 2 onward. Session length is still untouched by
- * tier (JUDGMENT_GAME_DURATION_MS, unchanged from v6).
+ * lib/game/judgment-stimulus.ts.
+ * v8 (2026-08 QA 2차 보정): browser QA found the 4-way rework made Hard+
+ * feel like "learn 4 buttons" rather than "judge shape/count", and switches
+ * fired faster than a player could actually read the new rule. Reverted
+ * 'direction' and the 4-way answer domain entirely (back to shape/count
+ * only — see lib/game/types.ts's JudgmentRuleId doc comment); Hard/Extreme's
+ * difficulty axis is now choiceCount ramping 2 → 3 (Left/Mid/Right, one new
+ * value to track — not a new rule or input scheme) plus a slower, tier-tuned
+ * segmentLength ramp — see JUDGMENT_TIER_RULE_CONFIG. Easy/Normal stay
+ * choiceCount 2 for the whole session, unchanged.
  */
-export const JUDGMENT_GAME_VERSION = 'judgment_v7'
+export const JUDGMENT_GAME_VERSION = 'judgment_v8'
 
 /** Total real-play session length — fixed across every difficulty tier now (see module doc comment v6). */
 export const JUDGMENT_GAME_DURATION_MS = 10_000
@@ -69,7 +73,7 @@ export const JUDGMENT_EARLY_CONFLICT_RATIO_MAX = 0.15
 export const JUDGMENT_BLOCK_EXIT_MS = 220
 /** How long the compact "RULE CHANGE!" overlay blocks input during the Tutorial's rule demo (also used for the Tutorial → Real transition banner) — raised from 650ms to 1600ms so the rule callout was actually readable, then trimmed back down ~1s once the callout got its own persistent reminder alongside it. */
 export const JUDGMENT_RULE_SWITCH_OVERLAY_MS = 600
-/** How long the one-time "선택지가 늘어났어요!" heads-up stays up — only at Hard/Extreme's 2-way → 4-way step (segment index 1 → 2). Never fires for Easy/Normal, which stay 2-way all session. Not scored. */
+/** How long the one-time "선택지가 늘어났어요!" heads-up stays up — only at Hard/Extreme's 2-way → 3-way step (segment index 1 → 2). Never fires for Easy/Normal, which stay 2-way all session. Not scored. */
 export const JUDGMENT_THIRD_OPTION_INTRO_MS = 900
 
 /**
@@ -87,17 +91,17 @@ export const JUDGMENT_MAX_COMBO_TIME_BONUSES = 2
 /** How long the "10 COMBO! +2초" pop-up stays visible. */
 export const JUDGMENT_COMBO_BONUS_FEEDBACK_MS = 700
 
-/** Tutorial: fixed, easy, always-2-way Blocks — 3 per rule, discarded from scoring, no timer. pointerDirection is set but functionally irrelevant here since Tutorial only ever tests shape/count. */
+/** Tutorial: fixed, easy, always-2-way Blocks — 3 per rule, discarded from scoring, no timer. */
 export const JUDGMENT_TUTORIAL_SEGMENT_LENGTH = 3
 export const JUDGMENT_TUTORIAL_SHAPE_STIMULI: JudgmentStimulus[] = [
-  { shape: 'circle', dotCount: 1, pointerDirection: 'left' },
-  { shape: 'square', dotCount: 2, pointerDirection: 'right' },
-  { shape: 'circle', dotCount: 2, pointerDirection: 'up' },
+  { shape: 'circle', dotCount: 1 },
+  { shape: 'square', dotCount: 2 },
+  { shape: 'circle', dotCount: 2 },
 ]
 export const JUDGMENT_TUTORIAL_COUNT_STIMULI: JudgmentStimulus[] = [
-  { shape: 'square', dotCount: 1, pointerDirection: 'right' },
-  { shape: 'circle', dotCount: 2, pointerDirection: 'left' },
-  { shape: 'square', dotCount: 2, pointerDirection: 'up' },
+  { shape: 'square', dotCount: 1 },
+  { shape: 'circle', dotCount: 2 },
+  { shape: 'square', dotCount: 2 },
 ]
 
 /**
@@ -105,11 +109,15 @@ export const JUDGMENT_TUTORIAL_COUNT_STIMULI: JudgmentStimulus[] = [
  * Blocks per segment from segment index 2 onward (segments 0-1 always use
  * JUDGMENT_EARLY_SEGMENT_LENGTH — a universal warm-up before full difficulty
  * kicks in, same as before this rework), and the tier's ceiling choiceCount
- * once warm-up ends. Smaller segmentLength = more frequent switches.
- * Hard/Extreme add 'direction' as a genuine 3rd rule AND ramp to real 4-way
- * (Left/Up/Right/Down) answers; Easy/Normal stay at the original 2
- * (shape/count) rules and choiceCount 2 (Left/Right) for the ENTIRE
- * session — "4방향을 강제하지 않음".
+ * once warm-up ends. Larger segmentLength = a rule stays active longer
+ * before switching (more time to actually recognize it).
+ *
+ * 2026-08 QA 2차 보정: every tier's rule pool is back to shape/count only
+ * (no 'direction' — see lib/game/types.ts). Hard/Extreme's own difficulty
+ * axis is maxChoiceCount 3 (Left/Mid/Right) instead of a 3rd rule; every
+ * tier's segmentLength was raised (see the per-tier values below) — QA
+ * found segments switching before a player could recognize the new rule,
+ * worst at Extreme's old segmentLength 2 (near-continuous switching).
  */
 export interface JudgmentTierRuleConfig {
   rules: JudgmentRuleId[]
@@ -117,15 +125,23 @@ export interface JudgmentTierRuleConfig {
   segmentLength: number
   /** Random +/- range applied to segmentLength per segment (0 = perfectly fixed cadence). Only Extreme sets this >0 — spec calls out "전환 시점 variation 증가" as distinct from "짧은 segmentLength": Hard's switches land on a predictable fixed cadence, Extreme's don't. */
   segmentLengthJitter: number
-  /** Ceiling choiceCount once the segment-2+ full ramp kicks in. Easy/Normal: 2 (never leaves Left/Right). Hard/Extreme: 4 (Left/Up/Right/Down). */
-  maxChoiceCount: 2 | 4
+  /** Ceiling choiceCount once the segment-2+ full ramp kicks in. Easy/Normal: 2 (never leaves Left/Right). Hard/Extreme: 3 (Left/Mid/Right). */
+  maxChoiceCount: 2 | 3
 }
 
+/**
+ * segmentLength before/after the 2026-08 QA 2차 pass (block-count based, not
+ * time-based — see getSegmentConfig): easy 8→10, normal 5→7, hard 4→6,
+ * extreme 2→4 (jitter unchanged at ±1). Ordering (Easy > Normal > Hard >
+ * Extreme, i.e. switches get more frequent as difficulty rises) is
+ * unchanged; every absolute value was raised so even Extreme's fastest
+ * cadence no longer reads as "switching almost every Block".
+ */
 export const JUDGMENT_TIER_RULE_CONFIG: Record<GameDifficulty, JudgmentTierRuleConfig> = {
-  easy: { rules: ['shape', 'count'], segmentLength: 8, segmentLengthJitter: 0, maxChoiceCount: 2 },
-  normal: { rules: ['shape', 'count'], segmentLength: 5, segmentLengthJitter: 0, maxChoiceCount: 2 },
-  hard: { rules: ['shape', 'count', 'direction'], segmentLength: 4, segmentLengthJitter: 0, maxChoiceCount: 4 },
-  extreme: { rules: ['shape', 'count', 'direction'], segmentLength: 2, segmentLengthJitter: 1, maxChoiceCount: 4 },
+  easy: { rules: ['shape', 'count'], segmentLength: 10, segmentLengthJitter: 0, maxChoiceCount: 2 },
+  normal: { rules: ['shape', 'count'], segmentLength: 7, segmentLengthJitter: 0, maxChoiceCount: 2 },
+  hard: { rules: ['shape', 'count'], segmentLength: 6, segmentLengthJitter: 0, maxChoiceCount: 3 },
+  extreme: { rules: ['shape', 'count'], segmentLength: 4, segmentLengthJitter: 1, maxChoiceCount: 3 },
 }
 
 /** Applies a tier's segmentLengthJitter as a random +/- offset, floored at 1 Block so a segment is never empty. */
@@ -154,7 +170,7 @@ function jitteredSegmentLength(base: number, jitter: number): number {
 export function getSegmentConfig(
   segmentIndex: number,
   difficulty: GameDifficulty,
-): { ruleId: JudgmentRuleId; choiceCount: 2 | 4; length: number; conflictRatioMin: number; conflictRatioMax: number } {
+): { ruleId: JudgmentRuleId; choiceCount: 2 | 3; length: number; conflictRatioMin: number; conflictRatioMax: number } {
   const tierConfig = JUDGMENT_TIER_RULE_CONFIG[difficulty]
   if (segmentIndex === 0) {
     return { ruleId: 'shape', choiceCount: 2, length: JUDGMENT_EARLY_SEGMENT_LENGTH, conflictRatioMin: 0, conflictRatioMax: 0 }

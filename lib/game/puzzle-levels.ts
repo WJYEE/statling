@@ -33,12 +33,25 @@ export function finalFootprint(piece: PuzzlePieceSpec): { width: number; height:
 
 /**
  * 12 levels (spec: "최소 12개, 난이도별 최소 4개" — 4 per difficulty here).
- * The original 4 rounds (level-1..4) are unchanged, just tagged with a
- * difficulty; level-5..12 fill out the pool so every difficulty tier has
- * enough variety for `pickFitPuzzleSession` to draw a fresh combination
- * each playthrough. Difficulty 3 levels intentionally include
- * similarly-shaped pieces (spec: "유사한 형태 포함") that only differ by
- * which slot/rotation they belong to, so shape alone can't solve them.
+ *
+ * 2026-08 QA 2차 보정: every level's piece geometry was redesigned. The
+ * original set drew almost exclusively from two rectangle shapes (a 1x2
+ * "domino" and a 1x3 "tromino", in either orientation), so any level with 3+
+ * pieces was near-guaranteed to have two or more pieces share the exact same
+ * footprint once rotation is accounted for (a 1x2 piece and a 2x1 piece
+ * LOOK identical at their correct final orientation) — since the board's
+ * target-slot outlines are undecorated dashed rectangles (no color), the
+ * player had no visual way to tell which same-sized piece belonged to which
+ * slot. Every level below now draws each piece from a distinct
+ * rotation-normalized footprint (never reusing the same {width,height} pair,
+ * treating e.g. 1x2 and 2x1 as the same footprint) — see
+ * scripts/verify-puzzle-levels.ts. Piece counts, per-level difficulty band,
+ * PUZZLE_LEVEL_IDS_BY_DIFFICULTY tier membership, and each level's rotated
+ * vs non-rotated piece COUNT are all unchanged from before; board sizes grew
+ * where the wider footprint vocabulary needed more room to avoid overlap
+ * (kept as square-ish as possible, and boardRows in particular was kept
+ * small since it drives fit-puzzle-game.tsx's on-screen vertical footprint —
+ * see that file's 2026-08 viewport fix).
  */
 export const PUZZLE_LEVELS: PuzzleLevel[] = [
   {
@@ -47,9 +60,7 @@ export const PUZZLE_LEVELS: PuzzleLevel[] = [
     boardCols: 3,
     boardRows: 3,
     timeLimitSeconds: 20,
-    pieces: [
-      { id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 1, targetRow: 0 },
-    ],
+    pieces: [{ id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 0, targetRow: 0 }],
   },
   {
     id: 'level-2',
@@ -58,8 +69,8 @@ export const PUZZLE_LEVELS: PuzzleLevel[] = [
     boardRows: 3,
     timeLimitSeconds: 25,
     pieces: [
-      { id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 0, targetRow: 0 },
-      { id: 'p2', widthCells: 1, heightCells: 2, correctRotation: 90, color: 'var(--stat-reasoning)', targetCol: 2, targetRow: 2 },
+      { id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 3, targetRow: 0 },
+      { id: 'p2', widthCells: 1, heightCells: 3, correctRotation: 90, color: 'var(--stat-reasoning)', targetCol: 0, targetRow: 0 },
     ],
   },
   {
@@ -69,133 +80,133 @@ export const PUZZLE_LEVELS: PuzzleLevel[] = [
     boardRows: 4,
     timeLimitSeconds: 30,
     pieces: [
-      { id: 'p1', widthCells: 1, heightCells: 3, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 0, targetRow: 0 },
-      { id: 'p2', widthCells: 1, heightCells: 2, correctRotation: 90, color: 'var(--stat-reasoning)', targetCol: 1, targetRow: 3 },
-      { id: 'p3', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-judgment)', targetCol: 3, targetRow: 1 },
+      { id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 1, targetRow: 1 },
+      { id: 'p2', widthCells: 1, heightCells: 3, correctRotation: 90, color: 'var(--stat-reasoning)', targetCol: 1, targetRow: 0 },
+      { id: 'p3', widthCells: 1, heightCells: 4, correctRotation: 0, color: 'var(--stat-judgment)', targetCol: 0, targetRow: 0 },
     ],
   },
   {
     id: 'level-4',
     difficulty: 2,
-    boardCols: 4,
+    boardCols: 5,
     boardRows: 4,
     timeLimitSeconds: 35,
     pieces: [
-      { id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 90, color: 'var(--stat-spatial)', targetCol: 0, targetRow: 0 },
-      { id: 'p2', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-reasoning)', targetCol: 0, targetRow: 2 },
-      { id: 'p3', widthCells: 1, heightCells: 3, correctRotation: 90, color: 'var(--stat-judgment)', targetCol: 1, targetRow: 3 },
-      { id: 'p4', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-focus)', targetCol: 3, targetRow: 0 },
+      { id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 90, color: 'var(--stat-spatial)', targetCol: 2, targetRow: 1 },
+      { id: 'p2', widthCells: 1, heightCells: 3, correctRotation: 0, color: 'var(--stat-reasoning)', targetCol: 4, targetRow: 0 },
+      { id: 'p3', widthCells: 1, heightCells: 4, correctRotation: 90, color: 'var(--stat-judgment)', targetCol: 0, targetRow: 0 },
+      { id: 'p4', widthCells: 2, heightCells: 2, correctRotation: 0, color: 'var(--stat-focus)', targetCol: 0, targetRow: 1 },
     ],
   },
   {
     id: 'level-5',
     difficulty: 1,
-    boardCols: 3,
-    boardRows: 2,
+    boardCols: 5,
+    boardRows: 3,
     timeLimitSeconds: 22,
     pieces: [
-      { id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 0, targetRow: 0 },
-      { id: 'p2', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-reasoning)', targetCol: 1, targetRow: 0 },
-      { id: 'p3', widthCells: 2, heightCells: 1, correctRotation: 90, color: 'var(--stat-judgment)', targetCol: 2, targetRow: 0 },
+      { id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 0, targetRow: 1 },
+      { id: 'p2', widthCells: 1, heightCells: 3, correctRotation: 0, color: 'var(--stat-reasoning)', targetCol: 4, targetRow: 0 },
+      { id: 'p3', widthCells: 1, heightCells: 4, correctRotation: 90, color: 'var(--stat-judgment)', targetCol: 0, targetRow: 0 },
     ],
   },
   {
     id: 'level-6',
     difficulty: 1,
     boardCols: 4,
-    boardRows: 3,
+    boardRows: 4,
     timeLimitSeconds: 22,
     pieces: [
-      { id: 'p1', widthCells: 1, heightCells: 3, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 0, targetRow: 0 },
-      { id: 'p2', widthCells: 2, heightCells: 1, correctRotation: 0, color: 'var(--stat-reasoning)', targetCol: 1, targetRow: 2 },
-      { id: 'p3', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-focus)', targetCol: 3, targetRow: 0 },
+      { id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 2, targetRow: 0 },
+      { id: 'p2', widthCells: 1, heightCells: 3, correctRotation: 0, color: 'var(--stat-reasoning)', targetCol: 1, targetRow: 0 },
+      { id: 'p3', widthCells: 1, heightCells: 4, correctRotation: 0, color: 'var(--stat-judgment)', targetCol: 0, targetRow: 0 },
     ],
   },
   {
     id: 'level-7',
     difficulty: 2,
-    boardCols: 4,
+    boardCols: 6,
     boardRows: 4,
     timeLimitSeconds: 28,
     pieces: [
-      { id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 0, targetRow: 0 },
-      { id: 'p2', widthCells: 2, heightCells: 1, correctRotation: 90, color: 'var(--stat-reasoning)', targetCol: 1, targetRow: 0 },
-      { id: 'p3', widthCells: 2, heightCells: 1, correctRotation: 0, color: 'var(--stat-judgment)', targetCol: 2, targetRow: 0 },
-      { id: 'p4', widthCells: 1, heightCells: 3, correctRotation: 0, color: 'var(--stat-focus)', targetCol: 3, targetRow: 1 },
-      { id: 'p5', widthCells: 1, heightCells: 3, correctRotation: 90, color: 'var(--stat-memory)', targetCol: 0, targetRow: 2 },
+      { id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 4, targetRow: 2 },
+      { id: 'p2', widthCells: 1, heightCells: 3, correctRotation: 90, color: 'var(--stat-reasoning)', targetCol: 0, targetRow: 2 },
+      { id: 'p3', widthCells: 1, heightCells: 4, correctRotation: 0, color: 'var(--stat-judgment)', targetCol: 3, targetRow: 0 },
+      { id: 'p4', widthCells: 2, heightCells: 2, correctRotation: 0, color: 'var(--stat-focus)', targetCol: 4, targetRow: 0 },
+      { id: 'p5', widthCells: 2, heightCells: 3, correctRotation: 90, color: 'var(--stat-memory)', targetCol: 0, targetRow: 0 },
     ],
   },
   {
     id: 'level-8',
     difficulty: 2,
-    boardCols: 4,
+    boardCols: 5,
     boardRows: 4,
     timeLimitSeconds: 28,
     pieces: [
-      { id: 'p1', widthCells: 2, heightCells: 1, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 0, targetRow: 0 },
-      { id: 'p2', widthCells: 2, heightCells: 1, correctRotation: 90, color: 'var(--stat-reasoning)', targetCol: 2, targetRow: 0 },
-      { id: 'p3', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-judgment)', targetCol: 3, targetRow: 0 },
-      { id: 'p4', widthCells: 1, heightCells: 3, correctRotation: 90, color: 'var(--stat-focus)', targetCol: 0, targetRow: 2 },
+      { id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 4, targetRow: 0 },
+      { id: 'p2', widthCells: 1, heightCells: 3, correctRotation: 90, color: 'var(--stat-reasoning)', targetCol: 0, targetRow: 2 },
+      { id: 'p3', widthCells: 1, heightCells: 4, correctRotation: 0, color: 'var(--stat-judgment)', targetCol: 3, targetRow: 0 },
+      { id: 'p4', widthCells: 2, heightCells: 3, correctRotation: 90, color: 'var(--stat-focus)', targetCol: 0, targetRow: 0 },
     ],
   },
   {
     id: 'level-9',
     difficulty: 3,
-    boardCols: 5,
-    boardRows: 3,
+    boardCols: 6,
+    boardRows: 5,
     timeLimitSeconds: 34,
     pieces: [
-      { id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 0, targetRow: 0 },
-      { id: 'p2', widthCells: 2, heightCells: 1, correctRotation: 90, color: 'var(--stat-reasoning)', targetCol: 1, targetRow: 0 },
-      { id: 'p3', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-judgment)', targetCol: 2, targetRow: 0 },
-      { id: 'p4', widthCells: 1, heightCells: 3, correctRotation: 0, color: 'var(--stat-focus)', targetCol: 3, targetRow: 0 },
-      { id: 'p5', widthCells: 1, heightCells: 3, correctRotation: 90, color: 'var(--stat-memory)', targetCol: 0, targetRow: 2 },
-      { id: 'p6', widthCells: 2, heightCells: 1, correctRotation: 90, color: 'var(--stat-reaction)', targetCol: 4, targetRow: 0 },
+      { id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 3, targetRow: 3 },
+      { id: 'p2', widthCells: 1, heightCells: 3, correctRotation: 90, color: 'var(--stat-reasoning)', targetCol: 0, targetRow: 3 },
+      { id: 'p3', widthCells: 1, heightCells: 4, correctRotation: 0, color: 'var(--stat-judgment)', targetCol: 5, targetRow: 0 },
+      { id: 'p4', widthCells: 2, heightCells: 2, correctRotation: 0, color: 'var(--stat-focus)', targetCol: 3, targetRow: 0 },
+      { id: 'p5', widthCells: 2, heightCells: 3, correctRotation: 90, color: 'var(--stat-memory)', targetCol: 0, targetRow: 0 },
+      { id: 'p6', widthCells: 1, heightCells: 5, correctRotation: 90, color: 'var(--stat-reaction)', targetCol: 0, targetRow: 2 },
     ],
   },
   {
     id: 'level-10',
     difficulty: 3,
-    boardCols: 4,
-    boardRows: 4,
+    boardCols: 6,
+    boardRows: 5,
     timeLimitSeconds: 34,
     pieces: [
-      { id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 0, targetRow: 0 },
-      { id: 'p2', widthCells: 2, heightCells: 1, correctRotation: 90, color: 'var(--stat-reasoning)', targetCol: 1, targetRow: 0 },
-      { id: 'p3', widthCells: 1, heightCells: 3, correctRotation: 0, color: 'var(--stat-judgment)', targetCol: 2, targetRow: 0 },
-      { id: 'p4', widthCells: 3, heightCells: 1, correctRotation: 90, color: 'var(--stat-focus)', targetCol: 3, targetRow: 0 },
-      { id: 'p5', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-memory)', targetCol: 0, targetRow: 2 },
-      { id: 'p6', widthCells: 2, heightCells: 1, correctRotation: 90, color: 'var(--stat-reaction)', targetCol: 1, targetRow: 2 },
+      { id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 3, targetRow: 3 },
+      { id: 'p2', widthCells: 1, heightCells: 3, correctRotation: 90, color: 'var(--stat-reasoning)', targetCol: 0, targetRow: 3 },
+      { id: 'p3', widthCells: 1, heightCells: 4, correctRotation: 0, color: 'var(--stat-judgment)', targetCol: 5, targetRow: 0 },
+      { id: 'p4', widthCells: 2, heightCells: 3, correctRotation: 90, color: 'var(--stat-focus)', targetCol: 0, targetRow: 0 },
+      { id: 'p5', widthCells: 2, heightCells: 2, correctRotation: 0, color: 'var(--stat-memory)', targetCol: 3, targetRow: 0 },
+      { id: 'p6', widthCells: 1, heightCells: 5, correctRotation: 90, color: 'var(--stat-reaction)', targetCol: 0, targetRow: 2 },
     ],
   },
   {
     id: 'level-11',
     difficulty: 3,
-    boardCols: 5,
-    boardRows: 3,
+    boardCols: 6,
+    boardRows: 5,
     timeLimitSeconds: 34,
     pieces: [
-      { id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 0, targetRow: 0 },
-      { id: 'p2', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-reasoning)', targetCol: 1, targetRow: 0 },
-      { id: 'p3', widthCells: 2, heightCells: 1, correctRotation: 90, color: 'var(--stat-judgment)', targetCol: 2, targetRow: 0 },
-      { id: 'p4', widthCells: 1, heightCells: 3, correctRotation: 0, color: 'var(--stat-focus)', targetCol: 3, targetRow: 0 },
-      { id: 'p5', widthCells: 3, heightCells: 1, correctRotation: 90, color: 'var(--stat-memory)', targetCol: 4, targetRow: 0 },
-      { id: 'p6', widthCells: 1, heightCells: 2, correctRotation: 90, color: 'var(--stat-reaction)', targetCol: 0, targetRow: 2 },
+      { id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 4, targetRow: 3 },
+      { id: 'p2', widthCells: 1, heightCells: 3, correctRotation: 0, color: 'var(--stat-reasoning)', targetCol: 5, targetRow: 0 },
+      { id: 'p3', widthCells: 1, heightCells: 4, correctRotation: 90, color: 'var(--stat-judgment)', targetCol: 0, targetRow: 3 },
+      { id: 'p4', widthCells: 2, heightCells: 2, correctRotation: 0, color: 'var(--stat-focus)', targetCol: 3, targetRow: 0 },
+      { id: 'p5', widthCells: 2, heightCells: 3, correctRotation: 90, color: 'var(--stat-memory)', targetCol: 0, targetRow: 0 },
+      { id: 'p6', widthCells: 1, heightCells: 5, correctRotation: 90, color: 'var(--stat-reaction)', targetCol: 0, targetRow: 2 },
     ],
   },
   {
     id: 'level-12',
     difficulty: 3,
-    boardCols: 4,
+    boardCols: 6,
     boardRows: 5,
     timeLimitSeconds: 34,
     pieces: [
-      { id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-spatial)', targetCol: 0, targetRow: 0 },
-      { id: 'p2', widthCells: 2, heightCells: 1, correctRotation: 90, color: 'var(--stat-reasoning)', targetCol: 1, targetRow: 0 },
-      { id: 'p3', widthCells: 2, heightCells: 1, correctRotation: 90, color: 'var(--stat-judgment)', targetCol: 2, targetRow: 0 },
-      { id: 'p4', widthCells: 1, heightCells: 3, correctRotation: 0, color: 'var(--stat-focus)', targetCol: 3, targetRow: 0 },
-      { id: 'p5', widthCells: 3, heightCells: 1, correctRotation: 90, color: 'var(--stat-memory)', targetCol: 0, targetRow: 2 },
-      { id: 'p6', widthCells: 1, heightCells: 2, correctRotation: 0, color: 'var(--stat-reaction)', targetCol: 3, targetRow: 3 },
+      { id: 'p1', widthCells: 1, heightCells: 2, correctRotation: 90, color: 'var(--stat-spatial)', targetCol: 4, targetRow: 4 },
+      { id: 'p2', widthCells: 1, heightCells: 3, correctRotation: 90, color: 'var(--stat-reasoning)', targetCol: 0, targetRow: 4 },
+      { id: 'p3', widthCells: 1, heightCells: 4, correctRotation: 0, color: 'var(--stat-judgment)', targetCol: 4, targetRow: 0 },
+      { id: 'p4', widthCells: 2, heightCells: 3, correctRotation: 90, color: 'var(--stat-focus)', targetCol: 0, targetRow: 0 },
+      { id: 'p5', widthCells: 2, heightCells: 2, correctRotation: 0, color: 'var(--stat-memory)', targetCol: 0, targetRow: 2 },
+      { id: 'p6', widthCells: 1, heightCells: 5, correctRotation: 0, color: 'var(--stat-reaction)', targetCol: 3, targetRow: 0 },
     ],
   },
 ]

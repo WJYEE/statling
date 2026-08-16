@@ -14,7 +14,7 @@ import {
 } from '@/lib/config/fit-puzzle.config'
 import { GAME_DIFFICULTIES } from '@/lib/game/difficulty'
 import type { GameDifficulty } from '@/lib/game/difficulty'
-import { pickFitPuzzleSession, finalFootprint, type PuzzlePieceSpec } from '@/lib/game/puzzle-levels'
+import { pickFitPuzzleSession, finalFootprint, type PuzzleLevel, type PuzzlePieceSpec } from '@/lib/game/puzzle-levels'
 import type { FitPuzzleRoundResult, FitPuzzleRawSummary } from '@/lib/game/types'
 import { calculateFitPuzzleScore, summarizeFitPuzzleRounds } from '@/lib/scoring/fit-puzzle'
 import { cn } from '@/lib/utils'
@@ -44,16 +44,51 @@ const TUTORIAL: TutorialContent = {
   scoring: '정확한 배치 수, 완성 시간, 불필요한 조작 횟수를 함께 반영해요.',
 }
 
-function footprintPx(widthCells: number, heightCells: number) {
-  return { w: widthCells * FIT_PUZZLE_CELL_SIZE_PX, h: heightCells * FIT_PUZZLE_CELL_SIZE_PX }
+function footprintPx(widthCells: number, heightCells: number, cellPx: number) {
+  return { w: widthCells * cellPx, h: heightCells * cellPx }
 }
 
 /** The piece's on-screen footprint at its current (live, user-controlled) rotation — width/height simply swap at 90°/270°, no CSS transform needed. */
-function renderedFootprint(piece: PieceState) {
+function renderedFootprint(piece: PieceState, cellPx: number) {
   const swapped = piece.rotation === 90 || piece.rotation === 270
   const width = swapped ? piece.spec.heightCells : piece.spec.widthCells
   const height = swapped ? piece.spec.widthCells : piece.spec.heightCells
-  return footprintPx(width, height)
+  return footprintPx(width, height, cellPx)
+}
+
+/**
+ * PC/mobile QA 2026-08 후속 보정: the tallest levels (Extreme's 5-row
+ * level-12 combined with a 3-cell-tall tray piece) pushed the board+tray
+ * taller than a single screen, forcing mid-play vertical scrolling. Rather
+ * than shrinking every level uniformly ("무조건 작게"), each level computes
+ * its OWN cell size so its arena (board height + tray row height + the
+ * small fixed gaps between them) never exceeds MAX_ARENA_HEIGHT_PX — most
+ * Easy/Normal/Hard levels already fit at the full FIT_PUZZLE_CELL_SIZE_PX
+ * and stay untouched; only genuinely tall levels shrink, floored at
+ * MIN_CELL_SCALE so pieces never become too small to drag/tap.
+ */
+const MAX_ARENA_HEIGHT_PX = 460
+const MIN_CELL_SCALE = 0.75
+/** The fixed (non-cell-scaled) vertical gaps inside the arena — trayTopPx's +24 gap above the tray, +8 gap before the tray row itself, +16 bottom padding below it. Kept as constants here so cellSizeForLevel's budget math and arenaHeightPx below stay in sync. */
+const ARENA_FIXED_GAPS_PX = 24 + 8 + 16
+
+function cellSizeForLevel(lvl: PuzzleLevel): number {
+  const maxSpanCells = Math.max(1, ...lvl.pieces.map((p) => Math.max(p.widthCells, p.heightCells)))
+  const unitCells = lvl.boardRows + maxSpanCells // board height + the tallest tray row, in cells
+  const idealScale = (MAX_ARENA_HEIGHT_PX - ARENA_FIXED_GAPS_PX) / (FIT_PUZZLE_CELL_SIZE_PX * unitCells)
+  const scale = Math.min(1, Math.max(MIN_CELL_SCALE, idealScale))
+  return Math.round(FIT_PUZZLE_CELL_SIZE_PX * scale)
+}
+
+/** All of one level's arena geometry, derived from that level alone — computed fresh from whichever level is actually being laid out (never read from a possibly-stale previous level's render-scoped variables; layoutPieces needs the TARGET level's metrics, not the outgoing one). */
+function computeArenaMetrics(lvl: PuzzleLevel) {
+  const cellPx = cellSizeForLevel(lvl)
+  const boardWidthPx = lvl.boardCols * cellPx
+  const boardHeightPx = lvl.boardRows * cellPx
+  const trayTopPx = boardHeightPx + 24
+  const trayPieceMaxSpanPx = Math.max(cellPx, ...lvl.pieces.map((p) => Math.max(p.widthCells, p.heightCells) * cellPx))
+  const arenaHeightPx = trayTopPx + 8 + trayPieceMaxSpanPx + 16
+  return { cellPx, boardWidthPx, boardHeightPx, trayTopPx, trayPieceMaxSpanPx, arenaHeightPx }
 }
 
 /** "퍼즐 끼우기" — new Spatial-stat game (spec §8). Pointer-based drag (works uniformly for mouse + touch via Pointer Events + setPointerCapture), tap-to-select + rotate button, target-zone (not pixel-perfect) snap detection with generous tolerance. */
@@ -77,30 +112,14 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
   const arenaRef = useRef<HTMLDivElement>(null)
 
   const level = levels[levelIndex]
-  const boardWidthPx = level.boardCols * FIT_PUZZLE_CELL_SIZE_PX
-  const boardHeightPx = level.boardRows * FIT_PUZZLE_CELL_SIZE_PX
-  const trayTopPx = boardHeightPx + 24
-  /**
-   * The tallest a tray piece can render — a piece can be rotated while still
-   * sitting in the tray (see rotateSelected, not gated to "after placement"),
-   * which swaps its width/height, so the row must reserve enough height for
-   * whichever of a piece's two dimensions ends up "tall," not just its
-   * resting rotation-0 height. Mirrors layoutPieces' own `Math.max(w, h)`
-   * horizontal-spacing logic just below, applied to the vertical axis
-   * instead — previously this was a flat `90` regardless of piece size,
-   * which clipped any piece (or in-tray rotation) taller than ~82px.
-   */
-  const trayPieceMaxSpanPx = Math.max(
-    FIT_PUZZLE_CELL_SIZE_PX,
-    ...level.pieces.map((p) => Math.max(p.widthCells, p.heightCells) * FIT_PUZZLE_CELL_SIZE_PX),
-  )
-  const arenaHeightPx = trayTopPx + 8 + trayPieceMaxSpanPx + 16
+  const { cellPx, boardWidthPx, boardHeightPx, trayTopPx, arenaHeightPx } = computeArenaMetrics(level)
 
-  const layoutPieces = (lvl: typeof level): PieceState[] => {
+  const layoutPieces = (lvl: PuzzleLevel): PieceState[] => {
+    const metrics = computeArenaMetrics(lvl)
     let trayX = 8
     return lvl.pieces.map((spec) => {
-      const { w, h } = footprintPx(spec.widthCells, spec.heightCells)
-      const state: PieceState = { spec, rotation: 0, x: trayX, y: trayTopPx + 8, placed: false }
+      const { w, h } = footprintPx(spec.widthCells, spec.heightCells, metrics.cellPx)
+      const state: PieceState = { spec, rotation: 0, x: trayX, y: metrics.trayTopPx + 8, placed: false }
       trayX += Math.max(w, h) + 16
       return state
     })
@@ -188,15 +207,15 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
     setPieces((prev) => {
       const piece = prev.find((p) => p.spec.id === id)
       if (!piece) return prev
-      const footprint = renderedFootprint(piece)
+      const footprint = renderedFootprint(piece, cellPx)
       const pieceCenter = { x: piece.x + footprint.w / 2, y: piece.y + footprint.h / 2 }
 
       let bestTarget: { spec: PuzzlePieceSpec; distance: number } | null = null
       for (const p of prev) {
         const { width, height } = finalFootprint(p.spec)
         const targetCenter = {
-          x: p.spec.targetCol * FIT_PUZZLE_CELL_SIZE_PX + (width * FIT_PUZZLE_CELL_SIZE_PX) / 2,
-          y: p.spec.targetRow * FIT_PUZZLE_CELL_SIZE_PX + (height * FIT_PUZZLE_CELL_SIZE_PX) / 2,
+          x: p.spec.targetCol * cellPx + (width * cellPx) / 2,
+          y: p.spec.targetRow * cellPx + (height * cellPx) / 2,
         }
         const distance = Math.hypot(pieceCenter.x - targetCenter.x, pieceCenter.y - targetCenter.y)
         if (distance <= snapToleranceRef.current && (!bestTarget || distance < bestTarget.distance)) {
@@ -212,8 +231,8 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
       const isRightTarget = targetSpec.id === piece.spec.id
 
       if (isRightTarget && rotationMatches && !alreadyFilled) {
-        const snappedX = targetSpec.targetCol * FIT_PUZZLE_CELL_SIZE_PX
-        const snappedY = targetSpec.targetRow * FIT_PUZZLE_CELL_SIZE_PX
+        const snappedX = targetSpec.targetCol * cellPx
+        const snappedY = targetSpec.targetRow * cellPx
         play('answer-correct')
         return prev.map((p) => (p.spec.id === id ? { ...p, placed: true, x: snappedX, y: snappedY } : p))
       }
@@ -316,10 +335,10 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
                         key={spec.id}
                         className="absolute rounded-lg border-2 border-dashed border-foreground/30"
                         style={{
-                          width: width * FIT_PUZZLE_CELL_SIZE_PX - 4,
-                          height: height * FIT_PUZZLE_CELL_SIZE_PX - 4,
-                          left: spec.targetCol * FIT_PUZZLE_CELL_SIZE_PX + 2,
-                          top: spec.targetRow * FIT_PUZZLE_CELL_SIZE_PX + 2,
+                          width: width * cellPx - 4,
+                          height: height * cellPx - 4,
+                          left: spec.targetCol * cellPx + 2,
+                          top: spec.targetRow * cellPx + 2,
                         }}
                       />
                     )
@@ -333,14 +352,14 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
                     onClick={rotateSelected}
                     aria-label="선택한 조각 90도 회전"
                     className="absolute z-20 grid h-9 w-9 place-items-center rounded-full bg-accent text-accent-foreground toy-border toy-shadow-sm"
-                    style={{ left: selectedPiece.x + renderedFootprint(selectedPiece).w / 2 - 18, top: selectedPiece.y - 44 }}
+                    style={{ left: selectedPiece.x + renderedFootprint(selectedPiece, cellPx).w / 2 - 18, top: selectedPiece.y - 44 }}
                   >
                     <RotateCw size={16} strokeWidth={2.6} aria-hidden="true" />
                   </button>
                 )}
 
                 {pieces.map((piece) => {
-                  const { w, h } = renderedFootprint(piece)
+                  const { w, h } = renderedFootprint(piece, cellPx)
                   return (
                     <div
                       key={piece.spec.id}

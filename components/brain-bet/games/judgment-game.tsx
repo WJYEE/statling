@@ -9,6 +9,7 @@ import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { JudgmentSymbolView } from '@/components/brain-bet/games/judgment-symbol'
 import { GameRuleReminder } from '@/components/brain-bet/games/shared/game-rule-reminder'
 import { FreePlayBadge } from '@/components/brain-bet/games/shared/free-play-badge'
+import { SkipTutorialButton } from '@/components/brain-bet/games/shared/skip-tutorial-button'
 import { STATS } from '@/lib/brain-bet'
 import {
   JUDGMENT_BLOCK_EXIT_MS,
@@ -28,7 +29,7 @@ import { GAME_DIFFICULTIES } from '@/lib/game/difficulty'
 import type { GameDifficulty } from '@/lib/game/difficulty'
 import {
   JUDGMENT_STIMULI_2WAY,
-  JUDGMENT_STIMULI_4WAY,
+  JUDGMENT_STIMULI_3WAY,
   computeJudgmentAnswerForMapping,
   generateBlockStimuli,
   generateRuleMapping,
@@ -54,8 +55,8 @@ interface QueueBlock {
   key: number
   stimulus: JudgmentStimulus
   ruleId: JudgmentRuleId
-  choiceCount: 2 | 4
-  /** The Left/Up/Right/Down assignment active for this Block's whole segment — shuffled once per segment, never per Block. */
+  choiceCount: 2 | 3
+  /** The Left/Mid/Right assignment active for this Block's whole segment — shuffled once per segment, never per Block. */
   ruleMapping: JudgmentRuleMapping
   /** Which rule segment (Tutorial phase or real Time Attack segment) this Block belongs to. */
   segmentIndex: number
@@ -79,7 +80,7 @@ interface ExitingBlock {
   key: number
   stimulus: JudgmentStimulus
   ruleId: JudgmentRuleId
-  choiceCount: 2 | 4
+  choiceCount: 2 | 3
   outcome: 'correct' | 'wrong'
 }
 
@@ -103,28 +104,20 @@ interface JudgmentGameProps {
 /** Per-rule "last mapping used" memory — lets a rule's re-shuffle avoid repeating its own previous permutation even though the other rule always plays in between. */
 type LastMappingByRule = Record<JudgmentRuleId, JudgmentRuleMapping | null>
 
-const RULE_LABEL: Record<JudgmentRuleId, string> = { shape: '모양 규칙', count: '개수 규칙', direction: '방향 규칙' }
-const RULE_FOCUS_LABEL: Record<JudgmentRuleId, string> = { shape: '모양', count: '개수', direction: '화살표 방향' }
-const ANSWER_ICON: Record<JudgmentAnswer, string> = { left: '←', right: '→', up: '↑', down: '↓' }
-const SHAPE_LABEL: Record<JudgmentStimulus['shape'], string> = { circle: '동그라미', square: '네모', triangle: '세모', diamond: '마름모' }
-const COUNT_LABEL: Record<JudgmentStimulus['dotCount'], string> = { 1: '점 1개', 2: '점 2개', 3: '점 3개', 4: '점 4개' }
-const DIRECTION_LABEL: Record<JudgmentStimulus['pointerDirection'], string> = { left: '왼쪽', up: '위', right: '오른쪽', down: '아래' }
+const RULE_LABEL: Record<JudgmentRuleId, string> = { shape: '모양 규칙', count: '개수 규칙' }
+const RULE_FOCUS_LABEL: Record<JudgmentRuleId, string> = { shape: '모양', count: '개수' }
+const ANSWER_ICON: Record<JudgmentAnswer, string> = { left: '←', right: '→', mid: '●' }
+const SHAPE_LABEL: Record<JudgmentStimulus['shape'], string> = { circle: '동그라미', square: '네모', triangle: '세모' }
+const COUNT_LABEL: Record<JudgmentStimulus['dotCount'], string> = { 1: '점 1개', 2: '점 2개', 3: '점 3개' }
 
-/**
- * A mapping value is a dot count, a shape name, or a pointer direction.
- * `typeof` alone still separates the number case (dotCount), but shape and
- * direction are both plain strings now — checked by set membership instead
- * (their value sets are disjoint, so this is unambiguous).
- */
+/** A mapping value is a dot count or a shape name — `typeof` separates the two unambiguously. */
 function mappingValueLabel(value: JudgmentMappingValue): string {
-  if (typeof value === 'number') return COUNT_LABEL[value]
-  if (value in SHAPE_LABEL) return SHAPE_LABEL[value as JudgmentStimulus['shape']]
-  return DIRECTION_LABEL[value as JudgmentStimulus['pointerDirection']]
+  return typeof value === 'number' ? COUNT_LABEL[value] : SHAPE_LABEL[value]
 }
 
 /** What a given answer button maps to under the CURRENT (randomized, per-segment) mapping — shown directly on the button so nothing needs to be memorized by position. */
 function labelForAnswer(mapping: JudgmentRuleMapping, answer: JudgmentAnswer): string {
-  const value = answer === 'left' ? mapping.left : answer === 'right' ? mapping.right : answer === 'up' ? mapping.up : mapping.down
+  const value = answer === 'left' ? mapping.left : answer === 'right' ? mapping.right : mapping.mid
   return value === null ? '' : mappingValueLabel(value)
 }
 
@@ -148,7 +141,7 @@ function buildSegmentBlocks(
   const ruleId = forcedRuleId ?? segmentConfig.ruleId
   const { choiceCount, length, conflictRatioMin, conflictRatioMax } = segmentConfig
   const mapping = generateRuleMapping(ruleId, choiceCount, lastMappingForRule)
-  const pool = choiceCount === 4 ? JUDGMENT_STIMULI_4WAY : JUDGMENT_STIMULI_2WAY
+  const pool = choiceCount === 3 ? JUDGMENT_STIMULI_3WAY : JUDGMENT_STIMULI_2WAY
   const classify = (s: JudgmentStimulus) => isConflictStimulus(s, mapping, previousMapping)
   const conflictCount = pickSegmentConflictCount(length, conflictRatioMin, conflictRatioMax)
   const stimuli = generateBlockStimuli(pool, length, conflictCount, classify)
@@ -254,11 +247,11 @@ function buildTutorialBlocks(forcedRuleId: JudgmentRuleId | null): QueueBlock[] 
  * Real, interactive Judgment ("Rule Switch") game — GAME_SPEC §55-63, Time
  * Attack rework. A continuous horizontal queue of Blocks is always visible;
  * the player clears the current (leftmost, highlighted) Block by choosing
- * Left/Right (or, at Hard/Extreme, Left/Up/Right/Down), the queue shifts
+ * Left/Right (or, at Hard/Extreme, Left/Mid/Right), the queue shifts
  * immediately (no blocking per-trial feedback screen). Every segment
  * boundary reshuffles a fresh mapping (held fixed for that whole segment) so
- * the direction can't be memorized by button position — only actually read
- * off the Rule Banner.
+ * the position can't be memorized by button — only actually read off the
+ * Rule Banner.
  *
  * Rule Switch behavior now differs by `mode`: Free Play keeps the original
  * design — Tutorial demos shape then count back to back, Real play switches
@@ -269,8 +262,8 @@ function buildTutorialBlocks(forcedRuleId: JudgmentRuleId | null): QueueBlock[] 
  * threaded through buildTutorialBlocks/buildSegmentBlocks/fillQueue). Segment
  * length is shorter for the early eased segments, then the tier's own
  * segmentLength once full difficulty is reached (see
- * JUDGMENT_TIER_RULE_CONFIG). At Hard/Extreme, the 2-way→4-way step (segment
- * index 1→2) introduces the two new buttons partway through Real play with a
+ * JUDGMENT_TIER_RULE_CONFIG). At Hard/Extreme, the 2-way→3-way step (segment
+ * index 1→2) introduces the third button partway through Real play with a
  * one-time heads-up overlay; Easy/Normal never take this step and stay 2-way
  * (Left/Right) all session. The whole session runs against one global
  * JUDGMENT_GAME_DURATION_MS timer, unaffected by tier.
@@ -304,7 +297,7 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
    */
   const sessionRuleIdRef = useRef<JudgmentRuleId | null>(null)
   const previousMappingRef = useRef<JudgmentRuleMapping | null>(null)
-  const lastMappingByRuleRef = useRef<LastMappingByRule>({ shape: null, count: null, direction: null })
+  const lastMappingByRuleRef = useRef<LastMappingByRule>({ shape: null, count: null })
   const trialsRef = useRef<JudgmentTrial[]>([])
   const blockShownAtRef = useRef(0)
   const endAtRef = useRef(0)
@@ -368,12 +361,18 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
     blockShownAtRef.current = performance.now()
   }
 
+  /** Normal/Hard/Extreme only (see SkipTutorialButton) — jumps straight to the same beginRealGame() the Tutorial's own natural completion calls, just earlier. */
+  const skipTutorial = () => {
+    clearScheduled()
+    beginRealGame()
+  }
+
   const beginRealGame = () => {
     clearScheduled()
     nextKeyRef.current = 0
     nextSegmentToGenerateRef.current = 0
     previousMappingRef.current = null
-    lastMappingByRuleRef.current = { shape: null, count: null, direction: null }
+    lastMappingByRuleRef.current = { shape: null, count: null }
     trialsRef.current = []
     setTrials([])
     setCombo(0)
@@ -405,7 +404,7 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
     if (isRuleChanging) return
     if (queue.length === 0) return
     const current = queue[0]
-    if ((answer === 'up' || answer === 'down') && current.choiceCount !== 4) return
+    if (answer === 'mid' && current.choiceCount !== 3) return
 
     const correctAnswer = computeJudgmentAnswerForMapping(current.ruleMapping, current.stimulus)
     const isCorrect = correctAnswer !== null && answer === correctAnswer
@@ -516,7 +515,7 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
         setRuleChangeMessage(
           ruleChanged
             ? '규칙이 바뀌었어요!'
-            : '이제 4방향을 모두 사용해요!',
+            : '이제 선택지가 3개예요!',
         )
         const overlayMs = choiceCountChanged ? JUDGMENT_THIRD_OPTION_INTRO_MS : JUDGMENT_RULE_SWITCH_OVERLAY_MS
         schedule(() => setIsRuleChanging(false), overlayMs)
@@ -541,6 +540,9 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
   // Arrow keys mirror the on-screen buttons. event.repeat is blocked so holding
   // a key down never auto-fires more than the one Block it was pressed for.
   // Mounted once (empty deps) — see resolveCurrentRef above for why this is safe.
+  // ArrowUp mirrors 'mid' only when it's actually in play (choiceCount 3) —
+  // there's no on-screen Up button anymore, but the key still maps to the
+  // same visual middle slot the row lays out below.
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.repeat) return
@@ -550,18 +552,15 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
       } else if (e.key === 'ArrowRight') {
         e.preventDefault()
         resolveCurrentRef.current('right')
-      } else if (e.key === 'ArrowUp' && choiceCountRef.current === 4) {
+      } else if (e.key === 'ArrowUp' && choiceCountRef.current === 3) {
         e.preventDefault()
-        resolveCurrentRef.current('up')
-      } else if (e.key === 'ArrowDown' && choiceCountRef.current === 4) {
-        e.preventDefault()
-        resolveCurrentRef.current('down')
+        resolveCurrentRef.current('mid')
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
-  const visibleAnswers: JudgmentAnswer[] = choiceCount === 4 ? ['up', 'left', 'right', 'down'] : ['left', 'right']
+  const visibleAnswers: JudgmentAnswer[] = choiceCount === 3 ? ['left', 'mid', 'right'] : ['left', 'right']
   const secondsLeft = Math.ceil(timeLeftMs / 1000)
   const timePercent = Math.max(0, Math.min(100, (timeLeftMs / gameDurationMs) * 100))
   const bannerMapping = isRuleChanging ? upcomingMapping : (current?.ruleMapping ?? null)
@@ -621,9 +620,12 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
         </div>
 
         {appStage === 'tutorial' ? (
-          <span className="rounded-xl bg-secondary px-3 py-2 text-center font-display text-sm font-extrabold text-secondary-foreground toy-border">
-            튜토리얼
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="rounded-xl bg-secondary px-3 py-2 text-center font-display text-sm font-extrabold text-secondary-foreground toy-border">
+              튜토리얼
+            </span>
+            {difficulty !== 'easy' && <SkipTutorialButton onSkip={skipTutorial} />}
+          </div>
         ) : appStage === 'playing' || appStage === 'finished' ? (
           <div className="relative flex flex-col items-end gap-1">
             <div className="flex items-center gap-2">
@@ -664,7 +666,7 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
             className="grid h-24 w-24 place-items-center rounded-3xl toy-border toy-shadow"
             style={{ backgroundColor: `var(${stat.colorVar})` } as CSSProperties}
           >
-            {renderStimulus({ shape: 'circle', dotCount: 1, pointerDirection: 'up' }, 'var(--card)', 44)}
+            {renderStimulus({ shape: 'circle', dotCount: 1 }, 'var(--card)', 44)}
           </span>
           <div className="max-w-sm">
             <p className="font-display text-lg font-bold leading-snug text-foreground">
@@ -701,14 +703,11 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
             )}
             {bannerMapping && (
               <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] font-bold text-secondary-foreground">
-                {bannerMapping.choiceCount === 4 && (
-                  <span>{ANSWER_ICON.up} {labelForAnswer(bannerMapping, 'up')}</span>
-                )}
                 <span>{ANSWER_ICON.left} {labelForAnswer(bannerMapping, 'left')}</span>
-                <span>{ANSWER_ICON.right} {labelForAnswer(bannerMapping, 'right')}</span>
-                {bannerMapping.choiceCount === 4 && (
-                  <span>{ANSWER_ICON.down} {labelForAnswer(bannerMapping, 'down')}</span>
+                {bannerMapping.choiceCount === 3 && (
+                  <span>{ANSWER_ICON.mid} {labelForAnswer(bannerMapping, 'mid')}</span>
                 )}
+                <span>{ANSWER_ICON.right} {labelForAnswer(bannerMapping, 'right')}</span>
               </div>
             )}
           </div>
@@ -773,28 +772,15 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
             </div>
           </div>
 
-          {choiceCount === 4 ? (
-            // Cross layout — Up top-center, Left/Right middle row, Down bottom-center — so the
-            // 4 buttons read as real directional arrow keys rather than an arbitrary row.
-            <div className="mx-auto grid w-full max-w-[15rem] grid-cols-3 grid-rows-3 gap-2">
-              <div />
-              <div className="col-start-2 row-start-1">{renderAnswerButton('up')}</div>
-              <div />
-              <div className="col-start-1 row-start-2">{renderAnswerButton('left')}</div>
-              <div />
-              <div className="col-start-3 row-start-2">{renderAnswerButton('right')}</div>
-              <div />
-              <div className="col-start-2 row-start-3">{renderAnswerButton('down')}</div>
-              <div />
-            </div>
-          ) : (
-            <div className="mx-auto grid w-full max-w-sm grid-cols-2 gap-3">
-              {visibleAnswers.map((answer) => renderAnswerButton(answer))}
-            </div>
-          )}
+          {/* Simple left-to-right row for both 2-way and 3-way — no cross/directional
+              layout, so the buttons read as plain answer slots rather than an
+              input scheme of their own. */}
+          <div className={cn('mx-auto grid w-full gap-3', choiceCount === 3 ? 'max-w-md grid-cols-3' : 'max-w-sm grid-cols-2')}>
+            {visibleAnswers.map((answer) => renderAnswerButton(answer))}
+          </div>
 
           <p className="hidden text-[10px] font-semibold text-muted-foreground sm:block">
-            {choiceCount === 4 ? '← ↑ → ↓ 방향키 사용 가능' : '← → 방향키 사용 가능'}
+            {choiceCount === 3 ? '← ↑ → 방향키 사용 가능' : '← → 방향키 사용 가능'}
           </p>
         </div>
       )}

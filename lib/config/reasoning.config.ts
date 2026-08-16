@@ -85,8 +85,20 @@ export const REASONING_DIFFICULTY_WEIGHTS: Record<number, number> = {
  * don't make the whole session feel like it's dragging.
  */
 export const REASONING_FEEDBACK_MS = 1400
-/** How long the Tutorial → Tutorial / Tutorial → Real transition message stays up — raised from 1100ms to 2200ms so the rule callout was actually readable, then trimmed back down ~1s once the callout got its own persistent reminder alongside it, then trimmed again for touch responsiveness (this stage has nothing tappable, so it's pure "next round" filler). */
-export const REASONING_TUTORIAL_TRANSITION_MS = 800
+/**
+ * How long the Tutorial → Tutorial / Tutorial → Real transition message
+ * stays up — raised from 1100ms to 2200ms so the rule callout was actually
+ * readable, then trimmed back down to 800ms for touch responsiveness ("이
+ * stage has nothing tappable, so it's pure 'next round' filler").
+ * 2026-08 QA 2차 보정: 800ms turned out too short specifically for the
+ * Tutorial→Real message ("규칙은 모양뿐 아니라 개수·위치·방향에도 있을 수
+ * 있어요. 이제 실전을 시작할게요." — a full two-clause sentence, not a short
+ * label), which auto-advances with nothing tappable to pause it — QA
+ * couldn't finish reading it. Raised to 2000ms, a modest bump from the
+ * current value (not back to the earlier 2200ms) so the flow still doesn't
+ * drag.
+ */
+export const REASONING_TUTORIAL_TRANSITION_MS = 2000
 
 /**
  * Reasoning Game Score — normalizedScore = difficultyWeightedAccuracy 75% +
