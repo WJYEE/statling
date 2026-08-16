@@ -265,7 +265,10 @@ export function getBestScoreAtDifficulty(
  * getRepresentativeRecord below, this never falls back to a different tier.
  * Used by ranking (lib/ranking/ranking-provider.ts) to keep Hard and
  * Extreme leaderboards fully separate rather than collapsing them into one
- * "whichever tier was attempted" record.
+ * "whichever tier was attempted" record. Unfiltered by ranking season — a
+ * caller that must show only a CURRENT-season record (leaderboards, "내 최고
+ * 기록" on the difficulty-select screen) should use
+ * getCurrentSeasonRecordAtDifficulty below instead.
  */
 export function getRecordAtDifficulty(
   state: PlayerSkillState,
@@ -273,6 +276,31 @@ export function getRecordAtDifficulty(
   difficulty: GameDifficulty,
 ): MiniGamePerformanceRecord | null {
   return state.gameDifficultyBestRecords[recordKey(gameId, difficulty)] ?? null
+}
+
+/**
+ * Same lookup as getRecordAtDifficulty, but returns null unless the stored
+ * record was written under the CURRENT ranking season (recordVersion ===
+ * CURRENT_RANKING_SEASON) — see lib/ranking/ranking-season.ts. Use this
+ * wherever a "current best record" is shown to the player (leaderboards,
+ * the difficulty-select screen's per-tier "최고 기록" card): a pre-rework
+ * score is no longer comparable under the new rules, so it should read as
+ * "아직 기록이 없어요" rather than resurrecting a score that can't be
+ * reproduced under the current scoring/difficulty structure.
+ *
+ * Deliberately NOT used by isDifficultyUnlocked/getBestScoreAtDifficulty —
+ * a ranking-season bump must never re-lock a tier the player already
+ * unlocked (spec: "ranking reset != difficulty unlock reset"). The legacy
+ * record itself is never deleted; it's just excluded from anything
+ * season-gated.
+ */
+export function getCurrentSeasonRecordAtDifficulty(
+  state: PlayerSkillState,
+  gameId: string,
+  difficulty: GameDifficulty,
+): MiniGamePerformanceRecord | null {
+  const record = getRecordAtDifficulty(state, gameId, difficulty)
+  return record && record.recordVersion === CURRENT_RANKING_SEASON ? record : null
 }
 
 /** Every registered game's stored record at EXACTLY one difficulty tier (see getRecordAtDifficulty), keyed by gameId — games never played at that tier are simply absent, not backfilled from another tier. */

@@ -28,7 +28,7 @@ import { GAME_DIFFICULTIES } from '@/lib/game/difficulty'
 import type { GameDifficulty } from '@/lib/game/difficulty'
 import {
   JUDGMENT_STIMULI_2WAY,
-  JUDGMENT_STIMULI_3WAY,
+  JUDGMENT_STIMULI_4WAY,
   computeJudgmentAnswerForMapping,
   generateBlockStimuli,
   generateRuleMapping,
@@ -54,8 +54,8 @@ interface QueueBlock {
   key: number
   stimulus: JudgmentStimulus
   ruleId: JudgmentRuleId
-  choiceCount: 2 | 3
-  /** The Left/Down/Right assignment active for this Block's whole segment — shuffled once per segment, never per Block. */
+  choiceCount: 2 | 4
+  /** The Left/Up/Right/Down assignment active for this Block's whole segment — shuffled once per segment, never per Block. */
   ruleMapping: JudgmentRuleMapping
   /** Which rule segment (Tutorial phase or real Time Attack segment) this Block belongs to. */
   segmentIndex: number
@@ -79,7 +79,7 @@ interface ExitingBlock {
   key: number
   stimulus: JudgmentStimulus
   ruleId: JudgmentRuleId
-  choiceCount: 2 | 3
+  choiceCount: 2 | 4
   outcome: 'correct' | 'wrong'
 }
 
@@ -105,10 +105,10 @@ type LastMappingByRule = Record<JudgmentRuleId, JudgmentRuleMapping | null>
 
 const RULE_LABEL: Record<JudgmentRuleId, string> = { shape: '모양 규칙', count: '개수 규칙', direction: '방향 규칙' }
 const RULE_FOCUS_LABEL: Record<JudgmentRuleId, string> = { shape: '모양', count: '개수', direction: '화살표 방향' }
-const ANSWER_ICON: Record<JudgmentAnswer, string> = { left: '←', right: '→', down: '↓' }
-const SHAPE_LABEL: Record<JudgmentStimulus['shape'], string> = { circle: '동그라미', square: '네모', triangle: '세모' }
-const COUNT_LABEL: Record<JudgmentStimulus['dotCount'], string> = { 1: '점 1개', 2: '점 2개', 3: '점 3개' }
-const DIRECTION_LABEL: Record<JudgmentStimulus['pointerDirection'], string> = { left: '왼쪽', up: '위', right: '오른쪽' }
+const ANSWER_ICON: Record<JudgmentAnswer, string> = { left: '←', right: '→', up: '↑', down: '↓' }
+const SHAPE_LABEL: Record<JudgmentStimulus['shape'], string> = { circle: '동그라미', square: '네모', triangle: '세모', diamond: '마름모' }
+const COUNT_LABEL: Record<JudgmentStimulus['dotCount'], string> = { 1: '점 1개', 2: '점 2개', 3: '점 3개', 4: '점 4개' }
+const DIRECTION_LABEL: Record<JudgmentStimulus['pointerDirection'], string> = { left: '왼쪽', up: '위', right: '오른쪽', down: '아래' }
 
 /**
  * A mapping value is a dot count, a shape name, or a pointer direction.
@@ -124,7 +124,7 @@ function mappingValueLabel(value: JudgmentMappingValue): string {
 
 /** What a given answer button maps to under the CURRENT (randomized, per-segment) mapping — shown directly on the button so nothing needs to be memorized by position. */
 function labelForAnswer(mapping: JudgmentRuleMapping, answer: JudgmentAnswer): string {
-  const value = answer === 'left' ? mapping.left : answer === 'right' ? mapping.right : mapping.down
+  const value = answer === 'left' ? mapping.left : answer === 'right' ? mapping.right : answer === 'up' ? mapping.up : mapping.down
   return value === null ? '' : mappingValueLabel(value)
 }
 
@@ -148,7 +148,7 @@ function buildSegmentBlocks(
   const ruleId = forcedRuleId ?? segmentConfig.ruleId
   const { choiceCount, length, conflictRatioMin, conflictRatioMax } = segmentConfig
   const mapping = generateRuleMapping(ruleId, choiceCount, lastMappingForRule)
-  const pool = choiceCount === 3 ? JUDGMENT_STIMULI_3WAY : JUDGMENT_STIMULI_2WAY
+  const pool = choiceCount === 4 ? JUDGMENT_STIMULI_4WAY : JUDGMENT_STIMULI_2WAY
   const classify = (s: JudgmentStimulus) => isConflictStimulus(s, mapping, previousMapping)
   const conflictCount = pickSegmentConflictCount(length, conflictRatioMin, conflictRatioMax)
   const stimuli = generateBlockStimuli(pool, length, conflictCount, classify)
@@ -254,10 +254,11 @@ function buildTutorialBlocks(forcedRuleId: JudgmentRuleId | null): QueueBlock[] 
  * Real, interactive Judgment ("Rule Switch") game — GAME_SPEC §55-63, Time
  * Attack rework. A continuous horizontal queue of Blocks is always visible;
  * the player clears the current (leftmost, highlighted) Block by choosing
- * Left/Down/Right, the queue shifts immediately (no blocking per-trial
- * feedback screen). Every segment boundary reshuffles a fresh Left/Down/
- * Right mapping (held fixed for that whole segment) so the direction can't
- * be memorized by button position — only actually read off the Rule Banner.
+ * Left/Right (or, at Hard/Extreme, Left/Up/Right/Down), the queue shifts
+ * immediately (no blocking per-trial feedback screen). Every segment
+ * boundary reshuffles a fresh mapping (held fixed for that whole segment) so
+ * the direction can't be memorized by button position — only actually read
+ * off the Rule Banner.
  *
  * Rule Switch behavior now differs by `mode`: Free Play keeps the original
  * design — Tutorial demos shape then count back to back, Real play switches
@@ -265,11 +266,14 @@ function buildTutorialBlocks(forcedRuleId: JudgmentRuleId | null): QueueBlock[] 
  * getSegmentConfig). Intro (First Play) instead fixes ONE rule, picked at
  * random in beginTutorial, for BOTH its Tutorial and Real play — never
  * demoing or switching to the other rule at all (see the `forcedRuleId`
- * threaded through buildTutorialBlocks/buildSegmentBlocks/fillQueue). In
- * both modes the 2-way→3-way step still introduces a third option partway
- * through Real play; segment length is shorter for the early eased segments,
- * JUDGMENT_SEGMENT_LENGTH once full difficulty is reached. The whole session
- * runs against one global JUDGMENT_GAME_DURATION_MS timer.
+ * threaded through buildTutorialBlocks/buildSegmentBlocks/fillQueue). Segment
+ * length is shorter for the early eased segments, then the tier's own
+ * segmentLength once full difficulty is reached (see
+ * JUDGMENT_TIER_RULE_CONFIG). At Hard/Extreme, the 2-way→4-way step (segment
+ * index 1→2) introduces the two new buttons partway through Real play with a
+ * one-time heads-up overlay; Easy/Normal never take this step and stay 2-way
+ * (Left/Right) all session. The whole session runs against one global
+ * JUDGMENT_GAME_DURATION_MS timer, unaffected by tier.
  */
 export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: JudgmentGameProps) {
   const stat = STATS.judgment
@@ -401,7 +405,7 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
     if (isRuleChanging) return
     if (queue.length === 0) return
     const current = queue[0]
-    if (answer === 'down' && current.choiceCount !== 3) return
+    if ((answer === 'up' || answer === 'down') && current.choiceCount !== 4) return
 
     const correctAnswer = computeJudgmentAnswerForMapping(current.ruleMapping, current.stimulus)
     const isCorrect = correctAnswer !== null && answer === correctAnswer
@@ -512,7 +516,7 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
         setRuleChangeMessage(
           ruleChanged
             ? '규칙이 바뀌었어요!'
-            : '선택지가 하나 더 늘어났어요!',
+            : '이제 4방향을 모두 사용해요!',
         )
         const overlayMs = choiceCountChanged ? JUDGMENT_THIRD_OPTION_INTRO_MS : JUDGMENT_RULE_SWITCH_OVERLAY_MS
         schedule(() => setIsRuleChanging(false), overlayMs)
@@ -546,7 +550,10 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
       } else if (e.key === 'ArrowRight') {
         e.preventDefault()
         resolveCurrentRef.current('right')
-      } else if (e.key === 'ArrowDown' && choiceCountRef.current === 3) {
+      } else if (e.key === 'ArrowUp' && choiceCountRef.current === 4) {
+        e.preventDefault()
+        resolveCurrentRef.current('up')
+      } else if (e.key === 'ArrowDown' && choiceCountRef.current === 4) {
         e.preventDefault()
         resolveCurrentRef.current('down')
       }
@@ -554,13 +561,35 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
-  const visibleAnswers: JudgmentAnswer[] = choiceCount === 3 ? ['left', 'down', 'right'] : ['left', 'right']
+  const visibleAnswers: JudgmentAnswer[] = choiceCount === 4 ? ['up', 'left', 'right', 'down'] : ['left', 'right']
   const secondsLeft = Math.ceil(timeLeftMs / 1000)
   const timePercent = Math.max(0, Math.min(100, (timeLeftMs / gameDurationMs) * 100))
   const bannerMapping = isRuleChanging ? upcomingMapping : (current?.ruleMapping ?? null)
 
   function renderStimulus(stimulus: JudgmentStimulus, color: string, size: number, className?: string) {
     return <JudgmentSymbolView stimulus={stimulus} color={color} size={size} className={className} />
+  }
+
+  function renderAnswerButton(answer: JudgmentAnswer) {
+    return (
+      <button
+        key={answer}
+        type="button"
+        onClick={() => resolveCurrent(answer)}
+        disabled={appStage === 'finished' || isRuleChanging || !current}
+        className={cn(
+          'flex w-full flex-col items-center justify-center gap-1.5 rounded-2xl px-3 py-5 font-display toy-border transition-transform duration-150',
+          appStage !== 'finished' &&
+            !isRuleChanging &&
+            current &&
+            'bg-card text-foreground hover:-translate-y-0.5 active:translate-x-1 active:translate-y-1 active:shadow-none',
+          (appStage === 'finished' || isRuleChanging || !current) && 'cursor-not-allowed bg-muted text-muted-foreground opacity-60',
+        )}
+      >
+        <span className="text-2xl font-extrabold leading-none">{ANSWER_ICON[answer]}</span>
+        <span className="text-xs font-bold">{current ? labelForAnswer(current.ruleMapping, answer) : ''}</span>
+      </button>
+    )
   }
 
   return (
@@ -671,12 +700,15 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
               <p className="font-display text-base font-extrabold text-primary">시간 종료!</p>
             )}
             {bannerMapping && (
-              <div className="flex items-center justify-center gap-3 text-[11px] font-bold text-secondary-foreground">
+              <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] font-bold text-secondary-foreground">
+                {bannerMapping.choiceCount === 4 && (
+                  <span>{ANSWER_ICON.up} {labelForAnswer(bannerMapping, 'up')}</span>
+                )}
                 <span>{ANSWER_ICON.left} {labelForAnswer(bannerMapping, 'left')}</span>
-                {bannerMapping.choiceCount === 3 && (
+                <span>{ANSWER_ICON.right} {labelForAnswer(bannerMapping, 'right')}</span>
+                {bannerMapping.choiceCount === 4 && (
                   <span>{ANSWER_ICON.down} {labelForAnswer(bannerMapping, 'down')}</span>
                 )}
-                <span>{ANSWER_ICON.right} {labelForAnswer(bannerMapping, 'right')}</span>
               </div>
             )}
           </div>
@@ -741,35 +773,28 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
             </div>
           </div>
 
-          <div
-            className={cn(
-              'mx-auto grid w-full max-w-sm gap-3',
-              choiceCount === 3 ? 'grid-cols-3' : 'grid-cols-2',
-            )}
-          >
-            {visibleAnswers.map((answer) => (
-              <button
-                key={answer}
-                type="button"
-                onClick={() => resolveCurrent(answer)}
-                disabled={appStage === 'finished' || isRuleChanging || !current}
-                className={cn(
-                  'flex flex-col items-center justify-center gap-1.5 rounded-2xl px-3 py-5 font-display toy-border transition-transform duration-150',
-                  appStage !== 'finished' &&
-                    !isRuleChanging &&
-                    current &&
-                    'bg-card text-foreground hover:-translate-y-0.5 active:translate-x-1 active:translate-y-1 active:shadow-none',
-                  (appStage === 'finished' || isRuleChanging || !current) && 'cursor-not-allowed bg-muted text-muted-foreground opacity-60',
-                )}
-              >
-                <span className="text-2xl font-extrabold leading-none">{ANSWER_ICON[answer]}</span>
-                <span className="text-xs font-bold">{current ? labelForAnswer(current.ruleMapping, answer) : ''}</span>
-              </button>
-            ))}
-          </div>
+          {choiceCount === 4 ? (
+            // Cross layout — Up top-center, Left/Right middle row, Down bottom-center — so the
+            // 4 buttons read as real directional arrow keys rather than an arbitrary row.
+            <div className="mx-auto grid w-full max-w-[15rem] grid-cols-3 grid-rows-3 gap-2">
+              <div />
+              <div className="col-start-2 row-start-1">{renderAnswerButton('up')}</div>
+              <div />
+              <div className="col-start-1 row-start-2">{renderAnswerButton('left')}</div>
+              <div />
+              <div className="col-start-3 row-start-2">{renderAnswerButton('right')}</div>
+              <div />
+              <div className="col-start-2 row-start-3">{renderAnswerButton('down')}</div>
+              <div />
+            </div>
+          ) : (
+            <div className="mx-auto grid w-full max-w-sm grid-cols-2 gap-3">
+              {visibleAnswers.map((answer) => renderAnswerButton(answer))}
+            </div>
+          )}
 
           <p className="hidden text-[10px] font-semibold text-muted-foreground sm:block">
-            {choiceCount === 3 ? '← ↓ → 방향키 사용 가능' : '← → 방향키 사용 가능'}
+            {choiceCount === 4 ? '← ↑ → ↓ 방향키 사용 가능' : '← → 방향키 사용 가능'}
           </p>
         </div>
       )}

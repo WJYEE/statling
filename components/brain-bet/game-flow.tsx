@@ -63,7 +63,7 @@ import { SPATIAL_GAME_VERSION } from '@/lib/config/spatial.config'
 import { REASONING_GAME_VERSION } from '@/lib/config/reasoning.config'
 import { STORY_MEMORY_GAME_VERSION } from '@/lib/config/story-memory.config'
 import { COLOR_TARGET_GAME_VERSION } from '@/lib/config/color-target.config'
-import { DODGE_OBSTACLE_GAME_VERSION } from '@/lib/config/dodge-obstacle.config'
+import { DODGE_OBSTACLE_GAME_VERSION, getDodgeObstacleTierConfig } from '@/lib/config/dodge-obstacle.config'
 import { BEST_CHOICE_GAME_VERSION } from '@/lib/config/best-choice.config'
 import { FIT_PUZZLE_GAME_VERSION } from '@/lib/config/fit-puzzle.config'
 import { NUMBER_PATTERN_GAME_VERSION } from '@/lib/config/number-pattern.config'
@@ -894,7 +894,14 @@ export function GameFlow() {
     setStatStatus((map) => applyGameResult('judgment', map, result))
     setLastResult(result)
     if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt && !isRetry) recordSkillCompletion('judgment', gameScore, result.raw, { correctBlocks: rawSummary.correctBlocks, overallAccuracy: rawSummary.overallAccuracy }, isPersonalBest)
+    if (result.isValidAttempt && !isRetry)
+      recordSkillCompletion(
+        'judgment',
+        gameScore,
+        result.raw,
+        { correctBlocks: rawSummary.correctBlocks, overallAccuracy: rawSummary.overallAccuracy, switchAccuracy: rawSummary.switchAccuracy },
+        isPersonalBest,
+      )
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('judgment', activeGameKey, gameScore, isRetry)
     setFinals((f) => ({ ...f, judgment: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
@@ -1116,6 +1123,8 @@ export function GameFlow() {
     const prevBest = statStatus.reaction.current
     const isPersonalBest = isBetterByGameScore(gameScore, prevBest?.gameScore ?? null)
 
+    const dodgeMode = getDodgeObstacleTierConfig(activeDifficulty).mode
+
     const result: DodgeObstacleGameResult = {
       sessionId: generateSessionId(),
       gameId: 'reaction',
@@ -1126,7 +1135,7 @@ export function GameFlow() {
       playedAt: new Date().toISOString(),
       device: detectDevice(),
       gameScore,
-      raw: formatDodgeObstacleRawRecord(rawSummary),
+      raw: formatDodgeObstacleRawRecord(rawSummary, dodgeMode),
       final: undefined,
       isPersonalBest,
       isValidAttempt: true,
@@ -1138,7 +1147,19 @@ export function GameFlow() {
     setStatStatus((map) => applyGameResult('reaction', map, result))
     setLastResult(result)
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
-    if (result.isValidAttempt) recordSkillCompletion('reaction', gameScore, result.raw, { survivedMs: rawSummary.survivedMs, obstaclesDodged: rawSummary.obstaclesDodged }, isPersonalBest)
+    if (result.isValidAttempt)
+      recordSkillCompletion(
+        'reaction',
+        gameScore,
+        result.raw,
+        {
+          survivedMs: rawSummary.survivedMs,
+          obstaclesDodged: rawSummary.obstaclesDodged,
+          collisions: rawSummary.collisions,
+          averageMoveReactionMs: rawSummary.averageMoveReactionMs,
+        },
+        isPersonalBest,
+      )
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reaction', activeGameKey, gameScore, false)
     setFinals((f) => ({ ...f, reaction: isPersonalBest ? gameScore : (prevBest?.gameScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')

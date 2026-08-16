@@ -1,10 +1,11 @@
 import type { JudgmentAnswer, JudgmentMappingValue, JudgmentRuleId, JudgmentRuleMapping, JudgmentStimulus } from '@/lib/game/types'
 
 /**
- * Blocks 1-2 (2-way) draw only from this pool — no triangle, no 3rd dot, no
- * 'up' pointer direction. `pointerDirection` is assigned decorrelated from
- * shape/dotCount (a Latin-square-style pairing) so the Direction Rule can't
- * be inferred from either of the other two attributes.
+ * Segments 0-1 (2-way, every tier) draw only from this pool — no triangle,
+ * no diamond, no 3rd/4th dot, no 'up'/'down' pointer direction.
+ * `pointerDirection` is assigned decorrelated from shape/dotCount (a
+ * Latin-square-style pairing) so the Direction Rule can't be inferred from
+ * either of the other two attributes.
  */
 export const JUDGMENT_STIMULI_2WAY: JudgmentStimulus[] = [
   { shape: 'circle', dotCount: 1, pointerDirection: 'left' },
@@ -13,17 +14,31 @@ export const JUDGMENT_STIMULI_2WAY: JudgmentStimulus[] = [
   { shape: 'square', dotCount: 2, pointerDirection: 'left' },
 ]
 
-/** Blocks 3-4 (3-way) draw from the full 3x3x3 pool once Down is introduced — every shape/count combo sees every pointerDirection exactly once. */
-export const JUDGMENT_STIMULI_3WAY: JudgmentStimulus[] = [
+/**
+ * Segment 2+ at Hard/Extreme (genuine 4-way: Left/Up/Right/Down) draws from
+ * this pool — a full 4x4 Latin square over shape x dotCount x
+ * pointerDirection (directionIndex = (shapeIndex + dotCountIndex) % 4), so
+ * every shape sees all 4 directions exactly once, every dotCount sees all 4
+ * directions exactly once, and neither shape nor dotCount can be inferred
+ * from pointerDirection (or vice versa).
+ */
+export const JUDGMENT_STIMULI_4WAY: JudgmentStimulus[] = [
   { shape: 'circle', dotCount: 1, pointerDirection: 'left' },
   { shape: 'circle', dotCount: 2, pointerDirection: 'up' },
   { shape: 'circle', dotCount: 3, pointerDirection: 'right' },
+  { shape: 'circle', dotCount: 4, pointerDirection: 'down' },
   { shape: 'square', dotCount: 1, pointerDirection: 'up' },
   { shape: 'square', dotCount: 2, pointerDirection: 'right' },
-  { shape: 'square', dotCount: 3, pointerDirection: 'left' },
+  { shape: 'square', dotCount: 3, pointerDirection: 'down' },
+  { shape: 'square', dotCount: 4, pointerDirection: 'left' },
   { shape: 'triangle', dotCount: 1, pointerDirection: 'right' },
-  { shape: 'triangle', dotCount: 2, pointerDirection: 'left' },
-  { shape: 'triangle', dotCount: 3, pointerDirection: 'up' },
+  { shape: 'triangle', dotCount: 2, pointerDirection: 'down' },
+  { shape: 'triangle', dotCount: 3, pointerDirection: 'left' },
+  { shape: 'triangle', dotCount: 4, pointerDirection: 'up' },
+  { shape: 'diamond', dotCount: 1, pointerDirection: 'down' },
+  { shape: 'diamond', dotCount: 2, pointerDirection: 'left' },
+  { shape: 'diamond', dotCount: 3, pointerDirection: 'up' },
+  { shape: 'diamond', dotCount: 4, pointerDirection: 'right' },
 ]
 
 function shuffled<T>(items: T[]): T[] {
@@ -40,18 +55,21 @@ function sameStimulus(a: JudgmentStimulus, b: JudgmentStimulus): boolean {
 }
 
 /** The domain of values a rule's mapping needs to cover — every shape/dotCount/pointerDirection value that can actually appear at this choiceCount. */
-function mappingDomain(ruleId: JudgmentRuleId, choiceCount: 2 | 3): JudgmentMappingValue[] {
-  if (ruleId === 'shape') return choiceCount === 3 ? ['circle', 'square', 'triangle'] : ['circle', 'square']
-  if (ruleId === 'direction') return choiceCount === 3 ? ['left', 'up', 'right'] : ['left', 'right']
-  return choiceCount === 3 ? [1, 2, 3] : [1, 2]
+function mappingDomain(ruleId: JudgmentRuleId, choiceCount: 2 | 4): JudgmentMappingValue[] {
+  if (ruleId === 'shape') return choiceCount === 4 ? ['circle', 'square', 'triangle', 'diamond'] : ['circle', 'square']
+  if (ruleId === 'direction') return choiceCount === 4 ? ['left', 'up', 'right', 'down'] : ['left', 'right']
+  return choiceCount === 4 ? [1, 2, 3, 4] : [1, 2]
 }
 
-function sameMapping(a: JudgmentRuleMapping, b: { left: JudgmentMappingValue; right: JudgmentMappingValue; down: JudgmentMappingValue | null }): boolean {
-  return a.left === b.left && a.right === b.right && a.down === b.down
+function sameMapping(
+  a: JudgmentRuleMapping,
+  b: { left: JudgmentMappingValue; right: JudgmentMappingValue; up: JudgmentMappingValue | null; down: JudgmentMappingValue | null },
+): boolean {
+  return a.left === b.left && a.right === b.right && a.up === b.up && a.down === b.down
 }
 
 /**
- * Shuffles a fresh Left/Down/Right assignment for a rule segment — this is
+ * Shuffles a fresh Left/Up/Right/Down assignment for a rule segment — this is
  * what keeps the mapping from becoming memorizable by button position rather
  * than actually read off the Rule Banner. Generated once per segment (see
  * the game component), never per Block. Retries a few times to avoid handing
@@ -59,7 +77,7 @@ function sameMapping(a: JudgmentRuleMapping, b: { left: JudgmentMappingValue; ri
  */
 export function generateRuleMapping(
   ruleId: JudgmentRuleId,
-  choiceCount: 2 | 3,
+  choiceCount: 2 | 4,
   lastMappingForThisRule: JudgmentRuleMapping | null,
 ): JudgmentRuleMapping {
   const domain = mappingDomain(ruleId, choiceCount)
@@ -68,17 +86,17 @@ export function generateRuleMapping(
   for (let attempt = 0; attempt < 5; attempt++) {
     const order = shuffled(domain)
     const mapping: JudgmentRuleMapping =
-      choiceCount === 3
-        ? { ruleId, choiceCount, left: order[0], down: order[1], right: order[2] }
-        : { ruleId, choiceCount, left: order[0], right: order[1], down: null }
+      choiceCount === 4
+        ? { ruleId, choiceCount, left: order[0], up: order[1], right: order[2], down: order[3] }
+        : { ruleId, choiceCount, left: order[0], right: order[1], up: null, down: null }
     if (canRepeat || !sameMapping(lastMappingForThisRule, mapping)) return mapping
   }
-  // Domain is small enough (2 or 6 permutations) that 5 attempts virtually
+  // Domain is small enough (2 or 24 permutations) that 5 attempts virtually
   // always succeed; fall back to whatever the last shuffle produced.
   const order = shuffled(domain)
-  return choiceCount === 3
-    ? { ruleId, choiceCount, left: order[0], down: order[1], right: order[2] }
-    : { ruleId, choiceCount, left: order[0], right: order[1], down: null }
+  return choiceCount === 4
+    ? { ruleId, choiceCount, left: order[0], up: order[1], right: order[2], down: order[3] }
+    : { ruleId, choiceCount, left: order[0], right: order[1], up: null, down: null }
 }
 
 /**
@@ -92,6 +110,7 @@ export function computeJudgmentAnswerForMapping(mapping: JudgmentRuleMapping, st
     mapping.ruleId === 'shape' ? stimulus.shape : mapping.ruleId === 'direction' ? stimulus.pointerDirection : stimulus.dotCount
   if (mapping.left === value) return 'left'
   if (mapping.right === value) return 'right'
+  if (mapping.up === value) return 'up'
   if (mapping.down === value) return 'down'
   return null
 }
@@ -102,7 +121,7 @@ export function computeJudgmentAnswerForMapping(mapping: JudgmentRuleMapping, st
  * "previousRuleAnswer !== currentRuleAnswer" to randomized, per-segment
  * mappings (no fixed "circle = left" style assumption). False when there's
  * no previous segment yet, or when the two mappings aren't comparable for
- * this stimulus (e.g. across a 2-way -> 3-way domain change).
+ * this stimulus (e.g. across a 2-way -> 4-way domain change).
  */
 export function isConflictStimulus(
   stimulus: JudgmentStimulus,
@@ -133,7 +152,7 @@ export function pickSegmentConflictCount(segmentLength: number, ratioMin: number
 
 /**
  * Builds one segment's stimulus order from the given pool (JUDGMENT_STIMULI_2WAY
- * or JUDGMENT_STIMULI_3WAY): `conflictCount` stimuli the caller's `isConflict`
+ * or JUDGMENT_STIMULI_4WAY): `conflictCount` stimuli the caller's `isConflict`
  * classifier flags as Conflict-type plus the rest Congruent, shuffled, with a
  * bounded number of reshuffles if the same stimulus would otherwise land
  * back-to-back. If the segment has no Conflict-type stimuli available (e.g.

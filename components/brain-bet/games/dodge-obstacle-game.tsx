@@ -9,11 +9,8 @@ import { ToyButton } from '@/components/brain-bet/toy-button'
 import { STATS } from '@/lib/brain-bet'
 import {
   DODGE_OBSTACLE_COLLISION_COOLDOWN_MS,
-  DODGE_OBSTACLE_DOUBLE_SPAWN_UNLOCK_MS,
   DODGE_OBSTACLE_INTRO_COUNTDOWN_SECONDS,
   DODGE_OBSTACLE_LANE_COUNT,
-  DODGE_OBSTACLE_SCRIPTED_PATTERN_CHANCE,
-  DODGE_OBSTACLE_SCRIPTED_PATTERN_UNLOCK_MS,
   dodgeObstacleSpawnIntervalAt,
   dodgeObstacleSpeedAt,
   getDodgeObstacleTierConfig,
@@ -39,7 +36,13 @@ interface Obstacle {
 const PLAY_HEIGHT_PX = 380
 const HIT_LINE_PX = PLAY_HEIGHT_PX - 64
 
-const TUTORIAL: TutorialContent = {
+const FIXED_TIME_TUTORIAL: TutorialContent = {
+  goal: '좌우로 이동하며 위에서 떨어지는 장애물을 제한 시간 동안 최대한 많이 피해요.',
+  steps: ['화면 왼쪽/오른쪽을 탭하면 그쪽 레인으로 이동해요.', '키보드 좌우 화살표로도 이동할 수 있어요.', '부딪혀도 게임은 끝나지 않고 계속돼요. 다만 충돌은 점수에 불리하게 반영돼요. 시간이 지날수록 점점 빨라져요.'],
+  scoring: '회피율과 반응 속도를 반영해요. 충돌할수록 점수가 낮아져요.',
+}
+
+const ENDLESS_TUTORIAL: TutorialContent = {
   goal: '좌우로 이동하며 위에서 떨어지는 장애물을 계속 피해요. 끝없이 이어지는 생존 모드예요.',
   steps: ['화면 왼쪽/오른쪽을 탭하면 그쪽 레인으로 이동해요.', '키보드 좌우 화살표로도 이동할 수 있어요.', '장애물에 한 번이라도 부딪히면 그 즉시 끝나요. 시간이 지날수록 점점 빨라져요.'],
   scoring: '회피율, 반응 속도, 생존 시간을 함께 반영해요.',
@@ -48,11 +51,12 @@ const TUTORIAL: TutorialContent = {
 let obstacleIdCounter = 0
 
 /**
- * "장애물 피하기" — the app's one true endless/survival mini-game (2026-08
- * rework). No fixed session length: a run keeps going, ramping speed/spawn
- * rate every second, until the very first collision ends it. Difficulty
- * only ever changes the starting speed/spawn interval and how fast both
- * ramp — see lib/config/dodge-obstacle.config.ts.
+ * "장애물 피하기" (v3, 2026-08 후속 보정). Easy/Normal/Hard run a FIXED-TIME
+ * session (35s/35s/40s) where a collision no longer ends the run — it's
+ * just recorded and hurts the score. Extreme is the app's one true
+ * endless/survival tier: no clock, ramps forever, and ends the instant the
+ * player collides. See lib/config/dodge-obstacle.config.ts for the
+ * per-tier mode/duration/ramp table.
  */
 export function DodgeObstacleGame({
   index,
@@ -103,7 +107,7 @@ export function DodgeObstacleGame({
     if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
     setStage('ended')
     const rawSummary = summarizeDodgeObstacleEvents(eventsRef.current, survivedMs, moveReactionTimesRef.current)
-    const gameScore = calculateDodgeObstacleScore(rawSummary)
+    const gameScore = calculateDodgeObstacleScore(rawSummary, tierConfig.mode)
     onComplete({ events: eventsRef.current, rawSummary, gameScore })
   }
 
@@ -135,9 +139,9 @@ export function DodgeObstacleGame({
     if (scriptedQueueRef.current.length > 0) {
       lanesToSpawn = scriptedQueueRef.current.shift() as Lane[]
     } else {
-      const canDouble = elapsedMs >= DODGE_OBSTACLE_DOUBLE_SPAWN_UNLOCK_MS
-      const scriptedEligible = elapsedMs >= DODGE_OBSTACLE_SCRIPTED_PATTERN_UNLOCK_MS
-      if (scriptedEligible && Math.random() < DODGE_OBSTACLE_SCRIPTED_PATTERN_CHANCE) {
+      const canDouble = elapsedMs >= tierConfig.doubleSpawnUnlockMs
+      const scriptedEligible = elapsedMs >= tierConfig.scriptedPatternUnlockMs
+      if (scriptedEligible && Math.random() < tierConfig.scriptedPatternChance) {
         const pattern = pickScriptedPattern()
         // Spawn this tick's first step now, queue the rest for the following ticks.
         lanesToSpawn = pattern[0]
@@ -182,6 +186,13 @@ export function DodgeObstacleGame({
       }
       const now = performance.now()
       const elapsed = now - startedAtRef.current - pausedAccumRef.current
+
+      // Fixed-time tiers (Easy/Normal/Hard): the clock is the only end condition — a collision never stops the run early.
+      if (tierConfig.mode === 'fixed-time' && tierConfig.durationMs != null && elapsed >= tierConfig.durationMs) {
+        setSurvivedDisplayMs(tierConfig.durationMs)
+        finish(tierConfig.durationMs)
+        return
+      }
       setSurvivedDisplayMs(elapsed)
 
       if (now >= nextSpawnAtRef.current) {
@@ -207,8 +218,8 @@ export function DodgeObstacleGame({
                 lastCollisionAtRef.current = now
                 setFlash('hit')
               }
-              // First collision ends the run — capture elapsed now, finish() is called once after this state update settles.
-              if (collisionSurvivedMs === null) collisionSurvivedMs = elapsed
+              // Endless mode (Extreme): the first collision ends the run — capture elapsed now, finish() is called once after this state update settles. Fixed-time tiers just keep going.
+              if (tierConfig.mode === 'endless' && collisionSurvivedMs === null) collisionSurvivedMs = elapsed
             } else {
               play('answer-correct')
               setFlash((f) => f ?? 'dodge')
@@ -257,7 +268,16 @@ export function DodgeObstacleGame({
     setStage('playing')
   }
 
+  const isEndless = tierConfig.mode === 'endless'
   const survivedSeconds = (survivedDisplayMs / 1000).toFixed(1)
+  const remainingSeconds = Math.max(0, ((tierConfig.durationMs ?? 0) - survivedDisplayMs) / 1000).toFixed(1)
+  const tutorial = isEndless ? ENDLESS_TUTORIAL : FIXED_TIME_TUTORIAL
+  const objective = isEndless
+    ? '좌우로 이동해 장애물을 계속 피하세요. 한 번이라도 부딪히면 끝나요.'
+    : '좌우로 이동해 장애물을 최대한 많이 피하세요. 부딪혀도 게임은 계속돼요.'
+  const introText = isEndless
+    ? '좌우로 이동하며 떨어지는 장애물을 계속 피해보세요. 한 번이라도 부딪히면 바로 끝나요.'
+    : '좌우로 이동하며 떨어지는 장애물을 제한 시간 동안 최대한 많이 피해보세요. 부딪혀도 게임은 계속돼요.'
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-6">
@@ -266,12 +286,18 @@ export function DodgeObstacleGame({
         gameName="장애물 피하기"
         mode={mode}
         index={index}
-        objective="좌우로 이동해 장애물을 계속 피하세요. 한 번이라도 부딪히면 끝나요."
+        objective={objective}
         statusSlot={
           stage === 'playing' ? (
-            <span className="rounded-xl bg-secondary px-3 py-1.5 text-xs font-bold text-secondary-foreground toy-border" aria-label={`생존 시간 ${survivedSeconds}초`}>
-              생존 {survivedSeconds}s
-            </span>
+            isEndless ? (
+              <span className="rounded-xl bg-secondary px-3 py-1.5 text-xs font-bold text-secondary-foreground toy-border" aria-label={`생존 시간 ${survivedSeconds}초`}>
+                생존 {survivedSeconds}s
+              </span>
+            ) : (
+              <span className="rounded-xl bg-secondary px-3 py-1.5 text-xs font-bold text-secondary-foreground toy-border" aria-label={`남은 시간 ${remainingSeconds}초`}>
+                {remainingSeconds}s 남음
+              </span>
+            )
           ) : undefined
         }
         onHelp={() => setTutorialOpen(true)}
@@ -282,9 +308,7 @@ export function DodgeObstacleGame({
       <div className="mt-5 flex flex-1 flex-col">
         {stage === 'intro' && (
           <div className="flex flex-1 flex-col items-center justify-center gap-5 rounded-3xl bg-card px-6 py-12 text-center toy-border toy-shadow-lg">
-            <p className="font-display text-lg font-bold leading-snug text-foreground">
-              좌우로 이동하며 떨어지는 장애물을 계속 피해보세요. 한 번이라도 부딪히면 바로 끝나요.
-            </p>
+            <p className="font-display text-lg font-bold leading-snug text-foreground">{introText}</p>
             <ToyButton onClick={startGame}>시작하기</ToyButton>
           </div>
         )}
@@ -360,7 +384,7 @@ export function DodgeObstacleGame({
         open={tutorialOpen}
         onOpenChange={setTutorialOpen}
         gameName="장애물 피하기"
-        tutorial={TUTORIAL}
+        tutorial={tutorial}
         continueLabel={stage === 'intro' ? '시작하기' : '계속하기'}
       />
     </div>

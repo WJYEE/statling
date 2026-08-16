@@ -29,8 +29,17 @@ import type { JudgmentRuleId, JudgmentStimulus } from '@/lib/game/types'
  * genuinely rotates through its tier's rule pool instead of switching
  * exactly once; Intro (First Play, `forcedRuleId`) is untouched — it still
  * fixes one rule for the whole session regardless of tier.
+ * v7 (2026-08 후속 보정): the answer domain is now genuinely 4-way
+ * (Left/Up/Right/Down) at Hard/Extreme instead of a direction badge bolted
+ * onto the old 3-way (Left/Down/Right) domain — see
+ * lib/game/judgment-stimulus.ts. Easy/Normal are capped at choiceCount 2 for
+ * the WHOLE session (no 3-/4-way step ever fires for them — "4방향을
+ * 강제하지 않음"); Hard/Extreme still warm up at choiceCount 2 for segments
+ * 0-1 (same universal warm-up shape as before), then jump straight to
+ * choiceCount 4 from segment 2 onward. Session length is still untouched by
+ * tier (JUDGMENT_GAME_DURATION_MS, unchanged from v6).
  */
-export const JUDGMENT_GAME_VERSION = 'judgment_v6'
+export const JUDGMENT_GAME_VERSION = 'judgment_v7'
 
 /** Total real-play session length — fixed across every difficulty tier now (see module doc comment v6). */
 export const JUDGMENT_GAME_DURATION_MS = 10_000
@@ -60,7 +69,7 @@ export const JUDGMENT_EARLY_CONFLICT_RATIO_MAX = 0.15
 export const JUDGMENT_BLOCK_EXIT_MS = 220
 /** How long the compact "RULE CHANGE!" overlay blocks input during the Tutorial's rule demo (also used for the Tutorial → Real transition banner) — raised from 650ms to 1600ms so the rule callout was actually readable, then trimmed back down ~1s once the callout got its own persistent reminder alongside it. */
 export const JUDGMENT_RULE_SWITCH_OVERLAY_MS = 600
-/** How long the one-time "선택지가 하나 더 늘어났어요!" heads-up stays up — only at the 2-way → 3-way step (segment index 1 → 2). Not scored. */
+/** How long the one-time "선택지가 늘어났어요!" heads-up stays up — only at Hard/Extreme's 2-way → 4-way step (segment index 1 → 2). Never fires for Easy/Normal, which stay 2-way all session. Not scored. */
 export const JUDGMENT_THIRD_OPTION_INTRO_MS = 900
 
 /**
@@ -92,24 +101,38 @@ export const JUDGMENT_TUTORIAL_COUNT_STIMULI: JudgmentStimulus[] = [
 ]
 
 /**
- * Which rules a tier's Free Play Real session rotates through, and how many
+ * Which rules a tier's Free Play Real session rotates through, how many
  * Blocks per segment from segment index 2 onward (segments 0-1 always use
  * JUDGMENT_EARLY_SEGMENT_LENGTH — a universal warm-up before full difficulty
- * kicks in, same as before this rework). Smaller segmentLength = more
- * frequent switches. Hard/Extreme add 'direction' as a genuine 3rd rule;
- * Easy/Normal stay at the original 2 (shape/count), differing only by how
- * often they switch.
+ * kicks in, same as before this rework), and the tier's ceiling choiceCount
+ * once warm-up ends. Smaller segmentLength = more frequent switches.
+ * Hard/Extreme add 'direction' as a genuine 3rd rule AND ramp to real 4-way
+ * (Left/Up/Right/Down) answers; Easy/Normal stay at the original 2
+ * (shape/count) rules and choiceCount 2 (Left/Right) for the ENTIRE
+ * session — "4방향을 강제하지 않음".
  */
 export interface JudgmentTierRuleConfig {
   rules: JudgmentRuleId[]
+  /** Base Block count per segment once full difficulty is reached (segment index 2+). */
   segmentLength: number
+  /** Random +/- range applied to segmentLength per segment (0 = perfectly fixed cadence). Only Extreme sets this >0 — spec calls out "전환 시점 variation 증가" as distinct from "짧은 segmentLength": Hard's switches land on a predictable fixed cadence, Extreme's don't. */
+  segmentLengthJitter: number
+  /** Ceiling choiceCount once the segment-2+ full ramp kicks in. Easy/Normal: 2 (never leaves Left/Right). Hard/Extreme: 4 (Left/Up/Right/Down). */
+  maxChoiceCount: 2 | 4
 }
 
 export const JUDGMENT_TIER_RULE_CONFIG: Record<GameDifficulty, JudgmentTierRuleConfig> = {
-  easy: { rules: ['shape', 'count'], segmentLength: 8 },
-  normal: { rules: ['shape', 'count'], segmentLength: 5 },
-  hard: { rules: ['shape', 'count', 'direction'], segmentLength: 4 },
-  extreme: { rules: ['shape', 'count', 'direction'], segmentLength: 2 },
+  easy: { rules: ['shape', 'count'], segmentLength: 8, segmentLengthJitter: 0, maxChoiceCount: 2 },
+  normal: { rules: ['shape', 'count'], segmentLength: 5, segmentLengthJitter: 0, maxChoiceCount: 2 },
+  hard: { rules: ['shape', 'count', 'direction'], segmentLength: 4, segmentLengthJitter: 0, maxChoiceCount: 4 },
+  extreme: { rules: ['shape', 'count', 'direction'], segmentLength: 2, segmentLengthJitter: 1, maxChoiceCount: 4 },
+}
+
+/** Applies a tier's segmentLengthJitter as a random +/- offset, floored at 1 Block so a segment is never empty. */
+function jitteredSegmentLength(base: number, jitter: number): number {
+  if (jitter <= 0) return base
+  const offset = Math.floor(Math.random() * (2 * jitter + 1)) - jitter
+  return Math.max(1, base + offset)
 }
 
 /**
@@ -118,19 +141,20 @@ export const JUDGMENT_TIER_RULE_CONFIG: Record<GameDifficulty, JudgmentTierRuleC
  * segment 1 is the tier's own rule pool's 2nd entry (still 2-way, Conflict
  * capped low); segment 2+ cycles through the tier's full rule pool
  * (`segmentIndex % rules.length`) at the tier's own segmentLength, ramped to
- * 3-way + the full Conflict band.
+ * the tier's own maxChoiceCount (2 for Easy/Normal, 4 for Hard/Extreme) +
+ * the full Conflict band.
  *
  * This is Free Play's behavior. Intro (First Play) still overrides the
  * `ruleId` this returns with one fixed rule for the whole session (see
  * judgment-game.tsx's `forcedRuleId` thread) — Intro's difficulty ramp
  * (choiceCount/length/conflict ratios) still comes from here unchanged, but
  * it's effectively always read at 'normal' (Intro is only ever played at
- * Normal), so its pacing is unaffected by the Hard/Extreme rule pool.
+ * Normal), so it never reaches 4-way.
  */
 export function getSegmentConfig(
   segmentIndex: number,
   difficulty: GameDifficulty,
-): { ruleId: JudgmentRuleId; choiceCount: 2 | 3; length: number; conflictRatioMin: number; conflictRatioMax: number } {
+): { ruleId: JudgmentRuleId; choiceCount: 2 | 4; length: number; conflictRatioMin: number; conflictRatioMax: number } {
   const tierConfig = JUDGMENT_TIER_RULE_CONFIG[difficulty]
   if (segmentIndex === 0) {
     return { ruleId: 'shape', choiceCount: 2, length: JUDGMENT_EARLY_SEGMENT_LENGTH, conflictRatioMin: 0, conflictRatioMax: 0 }
@@ -146,8 +170,8 @@ export function getSegmentConfig(
   }
   return {
     ruleId: tierConfig.rules[segmentIndex % tierConfig.rules.length],
-    choiceCount: 3,
-    length: tierConfig.segmentLength,
+    choiceCount: tierConfig.maxChoiceCount,
+    length: jitteredSegmentLength(tierConfig.segmentLength, tierConfig.segmentLengthJitter),
     conflictRatioMin: JUDGMENT_CONFLICT_RATIO_MIN,
     conflictRatioMax: JUDGMENT_CONFLICT_RATIO_MAX,
   }

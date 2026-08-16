@@ -1,5 +1,5 @@
 import { getOrCreateDeviceId } from '@/lib/room/room-storage'
-import { getAllRecordsAtDifficulty, getRecordAtDifficulty, loadPlayerSkillState } from '@/lib/game/player-skill-storage'
+import { getAllRecordsAtDifficulty, getCurrentSeasonRecordAtDifficulty, loadPlayerSkillState } from '@/lib/game/player-skill-storage'
 import { loadXpState } from '@/lib/ranking/xp-ledger'
 import {
   combineGamePercentiles,
@@ -276,7 +276,6 @@ class LocalRankingProvider implements RankingProvider {
       tiebreaker: metricConfig.tiebreaker ? sampleInRange(rng, metricConfig.tiebreaker.syntheticRange) : undefined,
     }))
 
-    const myRecord = getRecordAtDifficulty(loadPlayerSkillState(), query.gameId, query.difficulty)
     // Ranking Season gate: a record set before the current game-rules rework
     // (recordVersion missing or stale) never enters the CURRENT leaderboard —
     // "나" simply won't show up here until she replays and sets a fresh
@@ -286,10 +285,10 @@ class LocalRankingProvider implements RankingProvider {
     // and never checks recordVersion — an old record still counts for
     // unlock, it just can't win a new-season leaderboard. See
     // lib/ranking/ranking-season.ts.
-    const myRecordIsCurrentSeason = myRecord?.recordVersion === CURRENT_RANKING_SEASON
-    const myPrimary = myRecordIsCurrentSeason ? myRecord?.metrics?.[metricConfig.primary.key] : undefined
+    const myRecord = getCurrentSeasonRecordAtDifficulty(loadPlayerSkillState(), query.gameId, query.difficulty)
+    const myPrimary = myRecord?.metrics?.[metricConfig.primary.key]
     const myEntry: RivalRow | null =
-      myRecord && myRecordIsCurrentSeason && typeof myPrimary === 'number'
+      myRecord && typeof myPrimary === 'number'
         ? {
             id: query.userId ?? getOrCreateDeviceId(),
             displayName: query.displayName || '게스트',

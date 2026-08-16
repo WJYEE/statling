@@ -64,10 +64,20 @@ export const GAME_RANKING_METRICS: Record<string, GameRankingMetricsByDifficulty
     },
   },
   'reaction-dodge-run': {
+    // v3 (후속 보정): only Extreme is endless now — Hard runs a fixed 40s
+    // clock, so its survivedMs is a near-constant and can no longer rank
+    // anyone. Hard ranks by obstaclesDodged (fixed-duration -> dodge count
+    // is the discriminating stat), tiebroken by fewest collisions. Extreme
+    // keeps ranking by real survivedMs (a run always ends on collision).
     default: {
-      // Endless mode (2026-08 rework) — survivedMs now genuinely varies run
-      // to run (a run always ends on the first collision), so the
-      // placeholder-rival range widened from the old fixed-35s-session cap.
+      primary: { key: 'survivedMs', label: '생존 시간', direction: 'desc', format: seconds, syntheticRange: [3000, 90000] },
+      tiebreaker: { key: 'obstaclesDodged', label: '회피 횟수', direction: 'desc', format: countUnit('회'), syntheticRange: [3, 120] },
+    },
+    hard: {
+      primary: { key: 'obstaclesDodged', label: '회피 횟수', direction: 'desc', format: countUnit('회'), syntheticRange: [15, 70] },
+      tiebreaker: { key: 'collisions', label: '충돌 횟수', direction: 'asc', format: countUnit('회'), syntheticRange: [0, 15] },
+    },
+    extreme: {
       primary: { key: 'survivedMs', label: '생존 시간', direction: 'desc', format: seconds, syntheticRange: [3000, 90000] },
       tiebreaker: { key: 'obstaclesDodged', label: '회피 횟수', direction: 'desc', format: countUnit('회'), syntheticRange: [3, 120] },
     },
@@ -97,9 +107,15 @@ export const GAME_RANKING_METRICS: Record<string, GameRankingMetricsByDifficulty
     },
   },
   'judgment-classic': {
+    // v2 (2026-08 후속 보정): Hard/Extreme now genuinely use 4-way input, so
+    // a fixed 10s session's raw processed/correct-block THROUGHPUT varies a
+    // lot more by difficulty than before — ranking on correctBlocks would
+    // reward a fast-but-sloppy player over an accurate one. Accuracy is the
+    // fairer primary axis; switchAccuracy (Judgment's signature "adapt the
+    // instant the rule changes" skill) breaks ties.
     default: {
-      primary: { key: 'correctBlocks', label: '정답 처리 개수', direction: 'desc', format: countUnit('개'), syntheticRange: [10, 70] },
-      tiebreaker: { key: 'overallAccuracy', label: '정확도', direction: 'desc', format: percentFraction, syntheticRange: [0.4, 1] },
+      primary: { key: 'overallAccuracy', label: '정확도', direction: 'desc', format: percentFraction, syntheticRange: [0.4, 1] },
+      tiebreaker: { key: 'switchAccuracy', label: '전환 직후 정확도', direction: 'desc', format: percentFraction, syntheticRange: [0.3, 1] },
     },
   },
   'decision-best-choice': {

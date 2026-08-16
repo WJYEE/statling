@@ -169,32 +169,41 @@ export interface FocusGameResult extends BaseGameResult {
  * color-vision-independence choice for this exact game (mirrors Focus's own
  * "never color-only" distractor rule) — adding a judged color rule would
  * have directly reversed that. 'direction' slots into the same
- * Rule-value-shuffled-onto-Left/Down/Right machinery shape/count already
+ * Rule-value-shuffled-onto-Left/Up/Right/Down machinery shape/count already
  * use, so nothing about that machinery needed to change shape.
+ *
+ * v2 (2026-08 후속 보정): the answer domain is now GENUINELY 4-way at
+ * Hard/Extreme (`'up'` added — was previously a direction-arrow badge only,
+ * dead code as far as the actual answer domain went). Every rule's value
+ * domain was widened to 4 distinct values so all three rules can fill all 4
+ * buttons: shape gained 'diamond', dotCount gained 4, pointerDirection
+ * gained 'down'. Easy/Normal never leave choiceCount 2 (Left/Right only) —
+ * see JUDGMENT_TIER_RULE_CONFIG.maxChoiceCount.
  */
 export type JudgmentRuleId = 'shape' | 'count' | 'direction'
-export type JudgmentAnswer = 'left' | 'right' | 'down'
+export type JudgmentAnswer = 'left' | 'right' | 'up' | 'down'
 
 export interface JudgmentStimulus {
-  shape: 'circle' | 'square' | 'triangle'
-  dotCount: 1 | 2 | 3
+  shape: 'circle' | 'square' | 'triangle' | 'diamond'
+  dotCount: 1 | 2 | 3 | 4
   /** Which way the small arrow badge (see judgment-symbol.tsx) points — the Direction Rule's cue, decorrelated from shape/dotCount (every shape/count combo sees every direction) so it can't be inferred from the other two attributes. */
-  pointerDirection: 'left' | 'up' | 'right'
+  pointerDirection: 'left' | 'up' | 'right' | 'down'
 }
 
-/** A value a Rule Mapping can point Left/Down/Right at — a shape identity, a dot count, or a pointer direction. */
+/** A value a Rule Mapping can point Left/Up/Right/Down at — a shape identity, a dot count, or a pointer direction. */
 export type JudgmentMappingValue = JudgmentStimulus['shape'] | JudgmentStimulus['dotCount'] | JudgmentStimulus['pointerDirection']
 
 /**
  * Which on-screen direction each rule value is currently assigned to — regenerated
  * (shuffled) once per rule segment so the direction can't be memorized by position.
- * `down` is null on 2-way segments (Down isn't in play yet).
+ * `up`/`down` are null on 2-way segments (only Left/Right is in play).
  */
 export interface JudgmentRuleMapping {
   ruleId: JudgmentRuleId
-  choiceCount: 2 | 3
+  choiceCount: 2 | 4
   left: JudgmentMappingValue
   right: JudgmentMappingValue
+  up: JudgmentMappingValue | null
   down: JudgmentMappingValue | null
 }
 
@@ -217,10 +226,10 @@ export interface JudgmentTrial {
   isSwitchTrial: boolean
   /** 0 for the switch trial itself (or the first block of the first segment), 1/2/3... afterward within the same segment. */
   trialsSinceSwitch: number
-  /** True when the previous rule and the current rule would disagree on this stimulus's answer (generalizes across 2-way and 3-way segments). */
+  /** True when the previous rule and the current rule would disagree on this stimulus's answer (generalizes across 2-way and 4-way segments). */
   isConflictTrial: boolean
-  /** 2 for 2-way segments (Left/Right only), 3 for 3-way segments (Left/Down/Right) — lets 2-way vs 3-way difficulty be analyzed separately. */
-  choiceCount: 2 | 3
+  /** 2 for 2-way segments (Left/Right only, Easy/Normal's whole session), 4 for 4-way segments (Left/Up/Right/Down, Hard/Extreme from segment index 2 onward) — lets 2-way vs 4-way difficulty be analyzed separately. */
+  choiceCount: 2 | 4
   createdAt: string
 }
 

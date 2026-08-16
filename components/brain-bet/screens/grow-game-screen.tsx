@@ -7,7 +7,7 @@ import { STATS, type StatId } from '@/lib/brain-bet'
 import { GAME_DIFFICULTIES, GAME_DIFFICULTY_ORDER, type GameDifficulty } from '@/lib/game/difficulty'
 import { isDifficultyUnlocked, unlockedBadgeFor, unlockHintFor, unlockProgressPercent } from '@/lib/game/difficulty-unlock'
 import { GAME_POOL } from '@/lib/game/game-registry'
-import { getRecordAtDifficulty, loadPlayerSkillState } from '@/lib/game/player-skill-storage'
+import { getCurrentSeasonRecordAtDifficulty, loadPlayerSkillState } from '@/lib/game/player-skill-storage'
 import { cn } from '@/lib/utils'
 
 interface GrowGameScreenProps {
@@ -67,7 +67,13 @@ export function GrowGameScreen({ statId, onSelect, onBack, initialGameKey }: Gro
           {GAME_DIFFICULTY_ORDER.map((difficulty) => {
             const def = GAME_DIFFICULTIES[difficulty]
             const unlocked = isDifficultyUnlocked(skill, game.key, difficulty)
-            const record = getRecordAtDifficulty(skill, game.key, difficulty)
+            // Current-season only (2026-08 후속 보정) — a record set under a
+            // now-superseded difficulty/scoring rework reads as "아직 기록이
+            // 없어요" here, same as never having played this tier. Unlock
+            // status itself is untouched (isDifficultyUnlocked above reads
+            // the unfiltered record) — a ranking-season bump never re-locks
+            // a tier the player already unlocked.
+            const record = getCurrentSeasonRecordAtDifficulty(skill, game.key, difficulty)
             const unlockedBadge = unlocked ? unlockedBadgeFor(difficulty) : null
             const progressPercent = unlocked ? null : unlockProgressPercent(skill, game.key, difficulty)
 
