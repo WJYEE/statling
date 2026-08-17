@@ -87,8 +87,14 @@ import {
 import { addXp, loadXpState, saveXpState } from '@/lib/ranking/xp-ledger'
 import { useAuth } from '@/lib/auth/auth-provider'
 import { trackDailyVisit, trackFirstLogin, trackGamePlayed } from '@/lib/missions/mission-tracker'
-import { subscribeToAchievementUnlocks } from '@/lib/missions/achievement-notifications'
+import {
+  isAchievementNotified,
+  markAchievementNotified,
+  subscribeToAchievementUnlocks,
+} from '@/lib/missions/achievement-notifications'
 import { loadActivityCounters } from '@/lib/missions/activity-counters'
+import { loadAchievementState } from '@/lib/missions/achievement-storage'
+import { findAchievementTier } from '@/lib/missions/achievements.config'
 import {
   clearIntroProgress,
   loadIntroProgress,
@@ -416,21 +422,6 @@ export function GameFlow() {
     trackDailyVisit()
   }, [])
 
-  // Achievement-unlock nudge — GameFlow is the one component guaranteed to
-  // be mounted for the whole session regardless of which screen/hook
-  // actually triggered the unlock (feed/wash/play/pet/talk in RoomScreen,
-  // a mini-game completion right here, a room/Statling decor save, a share
-  // — see mission-tracker.ts's track* functions), so this is the single
-  // place that can reliably show the toast no matter where the achievement
-  // fired from. Deliberately a small "you unlocked something" nudge, NOT a
-  // reward notification — XP/Room reward only grant once the player opens
-  // 업적 and presses "보상 받기" (see mission-screen.tsx's claim handler /
-  // mission-tracker.ts#claimAchievementReward).
-  useEffect(() => {
-    return subscribeToAchievementUnlocks((tier) => {
-      toastManager.add({ title: `업적 달성! ${tier.title}`, type: 'success' })
-    })
-  }, [toastManager])
 
   // "첫 로그인" — fires the moment useAuth() first resolves a real user,
   // idempotent so a later remount/session never re-fires it.
@@ -502,6 +493,83 @@ export function GameFlow() {
   // comment on the field).
   useEffect(() => {
     audioManager.setIntroLocked(isIntroPhase)
+  }, [isIntroPhase])
+
+  /**
+   * Always current inside the subscription callback below, which only
+   * (re)subscribes on mount/toastManager change — without this ref the
+   * closure would keep whatever `isIntroPhase` was true at subscribe time
+   * forever, never seeing later phase transitions.
+   */
+  const isIntroPhaseRef = useRef(isIntroPhase)
+  useEffect(() => {
+    isIntroPhaseRef.current = isIntroPhase
+  }, [isIntroPhase])
+
+  // Achievement-unlock nudge — GameFlow is the one component guaranteed to
+  // be mounted for the whole session regardless of which screen/hook
+  // actually triggered the unlock (feed/wash/play/pet/talk in RoomScreen,
+  // a mini-game completion right here, a room/Statling decor save, a share
+  // — see mission-tracker.ts's track* functions), so this is the single
+  // place that can reliably show the toast no matter where the achievement
+  // fired from. Deliberately a small "you unlocked something" nudge, NOT a
+  // reward notification — XP/Room reward only grant once the player opens
+  // 업적 and presses "보상 받기" (see mission-screen.tsx's claim handler /
+  // mission-tracker.ts#claimAchievementReward).
+  //
+  // 2026-08 QA — silent during Initial Assessment: unlock/GA4/storage
+  // (mission-tracker.ts#applyNewlyUnlockedAchievements) always run at the
+  // real moment a condition is met, Assessment included — only the toast
+  // itself is deferred here, so it doesn't interrupt a first-time player
+  // mid-diagnosis. Whatever fires during Assessment is picked up by the
+  // flush effect below the instant the player leaves Intro (first real Home
+  // entry, in practice), sequentially instead of piling toasts on top of
+  // each other.
+  useEffect(() => {
+    return subscribeToAchievementUnlocks((tier) => {
+      if (isIntroPhaseRef.current) return
+      if (isAchievementNotified(tier.tierId)) return
+      markAchievementNotified(tier.tierId)
+      toastManager.add({ title: `업적 달성! ${tier.title}`, type: 'success' })
+    })
+  }, [toastManager])
+
+  /**
+   * Flushes any tier that's already unlocked (mission-tracker.ts's
+   * AchievementState.unlockedTierIds — real unlock, unaffected by this
+   * whole notification-timing change) but never got its toast, because the
+   * subscriber above stayed silent while `isIntroPhase` was true. Runs the
+   * instant isIntroPhase turns false, i.e. the genuine first Home entry
+   * after diagnosis → hatch → naming — and also once on mount for anyone
+   * who lands straight in Room, so a rare cross-session leftover still gets
+   * shown instead of staying silently pending forever. Sequential with an
+   * 0.8~1.2s stagger so several at once don't all pop in together; each is
+   * marked notified right as its own toast fires, so a reload mid-sequence
+   * only ever repeats the ones that hadn't shown yet.
+   */
+  useEffect(() => {
+    if (isIntroPhase) return
+    const pendingTierIds = loadAchievementState().unlockedTierIds.filter((id) => !isAchievementNotified(id))
+    if (pendingTierIds.length === 0) return
+
+    const timeoutIds: number[] = []
+    let cumulativeDelayMs = 0
+    for (const tierId of pendingTierIds) {
+      const delay = cumulativeDelayMs
+      cumulativeDelayMs += 800 + Math.random() * 400
+      timeoutIds.push(
+        window.setTimeout(() => {
+          if (isAchievementNotified(tierId)) return
+          markAchievementNotified(tierId)
+          const tier = findAchievementTier(tierId)
+          if (tier) toastManager.add({ title: `업적 달성! ${tier.title}`, type: 'success' })
+        }, delay),
+      )
+    }
+    return () => {
+      for (const id of timeoutIds) window.clearTimeout(id)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when isIntroPhase itself flips, not on every toastManager identity change
   }, [isIntroPhase])
 
   /**

@@ -28,3 +28,43 @@ export function publishAchievementUnlocked(tiers: readonly AchievementTierProgre
     for (const listener of listeners) listener(tier)
   }
 }
+
+/**
+ * Tier ids whose "업적 달성!" toast has actually been shown at least once —
+ * deliberately a separate key from AchievementState's unlockedTierIds/
+ * claimedTierIds (lib/missions/achievement-storage.ts): this is a pure UI
+ * dedupe for the toast nudge, unrelated to unlock/reward bookkeeping, so it
+ * can never affect that migration or the claim flow. Written to as each
+ * toast actually fires (see game-flow.tsx), not at unlock time — a tier can
+ * be unlocked for a while with no matching entry here yet, while its toast
+ * sits deferred during Initial Assessment.
+ */
+const NOTIFIED_STORAGE_KEY = 'statling.achievements.notified.v1'
+
+function loadNotifiedTierIds(): Set<string> {
+  if (typeof window === 'undefined') return new Set()
+  try {
+    const raw = window.localStorage.getItem(NOTIFIED_STORAGE_KEY)
+    if (!raw) return new Set()
+    const parsed = JSON.parse(raw) as unknown
+    return new Set(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+
+export function isAchievementNotified(tierId: string): boolean {
+  return loadNotifiedTierIds().has(tierId)
+}
+
+export function markAchievementNotified(tierId: string): void {
+  if (typeof window === 'undefined') return
+  const ids = loadNotifiedTierIds()
+  if (ids.has(tierId)) return
+  ids.add(tierId)
+  try {
+    window.localStorage.setItem(NOTIFIED_STORAGE_KEY, JSON.stringify([...ids]))
+  } catch {
+    // Storage unavailable — the in-memory toast still fired this session, which is what matters most.
+  }
+}
