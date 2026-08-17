@@ -106,7 +106,12 @@ type LastMappingByRule = Record<JudgmentRuleId, JudgmentRuleMapping | null>
 
 const RULE_LABEL: Record<JudgmentRuleId, string> = { shape: '모양 규칙', count: '개수 규칙' }
 const RULE_FOCUS_LABEL: Record<JudgmentRuleId, string> = { shape: '모양', count: '개수' }
-const ANSWER_ICON: Record<JudgmentAnswer, string> = { left: '←', right: '→', mid: '●' }
+// 2026-08 QA 최종 보정: 'mid'는 '●'였는데, ←/→와 달리 점 하나만으로는
+// "가운데를 고르라"는 뜻이 즉시 전달되지 않는다는 지적 — 화살표 두 개
+// 사이에 놓인 방향성 없는 기호라 첫 사용자 입장에서 뜻을 유추해야 했다.
+// 버튼 자체/리마인더/규칙 배너 세 곳 모두 이 상수 하나를 공유하므로,
+// 단어로 바꾸는 것만으로 세 곳 전부 명확해진다.
+const ANSWER_ICON: Record<JudgmentAnswer, string> = { left: '←', right: '→', mid: '가운데' }
 const SHAPE_LABEL: Record<JudgmentStimulus['shape'], string> = { circle: '동그라미', square: '네모', diamond: '마름모' }
 const COUNT_LABEL: Record<JudgmentStimulus['dotCount'], string> = { 1: '점 1개', 2: '점 2개', 3: '점 3개' }
 
