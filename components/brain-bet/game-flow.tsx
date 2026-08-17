@@ -17,7 +17,7 @@ import { DodgeObstacleGame } from '@/components/brain-bet/games/dodge-obstacle-g
 import { BestChoiceGame } from '@/components/brain-bet/games/best-choice-game'
 import { FitPuzzleGame } from '@/components/brain-bet/games/fit-puzzle-game'
 import { NumberPatternGame } from '@/components/brain-bet/games/number-pattern-game'
-import { CompleteScreen } from '@/components/brain-bet/screens/complete-screen'
+import { CompleteScreen, RADAR_EGG_STAGE_SRC } from '@/components/brain-bet/screens/complete-screen'
 import { FreePlayResultScreen } from '@/components/brain-bet/screens/free-play-result-screen'
 import { StatusScreen } from '@/components/brain-bet/screens/status-screen'
 import { EggScreen } from '@/components/brain-bet/screens/egg-screen'
@@ -56,8 +56,10 @@ import {
   type StoredPetProfile,
 } from '@/lib/pets/pet-storage'
 import { TESTER_CHARACTER_FOLDERS } from '@/lib/character-state-assets'
-import type { PetProfile } from '@/lib/pets/pet-profile'
+import { findCharacterByStats, type PetProfile } from '@/lib/pets/pet-profile'
 import { generateMockFinals, type MockStatPreset } from '@/lib/game/mock-finals'
+import { preloadImages } from '@/lib/asset-preload'
+import { EGG_HATCH_SEQUENCE } from '@/lib/egg-assets'
 import { REACTION_GAME_VERSION } from '@/lib/config/reaction.config'
 import { MEMORY_GAME_VERSION } from '@/lib/config/memory.config'
 import { FOCUS_GAME_VERSION } from '@/lib/config/focus.config'
@@ -502,6 +504,22 @@ export function GameFlow() {
     audioManager.setIntroLocked(isIntroPhase)
   }, [isIntroPhase])
 
+  /**
+   * Warms the cache for the two images the player is about to see right
+   * after this screen — the final hatch-stage egg PNG (EggScreen's opening
+   * frame) and the confirmed pet's own character PNG — while they're still
+   * reading the last (6th) result screen of a First Play run, so both are
+   * already decoded by the time handleMeetStatling's "Statling 만나러 가기"
+   * takes them to EggScreen. `findCharacterByStats` here is the same pure,
+   * side-effect-free catalog lookup beginPetAssignment itself uses — this
+   * only ever reads from it for preloading, never assigns/persists a pet.
+   */
+  useEffect(() => {
+    if (phase !== 'complete' || flowMode !== 'first' || index !== TOTAL_GAMES - 1) return
+    const previewPet = findCharacterByStats(getTopStat(finals), getSecondStat(finals))
+    preloadImages([EGG_HATCH_SEQUENCE[EGG_HATCH_SEQUENCE.length - 1].src, previewPet.imageSrc])
+  }, [phase, flowMode, index, finals])
+
   /** First Play only — always stages the stat's classic game at Normal difficulty (see getClassicGameKey; spec §17: "Normal ... 최초 플레이 가능", the only tier Intro ever uses). Free Play picks a specific game+difficulty explicitly instead (see selectFreePlayGame/confirmFreePlayGame below). */
   const enterStatGame = (statId: StatId) => {
     const gameKey = getClassicGameKey(statId)
@@ -652,6 +670,10 @@ export function GameFlow() {
     setIntroResume(null)
     setHasSeenRetryNotice(false) // a genuinely new run gets the retry notice again on its first retry
     setPhase('game')
+    // Fire-and-forget warm-up for the 6 radar-center egg PNGs each
+    // CompleteScreen shows (see complete-screen.tsx's RADAR_EGG_STAGE_SRC) —
+    // never awaited, so it can't delay this Assessment run from starting.
+    preloadImages(Object.values(RADAR_EGG_STAGE_SRC))
   }
 
   /** "이어서 하기" — rebuilds `finals` from the checkpoint's completed stats (see IntroCompletedGame) and jumps straight to the next not-yet-played stat. The in-progress game itself is never restored — only fully completed games count, per spec. */
@@ -675,6 +697,9 @@ export function GameFlow() {
     setIndex(nextIndex)
     enterStatGame(PLAY_ORDER[nextIndex])
     setPhase('game')
+    // Same fire-and-forget warm-up as start() — a resumed run still shows
+    // the same 6 CompleteScreens for whichever stats are left.
+    preloadImages(Object.values(RADAR_EGG_STAGE_SRC))
   }
 
   /** "처음부터 다시 하기" — only wipes the Intro checkpoint (see start()); never touches pet/room/care data. Gated behind confirmingRestartIntro so a stray tap can't silently discard progress. */

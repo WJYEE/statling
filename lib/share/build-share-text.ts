@@ -61,7 +61,7 @@ export function buildShareText(input: Partial<ShareStatlingInput>): string {
   const primaryStat = input.primaryStat?.trim()
   const secondaryStat = input.secondaryStat?.trim()
 
-  const lines = [`🧠 나의 대표 스탯링은 '${petName}'예요!`, '']
+  const lines = [`나의 대표 스탯링은 '${petName}'예요!`, '']
   if (primaryStat) lines.push(`⚡ 주 스탯: ${primaryStat}`)
   if (secondaryStat) lines.push(`⚖ 보조 스탯: ${secondaryStat}`)
   lines.push('', '6개의 두뇌 능력을 분석해', '나만의 스탯링을 만나보세요.')

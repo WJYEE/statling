@@ -23,8 +23,11 @@ const CENTER_EGG_SIZE = 56
  * never reached here — CompleteScreen only exists after at least 1 game is
  * done) and must stay untouched. This one is exactly the 6 files the design
  * asked for, 1:1 with eggStage (1/6 -> stage01.png ... 6/6 -> stage06.png).
+ * Exported so game-flow.tsx can warm the browser cache for all 6 files as
+ * soon as an Assessment run starts, instead of each stage's PNG only ever
+ * being requested for the first time the instant it's actually displayed.
  */
-const RADAR_EGG_STAGE_SRC: Record<number, string> = {
+export const RADAR_EGG_STAGE_SRC: Record<number, string> = {
   1: '/assets/statling/eggs/hatch-sequence/stage01.png',
   2: '/assets/statling/eggs/hatch-sequence/stage02.png',
   3: '/assets/statling/eggs/hatch-sequence/stage03.png',

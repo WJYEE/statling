@@ -113,6 +113,8 @@ export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: Re
   /** Fastest valid Real Trial reaction seen so far this session — Tutorial never sets this, and it's never persisted or compared against the all-time Median Personal Best. */
   const [sessionFastestReactionMs, setSessionFastestReactionMs] = useState<number | null>(null)
   const [recordFeedback, setRecordFeedback] = useState<RecordFeedback | null>(null)
+  /** The penalty just folded into this attempt's false start, shown briefly in the same slot as recordFeedback above — cleared the moment the next attempt is scheduled. Deliberately separate state (not recordFeedback itself): a false start must never set recordFeedback, since it never participates in the Session-Best comparison. */
+  const [falseStartFlash, setFalseStartFlash] = useState<number | null>(null)
 
   const timeoutRef = useRef<number | null>(null)
   const decoyTimeoutRef = useRef<number | null>(null)
@@ -142,6 +144,7 @@ export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: Re
     clearScheduled()
     setStage('waiting')
     setMessage('신호를 기다리세요...')
+    setFalseStartFlash(null)
     const delayMs = randomDelay()
     pendingDelayRef.current = delayMs
 
@@ -204,6 +207,10 @@ export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: Re
         nextTrialIndexRef.current += 1
         falseStartsThisAttemptRef.current += 1
         setTrials((t) => [...t, trial])
+        // Shown only when a penalty is actually accruing (Tutorial false
+        // starts are discarded entirely — see the 'practice' branch below —
+        // so nothing would be penalized yet to show here).
+        setFalseStartFlash(REACTION_FALSE_START_PENALTY_MS)
       }
       setLastReactionMs(null)
       // False Start is never a valid reaction — it never participates in the Session-Best comparison.
@@ -383,6 +390,16 @@ export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: Re
               </div>
             </div>
           )}
+
+          {stage === 'feedback' && falseStartFlash != null && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-full mb-3 flex justify-center">
+              <div className="animate-record-pop flex flex-col items-center gap-0.5 whitespace-nowrap">
+                <p className="font-display text-lg font-extrabold leading-tight text-destructive">
+                  +{falseStartFlash}ms 페널티
+                </p>
+              </div>
+            </div>
+          )}
         </div>
         <div className="max-w-sm">
           {stage === 'intro' ? (
@@ -391,9 +408,8 @@ export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: Re
                 {stat.howTo}
               </p>
               <p className="mt-2 text-xs font-semibold text-muted-foreground">
-                {hasDecoy
-                  ? `신호 전에 누르거나 가짜 신호를 누르면 반응시간에 +${REACTION_FALSE_START_PENALTY_MS}ms가 추가돼요.`
-                  : `신호 전에 누르면 반응시간에 +${REACTION_FALSE_START_PENALTY_MS}ms가 추가돼요.`}
+                {hasDecoy ? '신호 전에 누르거나 가짜 신호를 누르면 반응시간에 ' : '신호 전에 누르면 반응시간에 '}
+                <span className="font-extrabold text-primary">+{REACTION_FALSE_START_PENALTY_MS}ms</span>가 추가돼요.
               </p>
               <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-card px-3 py-1 text-xs font-bold text-muted-foreground toy-border">
                 탭해서 시작하기

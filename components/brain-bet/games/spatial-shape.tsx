@@ -4,6 +4,14 @@ interface SpatialShapeViewProps {
   cells: CellCoord[]
   color: string
   size?: number
+  /**
+   * Optional responsive override for the SVG's rendered (CSS) size, e.g.
+   * `"h-16 w-16 sm:h-[72px] sm:w-[72px]"` — `size` still fully drives the
+   * viewBox/cellPx math below (never changes), so this only ever shrinks or
+   * grows how big that same geometry paints on screen. When omitted, the
+   * SVG renders at `size` exactly as before.
+   */
+  className?: string
 }
 
 /**
@@ -14,7 +22,7 @@ interface SpatialShapeViewProps {
  * so both the 4x2 tetromino reference and larger pentomino shapes render at
  * a consistent overall footprint.
  */
-export function SpatialShapeView({ cells, color, size = 96 }: SpatialShapeViewProps) {
+export function SpatialShapeView({ cells, color, size = 96, className }: SpatialShapeViewProps) {
   const maxRow = Math.max(...cells.map(([r]) => r))
   const maxCol = Math.max(...cells.map(([, c]) => c))
   const gridSize = Math.max(maxRow, maxCol) + 1
@@ -22,7 +30,13 @@ export function SpatialShapeView({ cells, color, size = 96 }: SpatialShapeViewPr
   const inset = cellPx * 0.06
 
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      className={className}
+      aria-hidden="true"
+    >
       {cells.map(([r, c]) => (
         <rect
           key={`${r}-${c}`}

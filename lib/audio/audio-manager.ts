@@ -217,10 +217,45 @@ class AudioManager {
     this.loadBgmTrack(startId)
   }
 
-  /** Mirrors SoundPlayer/AudioManager's SFX unlock() — the same first-gesture listener in AudioProvider calls both. */
+  /**
+   * Mirrors SoundPlayer/AudioManager's SFX unlock() — the same first-gesture
+   * listener in AudioProvider calls both. Unlike the pooled SFX elements
+   * (which mute, play, and immediately pause right back down — see
+   * SoundPlayer.unlock's doc comment — because they're only meant to be
+   * "primed" for a later real play() call), BGM's play() call here IS the
+   * real, intended start for a user who already had BGM enabled from a
+   * previous session (see BgmPlayer.play()'s own doc comment: a blocked
+   * autoplay attempt at initBgm() is "resolved later by
+   * AudioManager#unlockBgm()"). So this still mutes before calling play()
+   * — the same defensive guard against a leaked frame of audible sound if
+   * the browser rejects the attempt — but only restores the ORIGINAL mute
+   * state (unmuted, for an enabled BGM setting) once play() actually
+   * settles, rather than forcing a pause that would silently strand a
+   * returning user's already-enabled BGM in a paused, never-restarted
+   * state.
+   */
   unlockBgm(): void {
     if (!this.bgmInitialized || !this.bgmSettings.enabled) return
-    this.bgmPlayer.play()
+    const el = this.bgmPlayer.getElement()
+    if (!el) {
+      this.bgmPlayer.play()
+      return
+    }
+    try {
+      const wasMuted = el.muted
+      el.muted = true
+      const restore = () => {
+        el.muted = wasMuted
+      }
+      const playResult = el.play()
+      if (playResult && typeof playResult.then === 'function') {
+        playResult.then(restore).catch(restore)
+      } else {
+        restore()
+      }
+    } catch {
+      // ignore — nothing to unlock in this environment
+    }
   }
 
   isBgmEnabled(): boolean {

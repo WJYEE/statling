@@ -398,7 +398,12 @@ export function SpatialGame({ index, mode, difficulty, onComplete, onBack, avoid
                     visual === 'reveal' && 'animate-pop-in bg-accent toy-shadow-sm ring-2 ring-accent',
                   )}
                 >
-                  <SpatialShapeView cells={option.cells} color={`var(${stat.colorVar})`} size={72} />
+                  <SpatialShapeView
+                    cells={option.cells}
+                    color={`var(${stat.colorVar})`}
+                    size={72}
+                    className="h-15 w-15 sm:h-18 sm:w-18"
+                  />
                 </button>
               )
             })}

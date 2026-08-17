@@ -307,6 +307,9 @@ export function DodgeObstacleGame({
           if (now - lastCollisionAtRef.current > DODGE_OBSTACLE_COLLISION_COOLDOWN_MS) {
             lastCollisionAtRef.current = now
             setFlash('hit')
+            // Mirrors the 'dodge' branch below — without this, 'hit' had no
+            // path back to null and the red tint stayed until the run ended.
+            window.setTimeout(() => setFlash((f) => (f === 'hit' ? null : f)), 200)
           }
           // Endless mode (Extreme): the first hazard collision ends the run — capture elapsed now, finish() is called immediately below, still within this same synchronous tick. Fixed-time tiers just keep going.
           if (tierConfig.mode === 'endless' && collisionSurvivedMs === null) collisionSurvivedMs = elapsed
@@ -472,10 +475,23 @@ export function DodgeObstacleGame({
               🐾
             </div>
 
-            <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center gap-6 text-muted-foreground">
-              <ChevronLeft size={18} aria-hidden="true" />
-              <ChevronRight size={18} aria-hidden="true" />
-            </div>
+            {/* Decorative left/right indicator only — the real touch targets
+                are the two full-half-width invisible buttons above (426-437
+                lines up), untouched here. Positioned over each half's own
+                center (25%/75%) instead of both icons sharing one spot at
+                bottom-center, so which side is which reads at a glance. */}
+            <span
+              className="pointer-events-none absolute bottom-2 left-1/4 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full bg-card/85 text-muted-foreground toy-border"
+              aria-hidden="true"
+            >
+              <ChevronLeft size={18} strokeWidth={2.6} />
+            </span>
+            <span
+              className="pointer-events-none absolute bottom-2 right-1/4 grid h-9 w-9 translate-x-1/2 place-items-center rounded-full bg-card/85 text-muted-foreground toy-border"
+              aria-hidden="true"
+            >
+              <ChevronRight size={18} strokeWidth={2.6} />
+            </span>
           </div>
         )}
       </div>

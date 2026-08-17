@@ -42,6 +42,15 @@ import { createShareImage } from '@/lib/share/create-share-image'
 import { saveShareImage } from '@/lib/share/save-share-image'
 import { shareStatlingResult } from '@/lib/share/share-statling-result'
 
+/** Correct 이/가 for a Korean noun by checking whether its last syllable has a batchim (same technique as mission-screen.tsx's withObjectParticle for 을/를 — Hangul syllables are a fixed Unicode block starting at U+AC00, in 28-value groups, remainder 0 means no final consonant). Falls back to '가' for anything that isn't a plain Hangul syllable (defensive only — every Statling character name in lib/pets/pet-profile.ts is Korean). */
+function withSubjectParticle(word: string): string {
+  const last = word.trim().slice(-1)
+  const code = last.charCodeAt(0)
+  if (code < 0xac00 || code > 0xd7a3) return `${word}가`
+  const hasBatchim = (code - 0xac00) % 28 !== 0
+  return `${word}${hasBatchim ? '이' : '가'}`
+}
+
 const BGM_MODE_LABELS: Record<BgmMode, string> = {
   'repeat-one': '단일 반복',
   sequential: '선택곡 순차 재생',
@@ -342,7 +351,7 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
           </span>
           <div className="flex-1">
             <p className="font-display text-sm font-extrabold text-foreground">내 Statling 공유 링크</p>
-            <p className="text-xs text-muted-foreground">친구가 링크를 열고 기록하면 친구 도감에 {petProfile.name}이 등록돼요.</p>
+            <p className="text-xs text-muted-foreground">친구가 링크를 열고 기록하면 친구 도감에 {withSubjectParticle(petProfile.name)} 등록돼요.</p>
           </div>
         </button>
       )}
@@ -488,6 +497,9 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
           </div>
         )}
       </div>
+      <p className="mt-2 px-1 text-[11px] text-muted-foreground">
+        BGM 및 일부 효과음은 Suno AI를 활용해 제작되었습니다.
+      </p>
 
       {/* 4. 의견 보내기 */}
       <p className="mt-6 text-xs font-bold uppercase tracking-wide text-muted-foreground">의견 보내기</p>

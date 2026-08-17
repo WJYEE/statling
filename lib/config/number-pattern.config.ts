@@ -18,6 +18,11 @@ export const NUMBER_PATTERN_INTRO_COUNTDOWN_SECONDS = 3
 export const NUMBER_PATTERN_QUESTION_COUNT = 8
 export const NUMBER_PATTERN_TIME_LIMIT_MS = 15_000
 
+/** How long the feedback stage holds before advancing to the next question (or completing) — kept short for a correct answer so the game keeps its tempo. */
+export const NUMBER_PATTERN_CORRECT_ADVANCE_MS = 800
+/** Same feedback stage, but for a wrong (or timed-out) answer — long enough to actually read the "왜 이 답인지" explanation before the game moves on. */
+export const NUMBER_PATTERN_WRONG_ADVANCE_MS = 3_500
+
 /**
  * Game-wide difficulty tier scaling on top of the per-question base above —
  * see lib/config/difficulty.config.ts. At `normal` (DIFFICULTY_TIME_MULTIPLIER

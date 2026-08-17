@@ -6,10 +6,13 @@ import { ArrowRight, Check } from 'lucide-react'
 import { AssetImage } from '@/components/brain-bet/asset-image'
 import { Logo } from '@/components/brain-bet/logo'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
+import { StatlingCompatibility } from '@/components/brain-bet/result/statling-compatibility'
 import { ToyButton } from '@/components/brain-bet/toy-button'
 import { STATS, type StatId } from '@/lib/brain-bet'
 import { getPetProfileById } from '@/lib/pets/pet-profile'
+import { getStatCompatibility } from '@/lib/pets/compatibility'
 import { addMetPet, hasMetPet } from '@/lib/pets/dex-storage'
+import { buildDifferentRhythmCards, buildGoodMatchCards } from '@/lib/stats/stat-compatibility-copy'
 
 interface SharePageClientProps {
   petId: string
@@ -32,12 +35,22 @@ interface SharePageClientProps {
  * own* browser localStorage (lib/pets/dex-storage.ts) — this is
  * intentionally one-way and local-only; it does not notify or update the
  * sender's dex in any way (that would need a real backend — see the
- * discussion this feature was scoped from).
+ * discussion this feature was scoped from). The compatibility section below
+ * the CTA reuses the exact same lib/pets/compatibility.ts calculation
+ * Character Reveal already shows — no new algorithm, no server lookup.
  */
 export function SharePageClient({ petId, topStat, secondaryStat }: SharePageClientProps) {
   const pet = getPetProfileById(petId)
   const [recorded, setRecorded] = useState(() => hasMetPet(petId))
   const isReveal = topStat != null && secondaryStat != null
+
+  // Same calculation Character Reveal already shows (lib/pets/compatibility.ts's
+  // getStatCompatibility) — deterministic from the pet's own catalog vector,
+  // no visitor-specific or server data involved, so this works identically
+  // whether the visitor is logged out or an existing Statling owner.
+  const compatibility = pet ? getStatCompatibility(pet) : null
+  const goodMatchCards = compatibility ? buildGoodMatchCards(compatibility.goodMatches) : []
+  const differentRhythmCards = compatibility ? buildDifferentRhythmCards(compatibility.differentRhythms) : []
 
   function handleRecord() {
     addMetPet(petId)
@@ -93,6 +106,10 @@ export function SharePageClient({ petId, topStat, secondaryStat }: SharePageClie
               </ToyButton>
             )}
           </div>
+
+          {/* Extra info below the primary "내 도감에 기록하기" CTA, never above
+              it — the CTA stays the first thing a visitor can act on. */}
+          <StatlingCompatibility goodMatches={goodMatchCards} differentRhythms={differentRhythmCards} />
 
           <Link
             href="/"

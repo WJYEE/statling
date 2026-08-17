@@ -8,8 +8,10 @@ import { ToyButton } from '@/components/brain-bet/toy-button'
 import { STATS } from '@/lib/brain-bet'
 import {
   getNumberPatternTimeLimitForDifficulty,
+  NUMBER_PATTERN_CORRECT_ADVANCE_MS,
   NUMBER_PATTERN_INTRO_COUNTDOWN_SECONDS,
   NUMBER_PATTERN_QUESTION_COUNT,
+  NUMBER_PATTERN_WRONG_ADVANCE_MS,
 } from '@/lib/config/number-pattern.config'
 import { GAME_DIFFICULTIES } from '@/lib/game/difficulty'
 import type { GameDifficulty } from '@/lib/game/difficulty'
@@ -93,15 +95,21 @@ export function NumberPatternGame({ index, mode, difficulty, onComplete, onBack 
     setSelected(value)
     setStage('feedback')
 
-    window.setTimeout(() => {
-      if (qIndex + 1 < questions.length) {
-        startQuestion(qIndex + 1)
-      } else {
-        const rawSummary = summarizeNumberPatternAnswers(updated)
-        const gameScore = calculateNumberPatternScore(rawSummary, detectDevice().inputType)
-        onComplete({ answers: updated, rawSummary, gameScore })
-      }
-    }, 800)
+    // Wrong (including timed-out) answers hold the explanation on screen
+    // much longer than a correct one — a correct answer keeps the game's
+    // tempo, a wrong one needs actual reading time for "왜 이 답인지".
+    window.setTimeout(
+      () => {
+        if (qIndex + 1 < questions.length) {
+          startQuestion(qIndex + 1)
+        } else {
+          const rawSummary = summarizeNumberPatternAnswers(updated)
+          const gameScore = calculateNumberPatternScore(rawSummary, detectDevice().inputType)
+          onComplete({ answers: updated, rawSummary, gameScore })
+        }
+      },
+      answer.isCorrect ? NUMBER_PATTERN_CORRECT_ADVANCE_MS : NUMBER_PATTERN_WRONG_ADVANCE_MS,
+    )
   }
 
   const secondsLeft = Math.ceil(remainingMs / 1000)
