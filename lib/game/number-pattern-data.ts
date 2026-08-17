@@ -502,16 +502,63 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 /**
+ * Initial Assessment's fixed session-building policy (2026-08 QA 최종 보정,
+ * restored from the pre-rework commit 1e1ca05^'s pickNumberPatternSession) —
+ * ramps easy -> normal -> hard by INDEX POSITION inside the session,
+ * regardless of GameDifficulty. Assessment always plays `difficulty:'normal'`
+ * structurally, so before this fix it silently inherited the v3 rework's
+ * 'normal'-only tier pool, losing the easy warm-up and hard finish it always
+ * used to include; never draws 'extreme' (that tier didn't exist in the
+ * original 3-step ramp).
+ */
+function assessmentDifficultyForIndex(i: number, questionCount: number): 'easy' | 'normal' | 'hard' {
+  const ratio = i / questionCount
+  if (ratio < 0.35) return 'easy'
+  if (ratio < 0.75) return 'normal'
+  return 'hard'
+}
+
+function pickNumberPatternSessionForAssessment(questionCount: number): NumberPatternQuestion[] {
+  const usedIds = new Set<string>()
+  const usedAnswers = new Set<number>()
+  const picked: NumberPatternQuestion[] = []
+
+  for (let i = 0; i < questionCount; i++) {
+    const difficulty = assessmentDifficultyForIndex(i, questionCount)
+    const byDifficultyUnused = NUMBER_PATTERN_QUESTIONS.filter((q) => q.difficulty === difficulty && !usedIds.has(q.id))
+    const noAnswerClash = byDifficultyUnused.filter((q) => !usedAnswers.has(q.answer))
+    const pool =
+      noAnswerClash.length > 0
+        ? noAnswerClash
+        : byDifficultyUnused.length > 0
+          ? byDifficultyUnused
+          : NUMBER_PATTERN_QUESTIONS.filter((q) => !usedIds.has(q.id))
+    if (pool.length === 0) break
+    const chosen = pool[Math.floor(Math.random() * pool.length)]
+    usedIds.add(chosen.id)
+    usedAnswers.add(chosen.answer)
+    picked.push({ ...chosen, choices: shuffle(chosen.choices) })
+  }
+
+  return picked
+}
+
+/**
  * Draws one session's worth of questions from the static bank (spec:
  * "총 6~10문제", "문제 순서 랜덤, 선택지 순서 랜덤, 같은 답이 중복되지
- * 않게"), sampled ONLY from the pool tagged with the player's chosen
- * `difficulty` (v3: previously ramped easy -> normal -> hard by index
- * position inside the session regardless of the player's actual tier — see
- * the module doc comment). Choice order is reshuffled per pick even though
- * the underlying bank entry is frozen, so the correct choice's position
- * varies session to session.
+ * 않게"). Free Play (`mode:'free'`) samples ONLY from the pool tagged with
+ * the player's chosen `difficulty` (v3 rework); Assessment (`mode:'first'`)
+ * uses its own fixed ramp — see pickNumberPatternSessionForAssessment.
+ * Choice order is reshuffled per pick even though the underlying bank entry
+ * is frozen, so the correct choice's position varies session to session.
  */
-export function pickNumberPatternSession(difficulty: GameDifficulty, questionCount = 8): NumberPatternQuestion[] {
+export function pickNumberPatternSession(
+  mode: 'first' | 'free',
+  difficulty: GameDifficulty,
+  questionCount = 8,
+): NumberPatternQuestion[] {
+  if (mode === 'first') return pickNumberPatternSessionForAssessment(questionCount)
+
   const tierPool = NUMBER_PATTERN_QUESTIONS.filter((q) => q.difficulty === difficulty)
 
   const usedIds = new Set<string>()

@@ -81,10 +81,20 @@ export function calculateSpatialScore(summary: SpatialRawSummary, inputType: Inp
   )
 }
 
-/** Formats the raw summary into the display RawRecord — "X/Y correct" matches the format already used in 기획.md/MVP_SCOPE.md/DEVELOPMENT_PLAN.md. */
+/**
+ * Formats the raw summary into the display RawRecord. 2026-08 QA 보정: the
+ * score formula already weights speed at 20% (timeWeight 15% + timeoutWeight
+ * 5%, see calculateSpatialScore) alongside 80% accuracy — the actual gap was
+ * that nothing in the result UI ever surfaced averageResponseTimeMs, so a
+ * player had no way to see that speed was counted at all ("단순 맞춘 개수만
+ * 보는 느낌"). Primary now matches the requested "4/5 정답 · 평균 1.8초"
+ * shape directly; secondary keeps the existing difficulty-weighted-accuracy
+ * detail. Ranking/scoring weights themselves are untouched.
+ */
 export function formatSpatialRawRecord(summary: SpatialRawSummary): RawRecord {
+  const avgSeconds = (summary.averageResponseTimeMs / 1000).toFixed(1)
   return {
-    primary: `${summary.correctAnswers}/${summary.totalQuestions} correct`,
+    primary: `${summary.correctAnswers}/${summary.totalQuestions} 정답 · 평균 ${avgSeconds}초`,
     secondary: `난이도 가중 정확도 ${Math.round(summary.difficultyWeightedAccuracy * 100)}%`,
   }
 }

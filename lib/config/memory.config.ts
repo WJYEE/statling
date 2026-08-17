@@ -65,8 +65,26 @@ export const MEMORY_TIER_SEQUENCES: Record<GameDifficulty, MemoryDifficultyLevel
   ],
 }
 
-export function getMemoryDifficultySequenceForDifficulty(difficulty: GameDifficulty): MemoryDifficultyLevel[] {
-  return MEMORY_TIER_SEQUENCES[difficulty]
+/**
+ * Initial Assessment's fixed 3-round sequence (2026-08 QA 최종 보정,
+ * restored from the pre-rework commit 1e1ca05^'s single shared
+ * MEMORY_DIFFICULTY_SEQUENCE) — Assessment always plays `difficulty:'normal'`
+ * structurally, so before this fix it silently inherited
+ * MEMORY_TIER_SEQUENCES.normal, a Free-Play-only tuning that changed
+ * Assessment's grid size/target count (3/5/6 → 4/4/5) even though nothing
+ * about the initial measurement was meant to change.
+ */
+export const MEMORY_ASSESSMENT_SEQUENCE: MemoryDifficultyLevel[] = [
+  { level: 1, gridSize: 3, targetCount: 4, exposureMs: 900 },
+  { level: 2, gridSize: 5, targetCount: 7, exposureMs: 750 },
+  { level: 3, gridSize: 6, targetCount: 9, exposureMs: 650 },
+]
+
+export function getMemoryDifficultySequence(
+  mode: 'first' | 'free',
+  difficulty: GameDifficulty,
+): MemoryDifficultyLevel[] {
+  return mode === 'first' ? MEMORY_ASSESSMENT_SEQUENCE : MEMORY_TIER_SEQUENCES[difficulty]
 }
 
 /**

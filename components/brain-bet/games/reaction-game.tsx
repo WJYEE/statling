@@ -16,7 +16,7 @@ import {
   REACTION_PRACTICE_TRIALS,
   REACTION_TRIAL_FEEDBACK_MS,
   getReactionDecoyChanceForDifficulty,
-  getReactionRealTrialsForDifficulty,
+  getReactionRealTrials,
 } from '@/lib/config/reaction.config'
 import { calculateReactionScore, summarizeReactionTrials } from '@/lib/scoring/reaction'
 import { detectDevice } from '@/lib/game/device'
@@ -101,7 +101,7 @@ export function recordFeedbackSubline(feedback: RecordFeedback): string {
 export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: ReactionGameProps) {
   const stat = STATS.reaction
   const { play } = useSound()
-  const realTrials = useMemo(() => getReactionRealTrialsForDifficulty(difficulty), [difficulty])
+  const realTrials = useMemo(() => getReactionRealTrials(mode, difficulty), [mode, difficulty])
   /** Decoy flashes only exist at Hard+ (see REACTION_DECOY_CHANCE_BY_DIFFICULTY) — the intro's false-start-penalty notice mentions decoys only when this tier actually has them. */
   const hasDecoy = getReactionDecoyChanceForDifficulty(difficulty) > 0
 

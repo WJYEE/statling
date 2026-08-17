@@ -33,8 +33,22 @@ export const REASONING_QUESTIONS_PER_LEVEL_BY_TIER: Record<GameDifficulty, Recor
   extreme: { 1: 0, 2: 0, 3: 0, 4: 4 },
 }
 
-export function getReasoningQuestionsPerLevelForDifficulty(difficulty: GameDifficulty): Record<number, number> {
-  return REASONING_QUESTIONS_PER_LEVEL_BY_TIER[difficulty]
+/**
+ * Initial Assessment's fixed per-Level question counts (2026-08 QA 최종
+ * 보정, restored from the pre-rework commit 1e1ca05^'s single shared
+ * REASONING_QUESTIONS_PER_LEVEL) — Assessment always plays
+ * `difficulty:'normal'` structurally, so before this fix it silently
+ * inherited REASONING_QUESTIONS_PER_LEVEL_BY_TIER.normal (Levels 1-2 only),
+ * dropping the Level 3/4 compound-rule templates Assessment always used to
+ * include.
+ */
+export const REASONING_QUESTIONS_PER_LEVEL_ASSESSMENT: Record<number, number> = { 1: 1, 2: 0, 3: 1, 4: 1 }
+
+export function getReasoningQuestionsPerLevel(
+  mode: 'first' | 'free',
+  difficulty: GameDifficulty,
+): Record<number, number> {
+  return mode === 'first' ? REASONING_QUESTIONS_PER_LEVEL_ASSESSMENT : REASONING_QUESTIONS_PER_LEVEL_BY_TIER[difficulty]
 }
 
 export function getReasoningQuestionCountForDifficulty(difficulty: GameDifficulty): number {

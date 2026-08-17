@@ -19,7 +19,7 @@ import {
   MEMORY_ROUND_FEEDBACK_MS,
   MEMORY_TUTORIAL_DIFFICULTY,
   MEMORY_TUTORIAL_TRANSITION_MS,
-  getMemoryDifficultySequenceForDifficulty,
+  getMemoryDifficultySequence,
   type MemoryDifficultyLevel,
 } from '@/lib/config/memory.config'
 import { GAME_DIFFICULTIES } from '@/lib/game/difficulty'
@@ -63,8 +63,8 @@ export function MemoryGame({ index, mode, difficulty: gameDifficulty, onComplete
   const { play } = useSound()
 
   const difficultySequence = useMemo(
-    () => getMemoryDifficultySequenceForDifficulty(gameDifficulty),
-    [gameDifficulty],
+    () => getMemoryDifficultySequence(mode, gameDifficulty),
+    [mode, gameDifficulty],
   )
 
   const [stage, setStage] = useState<Stage>('intro')
@@ -290,7 +290,7 @@ export function MemoryGame({ index, mode, difficulty: gameDifficulty, onComplete
             <span className="rounded-xl bg-secondary px-3 py-2 text-center font-display text-sm font-extrabold text-secondary-foreground toy-border">
               튜토리얼 <span className="text-primary">1</span> / {MEMORY_PRACTICE_ROUNDS}
             </span>
-            {gameDifficulty !== 'easy' && stage !== 'intro' && <SkipTutorialButton onSkip={skipTutorial} />}
+            {mode === 'free' && gameDifficulty !== 'easy' && stage !== 'intro' && <SkipTutorialButton onSkip={skipTutorial} />}
           </div>
         ) : (
           <span className="rounded-xl bg-secondary px-3 py-2 text-center font-display text-sm font-extrabold text-secondary-foreground toy-border">

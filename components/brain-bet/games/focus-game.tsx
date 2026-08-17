@@ -21,7 +21,7 @@ import {
   FOCUS_TUTORIAL_GRID_SIZE,
   FOCUS_TUTORIAL_ROUNDS,
   FOCUS_TUTORIAL_TRANSITION_MS,
-  getFocusDifficultySequenceForDifficulty,
+  getFocusDifficultySequence,
   getFocusRoundTimeLimitForDifficulty,
 } from '@/lib/config/focus.config'
 import { buildFocusRound, type FocusRoundView } from '@/lib/game/focus-grid'
@@ -109,9 +109,14 @@ export function FocusGame({ index, mode, difficulty, onComplete, onBack }: Focus
   const { play } = useSound()
 
   const roundTimeLimitMs = useMemo(() => getFocusRoundTimeLimitForDifficulty(difficulty), [difficulty])
-  const focusSequence = useMemo(() => getFocusDifficultySequenceForDifficulty(difficulty), [difficulty])
+  const focusSequence = useMemo(() => getFocusDifficultySequence(mode, difficulty), [mode, difficulty])
   // Picked once per session (never per-round) — Focus measures sustained attention to ONE constant target, so the shape itself must not change mid-session even though which shape it is now depends on the tier.
+  // Assessment (mode 'first') always gets the original fixed 'star' target —
+  // FOCUS_TARGET_SHAPE_POOL_BY_DIFFICULTY's shape variation is a Free Play
+  // difficulty knob only (see focus.config.ts's FOCUS_ASSESSMENT_SEQUENCE
+  // doc comment for why Assessment can't just read the 'normal' tier's pool).
   const [sessionTargetShape] = useState<FocusShape>(() => {
+    if (mode === 'first') return 'star'
     const pool = FOCUS_TARGET_SHAPE_POOL_BY_DIFFICULTY[difficulty]
     return pool[Math.floor(Math.random() * pool.length)]
   })
@@ -362,7 +367,7 @@ export function FocusGame({ index, mode, difficulty, onComplete, onBack }: Focus
             <span className="rounded-xl bg-secondary px-3 py-2 text-center font-display text-sm font-extrabold text-secondary-foreground toy-border">
               튜토리얼 <span className="text-primary">1</span> / {FOCUS_TUTORIAL_ROUNDS}
             </span>
-            {difficulty !== 'easy' && stage !== 'intro' && <SkipTutorialButton onSkip={skipTutorial} />}
+            {mode === 'free' && difficulty !== 'easy' && stage !== 'intro' && <SkipTutorialButton onSkip={skipTutorial} />}
           </div>
         ) : (
           <span className="rounded-xl bg-secondary px-3 py-2 text-center font-display text-sm font-extrabold text-secondary-foreground toy-border">

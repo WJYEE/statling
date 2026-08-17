@@ -186,11 +186,46 @@ function buildSegmentBlocks(
   return { blocks, nextKey: key, mapping }
 }
 
-/** Keeps the queue topped up to JUDGMENT_QUEUE_PREVIEW_COUNT by generating whole segments ahead of time — the real queue is functionally endless until the Time Attack timer runs out. `forcedRuleId` is threaded straight through to buildSegmentBlocks — see its doc comment. */
+/** Assessment-only chunk size for buildFixedRuleBlocks — arbitrary, just needs to comfortably refill JUDGMENT_QUEUE_PREVIEW_COUNT each call. */
+const JUDGMENT_ASSESSMENT_CHUNK_LENGTH = 8
+
+/**
+ * Initial Assessment's real-session generator — used instead of
+ * buildSegmentBlocks whenever both a forced rule AND a forced mapping are
+ * set (mode 'first' only). No segment ramp, no per-chunk mapping reshuffle,
+ * no Conflict trials (Conflict is "does this value disagree with the
+ * PREVIOUS mapping" — meaningless when the mapping never changes at all).
+ * Every Block always reports segmentIndex 0, so resolveCurrent's
+ * "segmentIndex changed → show the Rule Change overlay" check can never
+ * fire for Assessment either.
+ */
+function buildFixedRuleBlocks(
+  ruleId: JudgmentRuleId,
+  mapping: JudgmentRuleMapping,
+  startKey: number,
+): { blocks: QueueBlock[]; nextKey: number } {
+  const stimuli = generateBlockStimuli(JUDGMENT_STIMULI_2WAY, JUDGMENT_ASSESSMENT_CHUNK_LENGTH, 0, () => false)
+  let key = startKey
+  const blocks: QueueBlock[] = stimuli.map((stimulus, indexInSegment) => ({
+    key: key++,
+    stimulus,
+    ruleId,
+    choiceCount: 2,
+    ruleMapping: mapping,
+    segmentIndex: 0,
+    indexInSegment,
+    isConflictTrial: false,
+    recorded: true,
+  }))
+  return { blocks, nextKey: key }
+}
+
+/** Keeps the queue topped up to JUDGMENT_QUEUE_PREVIEW_COUNT by generating whole segments ahead of time — the real queue is functionally endless until the Time Attack timer runs out. `forcedRuleId`/`forcedMapping` are threaded straight through — see buildSegmentBlocks/buildFixedRuleBlocks doc comments. */
 function fillQueue(
   current: QueueBlock[],
   difficulty: GameDifficulty,
   forcedRuleId: JudgmentRuleId | null,
+  forcedMapping: JudgmentRuleMapping | null,
   nextKeyRef: { current: number },
   nextSegmentRef: { current: number },
   previousMappingRef: { current: JudgmentRuleMapping | null },
@@ -198,6 +233,12 @@ function fillQueue(
 ): QueueBlock[] {
   let q = current
   while (q.length < JUDGMENT_QUEUE_PREVIEW_COUNT) {
+    if (forcedRuleId && forcedMapping) {
+      const { blocks, nextKey } = buildFixedRuleBlocks(forcedRuleId, forcedMapping, nextKeyRef.current)
+      nextKeyRef.current = nextKey
+      q = [...q, ...blocks]
+      continue
+    }
     const segmentIndex = nextSegmentRef.current
     const ruleId = forcedRuleId ?? getSegmentConfig(segmentIndex, difficulty).ruleId
     const { blocks, nextKey, mapping } = buildSegmentBlocks(
@@ -221,13 +262,16 @@ function fillQueue(
  * `forcedRuleId` set (Intro/First Play): a single-rule practice set — just
  * the 3 curated stimuli for that one rule, all under segmentIndex 0 — so the
  * Tutorial never demos (or implies) a Rule Switch, matching Real play right
- * after it. `forcedRuleId` null (Free Play): the original two-segment demo,
- * 3 shape Blocks then 3 count Blocks, unchanged.
+ * after it. Also reuses `forcedMapping` (the exact same mapping Real play
+ * will use, generated once in beginTutorial) rather than rolling its own, so
+ * the mapping shown here doesn't reshuffle the instant Real play begins.
+ * `forcedRuleId` null (Free Play): the original two-segment demo, 3 shape
+ * Blocks then 3 count Blocks, unchanged.
  */
-function buildTutorialBlocks(forcedRuleId: JudgmentRuleId | null): QueueBlock[] {
+function buildTutorialBlocks(forcedRuleId: JudgmentRuleId | null, forcedMapping: JudgmentRuleMapping | null): QueueBlock[] {
   if (forcedRuleId) {
     const stimuli = forcedRuleId === 'shape' ? JUDGMENT_TUTORIAL_SHAPE_STIMULI : JUDGMENT_TUTORIAL_COUNT_STIMULI
-    const mapping = generateRuleMapping(forcedRuleId, 2, null)
+    const mapping = forcedMapping ?? generateRuleMapping(forcedRuleId, 2, null)
     return stimuli.map((stimulus, indexInSegment) => ({
       key: indexInSegment,
       stimulus,
@@ -322,6 +366,21 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
    * getSegmentConfig's own ruleId (and its one-time Rule Switch) alone.
    */
   const sessionRuleIdRef = useRef<JudgmentRuleId | null>(null)
+  /**
+   * 2026-08 Assessment 회귀 수정: non-null only for mode 'first', alongside
+   * sessionRuleIdRef — picked once in beginTutorial and reused for every
+   * Block all session (Tutorial AND Real), never regenerated. Before this,
+   * only the RULE was held fixed for Assessment; the Left/Right mapping
+   * still reshuffled at every segment boundary regardless (this was actually
+   * pre-existing, documented behavior from before the difficulty rework too
+   * — see judgment.config.ts's getSegmentConfig history), which read as "the
+   * rule silently changed" to a first-time player even though the ruleId
+   * itself never did. Initial Assessment's policy is now: nothing about
+   * "which button means what" changes for the whole session. Free Play
+   * (`null`) is completely unaffected — its mapping still reshuffles every
+   * segment as before.
+   */
+  const sessionMappingRef = useRef<JudgmentRuleMapping | null>(null)
   const previousMappingRef = useRef<JudgmentRuleMapping | null>(null)
   const lastMappingByRuleRef = useRef<LastMappingByRule>({ shape: null, count: null })
   const trialsRef = useRef<JudgmentTrial[]>([])
@@ -377,11 +436,14 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
   const beginTutorial = () => {
     play('game-start')
     clearScheduled()
-    // mode 'first' fixes one rule for the whole session (Tutorial + Real);
-    // mode 'free' stays null, leaving getSegmentConfig's own Rule Switch alone.
+    // mode 'first' fixes one rule AND one mapping for the whole session
+    // (Tutorial + Real) — see sessionMappingRef's doc comment; mode 'free'
+    // stays null for both, leaving getSegmentConfig's own Rule Switch and
+    // per-segment mapping reshuffle alone.
     sessionRuleIdRef.current = mode === 'first' ? (Math.random() < 0.5 ? 'shape' : 'count') : null
+    sessionMappingRef.current = sessionRuleIdRef.current ? generateRuleMapping(sessionRuleIdRef.current, 2, null) : null
     setAppStage('tutorial')
-    setQueue(buildTutorialBlocks(sessionRuleIdRef.current))
+    setQueue(buildTutorialBlocks(sessionRuleIdRef.current, sessionMappingRef.current))
     setExitingBlock(null)
     setIsRuleChanging(false)
     blockShownAtRef.current = performance.now()
@@ -412,6 +474,7 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
         [],
         difficulty,
         sessionRuleIdRef.current,
+        sessionMappingRef.current,
         nextKeyRef,
         nextSegmentToGenerateRef,
         previousMappingRef,
@@ -518,7 +581,16 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
     }
 
     const filled = current.recorded
-      ? fillQueue(rest, difficulty, sessionRuleIdRef.current, nextKeyRef, nextSegmentToGenerateRef, previousMappingRef, lastMappingByRuleRef)
+      ? fillQueue(
+          rest,
+          difficulty,
+          sessionRuleIdRef.current,
+          sessionMappingRef.current,
+          nextKeyRef,
+          nextSegmentToGenerateRef,
+          previousMappingRef,
+          lastMappingByRuleRef,
+        )
       : rest
     setQueue(filled)
     blockShownAtRef.current = performance.now()
@@ -650,7 +722,7 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
             <span className="rounded-xl bg-secondary px-3 py-2 text-center font-display text-sm font-extrabold text-secondary-foreground toy-border">
               튜토리얼
             </span>
-            {difficulty !== 'easy' && <SkipTutorialButton onSkip={skipTutorial} />}
+            {mode === 'free' && difficulty !== 'easy' && <SkipTutorialButton onSkip={skipTutorial} />}
           </div>
         ) : appStage === 'playing' || appStage === 'finished' ? (
           <div className="relative flex flex-col items-end gap-1">

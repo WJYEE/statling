@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ArrowRight, Check, PartyPopper, Repeat, RotateCcw, Trophy } from 'lucide-react'
+import { ArrowRight, Check, PartyPopper, Repeat, Trophy } from 'lucide-react'
 import { AssetImage } from '@/components/brain-bet/asset-image'
 import { ProgressTrack } from '@/components/brain-bet/progress-track'
 import { RadarChart } from '@/components/brain-bet/radar-chart'
@@ -57,14 +57,15 @@ interface CompleteScreenProps {
   /** "다음: {stat}" — advances to the next game. Never called on the last (6th) result screen; that screen shows onMeetStatling/onReplay instead (see isLast below). */
   onNext: () => void
   /**
-   * Primary CTA on the last (6th) result screen only — this screen now
-   * doubles as the final result page (MY STATUS's own screen was removed
-   * from this flow), so it borrows just MY STATUS's two actions rather than
-   * any of its other UI. Starts the hatch flow.
+   * Sole CTA on the last (6th) result screen — this screen now doubles as
+   * the final result page (MY STATUS's own screen was removed from this
+   * flow). Starts the hatch flow. 2026-08 QA: the full-6-game "다시 하기"
+   * restart that used to sit next to this was removed — each individual
+   * ability result screen already offers its own "다시 도전하기" (see
+   * canRetry/onRetry below), so a second, whole-run restart action here was
+   * redundant and risked being tapped by accident right after finishing.
    */
   onMeetStatling: () => void
-  /** Secondary CTA on the last (6th) result screen only — restarts the 6-game Intro from game 1. */
-  onReplay: () => void
   /**
    * Whether this stat still has its 1 single-game retry unused (see
    * game-flow.tsx's retryAvailable/handleRetryCurrentGame) — shows/hides
@@ -95,7 +96,6 @@ export function CompleteScreen({
   isNewRecord,
   onNext,
   onMeetStatling,
-  onReplay,
   canRetry,
   onRetry,
 }: CompleteScreenProps) {
@@ -254,17 +254,13 @@ export function CompleteScreen({
 
       {/* continue CTA — the last (6th) result screen is now the final result
           page (MY STATUS's own screen no longer appears in this flow), so it
-          shows MY STATUS's two actions instead of "다음"; every earlier
-          screen keeps the single "다음" CTA unchanged. */}
+          shows MY STATUS's own primary action instead of "다음"; every
+          earlier screen keeps the single "다음" CTA unchanged. */}
       {isLast ? (
-        <div className="mt-4 flex w-full max-w-md flex-col items-center justify-center gap-3 sm:max-w-lg sm:flex-row">
+        <div className="mt-4 flex w-full max-w-md flex-col items-center justify-center gap-3">
           <ToyButton className="w-full sm:w-auto" onClick={onMeetStatling}>
             나의 Statling 만나러 가기
             <ArrowRight size={20} strokeWidth={2.8} />
-          </ToyButton>
-          <ToyButton className="w-full sm:w-auto" variant="secondary" onClick={onReplay}>
-            <RotateCcw size={20} strokeWidth={2.6} />
-            다시 하기
           </ToyButton>
         </div>
       ) : (

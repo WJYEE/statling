@@ -21,7 +21,15 @@ import {
 } from '@/lib/config/fit-puzzle.config'
 import { GAME_DIFFICULTIES } from '@/lib/game/difficulty'
 import type { GameDifficulty } from '@/lib/game/difficulty'
-import { pickFitPuzzleSession, finalFootprint, type PuzzleLevel, type PuzzlePieceSpec } from '@/lib/game/puzzle-levels'
+import {
+  finalCells,
+  finalFootprint,
+  pickFitPuzzleSession,
+  rotationMatchesTarget,
+  type PuzzleLevel,
+  type PuzzlePieceSpec,
+} from '@/lib/game/puzzle-levels'
+import { rotateCells, type CellCoord } from '@/lib/game/spatial-shapes'
 import type { FitPuzzleRoundResult, FitPuzzleRawSummary } from '@/lib/game/types'
 import { calculateFitPuzzleScore, summarizeFitPuzzleRounds } from '@/lib/scoring/fit-puzzle'
 import { cn } from '@/lib/utils'
@@ -38,6 +46,13 @@ interface PieceState {
   homeX: number
   homeY: number
   placed: boolean
+  /** Stacking order — bumped to the current top on pick-up so the piece being dragged/tapped is never hidden under others in the pile (2026-08 QA: "겹칠 수 있으나 클릭한 조각이 맨 위로"). */
+  zIndex: number
+}
+
+/** The piece's cells at its current (live, user-controlled) rotation — this is what per-cell rendering draws, so a piece always reads as its real polyomino silhouette instead of a solid bounding-box block. */
+function currentCells(piece: PieceState): CellCoord[] {
+  return rotateCells(piece.spec.cells, piece.rotation)
 }
 
 interface FitPuzzleGameProps {
@@ -168,7 +183,7 @@ function layoutPieces(lvl: PuzzleLevel, metrics: ArenaMetrics): PieceState[] {
     const jitterY = (Math.random() * 2 - 1) * jitterRange
     const x = Math.max(4, slotCenterX - w / 2 + jitterX)
     const y = Math.max(4, slotCenterY - h / 2 + jitterY)
-    return { spec, rotation: 0, x, y, homeX: x, homeY: y, placed: false }
+    return { spec, rotation: 0, x, y, homeX: x, homeY: y, placed: false, zIndex: i + 1 }
   })
 }
 
@@ -233,6 +248,8 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
   const arenaRef = useRef<HTMLDivElement>(null)
   const headerRef = useRef<HTMLDivElement>(null)
   const availableSize = useAvailableArenaSize(headerRef)
+  /** Running top-of-stack counter for the pile's z-index — see PieceState.zIndex. */
+  const zCounterRef = useRef(0)
 
   const level = levels[levelIndex]
   const { cellPx, boardWidthPx, boardHeightPx, arenaWidthPx, arenaHeightPx } = computeArenaMetrics(
@@ -247,7 +264,9 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
     const lvl = levels[lvlIndex]
     const metrics = computeArenaMetrics(lvl, availableSize.width, availableSize.height)
     setLevelIndex(lvlIndex)
-    setPieces(layoutPieces(lvl, metrics))
+    const initialPieces = layoutPieces(lvl, metrics)
+    setPieces(initialPieces)
+    zCounterRef.current = initialPieces.length
     setSelectedId(null)
     setRoundRotations(0)
     setRoundMisplacements(0)
@@ -299,6 +318,13 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally only re-checks when `pieces` changes
   }, [pieces])
 
+  /** Bumps `id`'s piece to the top of the pile's stacking order — called on pick-up (pointer down) and on the PC right-click rotate shortcut, both of which are "the player just interacted with this piece" moments. */
+  const bringToFront = (id: string) => {
+    zCounterRef.current += 1
+    const nextZ = zCounterRef.current
+    setPieces((prev) => prev.map((p) => (p.spec.id === id ? { ...p, zIndex: nextZ } : p)))
+  }
+
   const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>, id: string) => {
     if (tutorialOpen) return
     const piece = pieces.find((p) => p.spec.id === id)
@@ -306,6 +332,7 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
     e.currentTarget.setPointerCapture(e.pointerId)
     draggingRef.current = { id, offsetX: e.clientX - piece.x, offsetY: e.clientY - piece.y }
     setSelectedId(id)
+    bringToFront(id)
   }
 
   const handlePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -344,7 +371,12 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
 
       const targetSpec = bestTarget.spec
       const alreadyFilled = prev.some((p) => p.spec.id === targetSpec.id && p.placed)
-      const rotationMatches = piece.rotation % 180 === targetSpec.correctRotation
+      // Shape-aware match (not a raw rotation===correctRotation or %180 check)
+      // — required once pieces can be genuinely asymmetric (L/T/S/Z): those
+      // look different at rotation+180, while symmetric pieces (lines, the
+      // 2x2 square) legitimately DO look identical at extra rotation values,
+      // so only comparing actual rotated cell sets is correct for both.
+      const rotationMatches = rotationMatchesTarget(targetSpec, piece.rotation)
       const isRightTarget = targetSpec.id === piece.spec.id
 
       if (isRightTarget && rotationMatches && !alreadyFilled) {
@@ -381,6 +413,7 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
     e.preventDefault()
     if (tutorialOpen) return
     setSelectedId(id)
+    bringToFront(id)
     rotatePiece(id)
   }
 
@@ -441,21 +474,20 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
                   className="absolute rounded-xl bg-secondary/50"
                   style={{ width: boardWidthPx, height: boardHeightPx, left: 0, top: 0 }}
                 >
-                  {level.pieces.map((spec) => {
-                    const { width, height } = finalFootprint(spec)
-                    return (
+                  {level.pieces.map((spec) =>
+                    finalCells(spec).map(([r, c]) => (
                       <div
-                        key={spec.id}
+                        key={`${spec.id}-${r}-${c}`}
                         className="absolute rounded-lg border-2 border-dashed border-foreground/30"
                         style={{
-                          width: width * cellPx - 4,
-                          height: height * cellPx - 4,
-                          left: spec.targetCol * cellPx + 2,
-                          top: spec.targetRow * cellPx + 2,
+                          width: cellPx - 4,
+                          height: cellPx - 4,
+                          left: (spec.targetCol + c) * cellPx + 2,
+                          top: (spec.targetRow + r) * cellPx + 2,
                         }}
                       />
-                    )
-                  })}
+                    )),
+                  )}
                 </div>
 
                 {/* rotate button, anchored just above the selected (undropped) piece */}
@@ -464,8 +496,14 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
                     type="button"
                     onClick={rotateSelected}
                     aria-label="선택한 조각 90도 회전"
-                    className="absolute z-20 grid h-9 w-9 place-items-center rounded-full bg-accent text-accent-foreground toy-border toy-shadow-sm"
-                    style={{ left: selectedPiece.x + renderedFootprint(selectedPiece, cellPx).w / 2 - 18, top: selectedPiece.y - 44 }}
+                    className="absolute grid h-9 w-9 place-items-center rounded-full bg-accent text-accent-foreground toy-border toy-shadow-sm"
+                    style={{
+                      left: selectedPiece.x + renderedFootprint(selectedPiece, cellPx).w / 2 - 18,
+                      top: selectedPiece.y - 44,
+                      // Always above the piece pile regardless of how far
+                      // zCounterRef has climbed this round.
+                      zIndex: 9999,
+                    }}
                   >
                     <RotateCw size={16} strokeWidth={2.6} aria-hidden="true" />
                   </button>
@@ -473,6 +511,7 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
 
                 {pieces.map((piece) => {
                   const { w, h } = renderedFootprint(piece, cellPx)
+                  const isSelected = selectedId === piece.spec.id
                   return (
                     <div
                       key={piece.spec.id}
@@ -484,13 +523,35 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
                       role="button"
                       tabIndex={piece.placed ? -1 : 0}
                       aria-label={`퍼즐 조각 ${piece.spec.id}${piece.placed ? ' (배치 완료)' : ''}`}
-                      className={cn(
-                        'absolute touch-none rounded-lg toy-border transition-shadow',
-                        piece.placed ? 'cursor-default' : 'toy-shadow cursor-grab active:cursor-grabbing',
-                        selectedId === piece.spec.id && !piece.placed && 'ring-2 ring-accent',
-                      )}
-                      style={{ width: w - 4, height: h - 4, left: piece.x + 2, top: piece.y + 2, backgroundColor: piece.spec.color }}
-                    />
+                      className={cn('absolute touch-none', piece.placed ? 'cursor-default' : 'cursor-grab active:cursor-grabbing')}
+                      style={{
+                        width: w,
+                        height: h,
+                        left: piece.x,
+                        top: piece.y,
+                        // Placed pieces settle to the back so an in-progress
+                        // drag/tap is never covered by an already-finished one.
+                        zIndex: piece.placed ? 1 : piece.zIndex,
+                      }}
+                    >
+                      {currentCells(piece).map(([r, c]) => (
+                        <div
+                          key={`${r}-${c}`}
+                          className={cn(
+                            'absolute rounded-lg toy-border transition-shadow',
+                            piece.placed ? '' : 'toy-shadow',
+                            isSelected && !piece.placed && 'ring-2 ring-accent',
+                          )}
+                          style={{
+                            width: cellPx - 4,
+                            height: cellPx - 4,
+                            left: c * cellPx + 2,
+                            top: r * cellPx + 2,
+                            backgroundColor: piece.spec.color,
+                          }}
+                        />
+                      ))}
+                    </div>
                   )
                 })}
               </div>

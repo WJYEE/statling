@@ -262,7 +262,7 @@ export function GameFlow() {
    * every time a genuinely new stat's game is staged (enterStatGame) and
    * flipped to `false` the moment the player actually uses the retry, not
    * merely offered it — so it never comes back for the same stat. Deliberately
-   * separate from onReplay's full 6-game restart and from MyPageScreen's
+   * separate from restartIntro's full 6-game restart and from MyPageScreen's
    * resetAllPetData (a full account wipe) — neither of those touches this.
    */
   const [retryAvailable, setRetryAvailable] = useState(true)
@@ -304,8 +304,6 @@ export function GameFlow() {
   /** A resumable Intro checkpoint found on mount (see lib/game/intro-progress-storage.ts) — non-null only while Landing can still offer "이어서 하기". Cleared the moment the player resumes, restarts, or the run finishes. */
   const [introResume, setIntroResume] = useState<IntroProgressState | null>(null)
   const [confirmingRestartIntro, setConfirmingRestartIntro] = useState(false)
-  /** Gates CompleteScreen's "다시 하기" (6/6 result screen) — same reset as confirmingRestartIntro (start()), just a separate trigger point with its own wording, so a stray tap can't silently discard the just-finished run either. */
-  const [confirmingReplayIntro, setConfirmingReplayIntro] = useState(false)
   const [showOnboarding, setShowOnboarding] = useState(false)
   /** Guards the auto-show effect below so it only ever fires once per mount, even as `phase` keeps changing between nav tabs — reopening manually (MyPageScreen's "온보딩 다시 보기") goes through setShowOnboarding directly and doesn't touch this. */
   const autoOnboardingShownRef = useRef(false)
@@ -641,7 +639,7 @@ export function GameFlow() {
     }
   }
 
-  /** Fresh Intro run — first-ever visit, "다시 하기" after a full completion, or "처음부터 다시 하기" from Landing. Always starts a brand-new checkpoint (see startNewIntroProgress). */
+  /** Fresh Intro run — first-ever visit, or "처음부터 다시 하기" from Landing (restartIntro). Always starts a brand-new checkpoint (see startNewIntroProgress). */
   const start = () => {
     trackEvent('assessment_start', { release_stage: RELEASE_STAGE })
     setIndex(0)
@@ -707,7 +705,7 @@ export function GameFlow() {
     start()
   }
 
-  /** "다음" from any of the first 5 result screens. The 6th (last) result screen never calls this — it shows its own onMeetStatling/onReplay CTAs instead (see CompleteScreen's isLast branch and the 'complete' render below). */
+  /** "다음" from any of the first 5 result screens. The 6th (last) result screen never calls this — it shows its own onMeetStatling CTA instead (see CompleteScreen's isLast branch and the 'complete' render below). */
   const goNextFirst = () => {
     const nextIndex = index + 1
     setIndex(nextIndex)
@@ -1661,7 +1659,6 @@ export function GameFlow() {
               clearIntroProgress()
               handleMeetStatling()
             }}
-            onReplay={() => setConfirmingReplayIntro(true)}
           />
         )}
 
@@ -1814,16 +1811,6 @@ export function GameFlow() {
         confirmLabel="처음부터 다시 하기"
         cancelLabel="계속 이어하기"
         onConfirm={restartIntro}
-      />
-
-      <ConfirmDialog
-        open={confirmingReplayIntro}
-        onOpenChange={setConfirmingReplayIntro}
-        title="다시 하시겠어요?"
-        description="현재 진행 상황이 초기화됩니다."
-        confirmLabel="다시 하기"
-        cancelLabel="취소"
-        onConfirm={start}
       />
 
       {/* Shown once per Initial Assessment run, the first time any stat's

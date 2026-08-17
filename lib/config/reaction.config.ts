@@ -26,8 +26,18 @@ export const REACTION_REAL_TRIALS_BY_DIFFICULTY: Record<GameDifficulty, number> 
   extreme: 8,
 }
 
-export function getReactionRealTrialsForDifficulty(difficulty: GameDifficulty): number {
-  return REACTION_REAL_TRIALS_BY_DIFFICULTY[difficulty]
+/**
+ * Initial Assessment's fixed real-trial count (2026-08 QA 최종 보정,
+ * restored from the pre-rework commit 1e1ca05^'s shared REACTION_REAL_TRIALS
+ * base value) — Assessment always plays `difficulty:'normal'` structurally,
+ * so before this fix it silently inherited REACTION_REAL_TRIALS_BY_DIFFICULTY
+ * .normal (bumped to 4 by the tier rework), running Assessment one extra
+ * scored trial it never used to.
+ */
+export const REACTION_REAL_TRIALS_ASSESSMENT = 3
+
+export function getReactionRealTrials(mode: 'first' | 'free', difficulty: GameDifficulty): number {
+  return mode === 'first' ? REACTION_REAL_TRIALS_ASSESSMENT : REACTION_REAL_TRIALS_BY_DIFFICULTY[difficulty]
 }
 
 export const REACTION_DELAY_MS_MIN = 1500

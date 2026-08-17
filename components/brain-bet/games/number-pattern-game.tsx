@@ -41,7 +41,7 @@ const TUTORIAL: TutorialContent = {
 export function NumberPatternGame({ index, mode, difficulty, onComplete, onBack }: NumberPatternGameProps) {
   const stat = STATS.reasoning
   const { play } = useSound()
-  const [questions] = useState(() => pickNumberPatternSession(difficulty, NUMBER_PATTERN_QUESTION_COUNT))
+  const [questions] = useState(() => pickNumberPatternSession(mode, difficulty, NUMBER_PATTERN_QUESTION_COUNT))
   const timeLimitMs = getNumberPatternTimeLimitForDifficulty(difficulty)
   const [stage, setStage] = useState<Stage>('intro')
   const [qIndex, setQIndex] = useState(0)

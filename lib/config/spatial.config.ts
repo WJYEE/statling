@@ -119,8 +119,27 @@ export const SPATIAL_LEVEL_DISTRACTOR_TYPES_BY_TIER: Record<GameDifficulty, Reco
   },
 }
 
-export function getSpatialLevelDistractorTypesForDifficulty(difficulty: GameDifficulty): Record<number, SpatialDistractorType[]> {
-  return SPATIAL_LEVEL_DISTRACTOR_TYPES_BY_TIER[difficulty]
+/**
+ * Initial Assessment's fixed per-Level distractor types (2026-08 QA 최종
+ * 보정, restored from the pre-rework commit 1e1ca05^'s single shared
+ * SPATIAL_LEVEL_DISTRACTOR_TYPES) — Assessment always plays
+ * `difficulty:'normal'` structurally, so before this fix it silently
+ * inherited SPATIAL_LEVEL_DISTRACTOR_TYPES_BY_TIER.normal, which drops
+ * Level 3's mirror-image distractor (moving it to Level 4 only) and changes
+ * what Assessment's mirrorAccuracy actually measures.
+ */
+export const SPATIAL_LEVEL_DISTRACTOR_TYPES_ASSESSMENT: Record<number, SpatialDistractorType[]> = {
+  1: ['unrelated', 'unrelated', 'unrelated'],
+  2: ['similar', 'similar', 'similar'],
+  3: ['mirror', 'similar', 'similar'],
+  4: ['mirror', 'similar', 'unrelated'],
+}
+
+export function getSpatialLevelDistractorTypes(
+  mode: 'first' | 'free',
+  difficulty: GameDifficulty,
+): Record<number, SpatialDistractorType[]> {
+  return mode === 'first' ? SPATIAL_LEVEL_DISTRACTOR_TYPES_ASSESSMENT : SPATIAL_LEVEL_DISTRACTOR_TYPES_BY_TIER[difficulty]
 }
 
 export const SPATIAL_OPTION_COUNT = 4

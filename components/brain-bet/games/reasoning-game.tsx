@@ -216,7 +216,7 @@ export function ReasoningGame({ index, mode, difficulty, onComplete, onBack }: R
   const startGame = () => {
     play('game-start')
     clearScheduled()
-    realQuestionsRef.current = generateReasoningSession(difficulty)
+    realQuestionsRef.current = generateReasoningSession(mode, difficulty)
     trialsRef.current = []
     beginQuestion('tutorial-1', 0)
   }
@@ -285,7 +285,7 @@ export function ReasoningGame({ index, mode, difficulty, onComplete, onBack }: R
             <span className="rounded-xl bg-secondary px-3 py-2 text-center font-display text-sm font-extrabold text-secondary-foreground toy-border">
               튜토리얼 <span className="text-primary">1</span> / 1
             </span>
-            {difficulty !== 'easy' && stage !== 'intro' && <SkipTutorialButton onSkip={skipTutorial} />}
+            {mode === 'free' && difficulty !== 'easy' && stage !== 'intro' && <SkipTutorialButton onSkip={skipTutorial} />}
           </div>
         ) : (
           <span className="rounded-xl bg-secondary px-3 py-2 text-center font-display text-sm font-extrabold text-secondary-foreground toy-border">

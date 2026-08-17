@@ -1,8 +1,9 @@
 import {
+  SPATIAL_LEVEL_DISTRACTOR_TYPES_ASSESSMENT,
   SPATIAL_LEVEL_DISTRACTOR_TYPES_BY_TIER,
   SPATIAL_LEVELS,
   SPATIAL_OPTION_COUNT,
-  getSpatialLevelDistractorTypesForDifficulty,
+  getSpatialLevelDistractorTypes,
   getSpatialQuestionsPerLevelForDifficulty,
 } from '@/lib/config/spatial.config'
 import type { GameDifficulty } from '@/lib/game/difficulty'
@@ -126,8 +127,11 @@ function shuffleOptionsPreservingCorrectIndex(
  */
 function assertDistractorTypesFeasible(): void {
   const difficulties = Object.keys(SPATIAL_LEVEL_DISTRACTOR_TYPES_BY_TIER) as GameDifficulty[]
-  for (const difficulty of difficulties) {
-    const byLevel = SPATIAL_LEVEL_DISTRACTOR_TYPES_BY_TIER[difficulty]
+  const recordsToCheck: [string, Record<number, SpatialDistractorType[]>][] = [
+    ...difficulties.map((d): [string, Record<number, SpatialDistractorType[]>] => [d, SPATIAL_LEVEL_DISTRACTOR_TYPES_BY_TIER[d]]),
+    ['assessment', SPATIAL_LEVEL_DISTRACTOR_TYPES_ASSESSMENT],
+  ]
+  for (const [difficulty, byLevel] of recordsToCheck) {
     for (const level of SPATIAL_LEVELS) {
       const types = byLevel[level]
       if (!types) continue
@@ -246,11 +250,12 @@ function buildQuestion(
  * infeasible. Defaults to empty (a normal first attempt has nothing to avoid).
  */
 export function generateSpatialSession(
+  mode: 'first' | 'free',
   difficulty: GameDifficulty,
   avoidShapeIds: ReadonlySet<string> = new Set(),
 ): GeneratedSpatialQuestion[] {
   const questionsPerLevel = getSpatialQuestionsPerLevelForDifficulty(difficulty)
-  const distractorTypesPerLevel = getSpatialLevelDistractorTypesForDifficulty(difficulty)
+  const distractorTypesPerLevel = getSpatialLevelDistractorTypes(mode, difficulty)
 
   const simpleShapeIds = preferUnseen(shuffled(shapeIdsInTier('simple')), avoidShapeIds)
   const totalComplexNeeded = SPATIAL_LEVELS.filter((level) => level !== 1).reduce(

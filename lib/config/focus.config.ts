@@ -96,8 +96,27 @@ export const FOCUS_TIER_SEQUENCES: Record<GameDifficulty, FocusDifficultyLevel[]
   ],
 }
 
-export function getFocusDifficultySequenceForDifficulty(difficulty: GameDifficulty): FocusDifficultyLevel[] {
-  return FOCUS_TIER_SEQUENCES[difficulty]
+/**
+ * 2026-08 Assessment 회귀 수정: Initial Assessment (mode 'first') always
+ * plays difficulty='normal' (see game-flow.tsx's enterStatGame), which — after
+ * the Free Play difficulty rework — meant Assessment silently inherited
+ * Normal tier's shape pool (2 shapes, not always 'star') and its raised
+ * similarity floor (Lv2→Lv3, not the original Lv1→Lv3) meant for a
+ * genuinely re-tunable Free Play difficulty knob, not the fixed one-time
+ * stat measurement Assessment is supposed to be. Restored from git history
+ * (pre-difficulty-rework FOCUS_DIFFICULTY_SEQUENCE, commit f2be2b8) exactly:
+ * the original flat 3-round sequence every Assessment session used before
+ * per-tier sequences existed at all.
+ */
+export const FOCUS_ASSESSMENT_SEQUENCE: FocusDifficultyLevel[] = [
+  { level: 1, totalPlacementCount: 18, similarityLevel: 1 },
+  { level: 2, totalPlacementCount: 32, similarityLevel: 3 },
+  { level: 3, totalPlacementCount: 36, similarityLevel: 4 },
+]
+
+/** Assessment (mode 'first') always gets the fixed, restored FOCUS_ASSESSMENT_SEQUENCE regardless of `difficulty` — Free Play (mode 'free') gets its own tier's FOCUS_TIER_SEQUENCES. See FOCUS_ASSESSMENT_SEQUENCE's doc comment for why Assessment can't just read FOCUS_TIER_SEQUENCES[difficulty] like Free Play does. */
+export function getFocusDifficultySequence(mode: 'first' | 'free', difficulty: GameDifficulty): FocusDifficultyLevel[] {
+  return mode === 'first' ? FOCUS_ASSESSMENT_SEQUENCE : FOCUS_TIER_SEQUENCES[difficulty]
 }
 
 /** Per-round weight for Weighted Accuracy — harder rounds count slightly more. Index matches each tier's own FOCUS_TIER_SEQUENCES entry (round 1 = index 0, ...) — same 3 weights apply within every tier's own 3-round ramp. */
