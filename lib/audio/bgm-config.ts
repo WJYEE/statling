@@ -60,12 +60,7 @@ export const BGM_TRACKS = [
   { id: 'bgm-39', title: 'Evening Storytime', src: archieveSrc('39)Evening Storytime (BGM 39).mp3') },
   { id: 'bgm-40', title: 'First Stop, Grand City', src: archieveSrc('40)First Stop, Grand City (BGM 40).mp3') },
   { id: 'bgm-41', title: "Jester's Town", src: archieveSrc("41)Jester's Town (BGM 41).mp3") },
-  // NOTE: no "...Jewel Contest (BGM 42)..." file exists in the Archieve
-  // folder — only "42)Sparkling Contest (BGM 42).mp3" — so `src` points at
-  // the file that's actually on disk while `title` keeps the exact display
-  // name requested. Flagged for the requester to confirm/re-upload if the
-  // "Jewel" title was intentional.
-  { id: 'bgm-42', title: 'Sparkling Jewel Contest', src: archieveSrc('42)Sparkling Contest (BGM 42).mp3') },
+  { id: 'bgm-42', title: 'Sparkling Contest', src: archieveSrc('42)Sparkling Contest (BGM 42).mp3') },
 ] as const
 
 export type BgmTrack = (typeof BGM_TRACKS)[number]
