@@ -14,6 +14,8 @@ export class SoundPlayer {
   private elements: HTMLAudioElement[] = []
   private nextIndex = 0
   private loaded = false
+  /** Per-element unlock outcome (see unlock() below) — index-aligned with `elements`. An element only ever reads `true` once its own play() promise has actually resolved inside a real gesture; a still-`false` element gets retried on the NEXT unlock() call instead of being treated as permanently lost. */
+  private elementUnlocked: boolean[] = []
 
   constructor(private readonly config: SoundConfig) {}
 
@@ -29,6 +31,7 @@ export class SoundPlayer {
         el.volume = this.config.volume
         this.elements.push(el)
       }
+      this.elementUnlocked = new Array(this.elements.length).fill(false)
     } catch {
       // Audio() unavailable (non-browser env) — play() below no-ops safely.
     }
@@ -77,28 +80,40 @@ export class SoundPlayer {
    * sound gets unlocked here in one pass (see AudioManager.unlock), so
    * without muting this was the "several SFX auto-play on first mobile
    * touch" bug.
+   *
+   * Per-element outcome is tracked (`elementUnlocked`) rather than assumed —
+   * some mobile WebViews only honor a limited number of play() activations
+   * within one gesture's call stack, so a handful of elements (often near
+   * the end of AudioManager's ~30-element unlock loop) can silently fail
+   * here even though the manager-level call "succeeded." Already-unlocked
+   * elements are skipped (cheap no-op) so this stays safe to call again and
+   * again — AudioProvider's gesture listener does exactly that on every
+   * subsequent tap, not just the first — and any element that failed simply
+   * gets another real gesture to try again on, instead of staying broken
+   * for the rest of the session.
    */
   unlock(): void {
     this.preload()
-    for (const el of this.elements) {
+    for (let i = 0; i < this.elements.length; i += 1) {
+      if (this.elementUnlocked[i]) continue
+      const el = this.elements[i]
       try {
         const wasMuted = el.muted
         el.muted = true
-        const restore = () => {
+        const restore = (succeeded: boolean) => {
           el.pause()
           el.currentTime = 0
           el.muted = wasMuted
+          if (succeeded) this.elementUnlocked[i] = true
         }
         const playResult = el.play()
         if (playResult && typeof playResult.then === 'function') {
-          playResult.then(restore).catch(() => {
-            el.muted = wasMuted
-          })
+          playResult.then(() => restore(true)).catch(() => restore(false))
         } else {
-          restore()
+          restore(true)
         }
       } catch {
-        // ignore — nothing to unlock in this environment
+        // ignore — leaves elementUnlocked[i] false, retried on the next unlock() call
       }
     }
   }

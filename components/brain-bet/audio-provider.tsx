@@ -18,9 +18,17 @@ const UNLOCK_EVENTS: Array<keyof DocumentEventMap> = ['pointerdown', 'keydown']
  * 2. Start BGM (audioManager.initBgm()) — attempts to play immediately;
  *    desktop browsers with a permissive autoplay policy may actually start
  *    it right here.
- * 3. Unlock <audio> playback on the first real user gesture — required by
- *    mobile Safari/Chrome autoplay policy (spec §10). Same listener resumes
- *    BGM if step 2 got blocked, so a player never has to press "play".
+ * 3. Unlock <audio> playback on every real user gesture — required by
+ *    mobile Safari/Chrome autoplay policy (spec §10). Deliberately NOT a
+ *    once-only listener: some mobile WebViews only honor a limited number
+ *    of play() activations within one gesture's call stack, so a handful of
+ *    the ~30 pooled elements can silently fail to unlock on the very first
+ *    tap (see SoundPlayer.unlock's doc comment) — a persistent listener
+ *    gives any still-locked element another real shot on every later tap
+ *    instead of leaving it broken for the rest of the session. Cheap once
+ *    everything's actually unlocked, since AudioManager.unlock()/unlockBgm()
+ *    both skip elements already confirmed. Same listener resumes BGM if
+ *    step 2 got blocked, so a player never has to press "play".
  * 4. A single delegated click listener that plays 'click' for any plain
  *    button the app doesn't otherwise give a specific sound to. This is what
  *    makes "일반 버튼 → click.mp3" work for the app's
@@ -42,12 +50,9 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
     function unlock() {
       audioManager.unlock()
       audioManager.unlockBgm()
-      for (const eventName of UNLOCK_EVENTS) {
-        document.removeEventListener(eventName, unlock)
-      }
     }
     for (const eventName of UNLOCK_EVENTS) {
-      document.addEventListener(eventName, unlock, { once: true, passive: true })
+      document.addEventListener(eventName, unlock, { passive: true })
     }
 
     function handleDelegatedClick(event: MouseEvent) {

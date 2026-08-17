@@ -108,7 +108,17 @@ export function petEffectFor(alreadySatisfied: boolean): Partial<Record<CareStat
   return alreadySatisfied ? {} : { affection: PET_EFFECT.affection, happiness: PET_EFFECT.happiness }
 }
 
-export function petMessageFor(tier: IntensityTier, alreadySatisfied: boolean): string | undefined {
+/** "과다 쓰다듬" pool — same trigger (OVERPET_COUNT_THRESHOLD streak, see hooks/use-pet-care.ts) that already flips the character art to 'angry' (lib/character-state-assets.ts's `isOverPetted` override), so the speech bubble text now actually agrees with what the art is showing instead of a mismatched "더 가까이 있고 싶어요." */
+const OVER_PETTED_MESSAGES = [
+  '잠깐만… 너무 많이 쓰다듬었어!',
+  '조금만 쉬었다가 쓰다듬어 줘.',
+  '으으… 지금은 조금 간지러워.',
+  '너무 많이 쓰다듬으면 나도 화낼 거야!',
+]
+
+/** `isOverPetted` wins outright, ahead of `alreadySatisfied`/`tier` — mirrors characterStateForInteraction's own "over-use wins regardless of the underlying action's tier" priority for the 'angry' art, so text and art can never disagree. */
+export function petMessageFor(tier: IntensityTier, alreadySatisfied: boolean, isOverPetted: boolean): string | undefined {
+  if (isOverPetted) return OVER_PETTED_MESSAGES[Math.floor(Math.random() * OVER_PETTED_MESSAGES.length)]
   if (alreadySatisfied) return '이미 사랑을 듬뿍 받고 있어요!'
   if (tier === 'low') return '앗, 깜짝이야...'
   if (tier === 'high') return '더 가까이 있고 싶어요.'

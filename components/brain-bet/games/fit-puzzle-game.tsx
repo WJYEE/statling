@@ -119,19 +119,59 @@ interface ArenaMetrics {
   arenaHeightPx: number
 }
 
+/**
+ * Tray column count is searched, not derived from a single fixed ratio —
+ * 2026-08 QA 4차: the previous `Math.floor(lvl.boardCols / slotCells)`
+ * formula depended only on the level's own piece geometry and never once
+ * looked at the real viewport, so a tall/narrow pool of pieces always
+ * collapsed toward a single tray column regardless of how much width was
+ * actually available, forcing a very tall arena (many tray rows) and,
+ * once MIN_CELL_SCALE's floor was hit, real vertical overflow/scroll.
+ *
+ * Every candidate column count is solved through the exact same width+height
+ * budget math computeArenaMetrics already used (see scaleFromWidth/
+ * scaleFromHeight below) — trayCols never changes what "fits," only how the
+ * pieces are grouped before that fit is solved. `>=` on the comparison (not
+ * `>`) means a LATER, higher trayCols candidate wins any tie: on a roomy
+ * desktop where 2 and 3 columns already both reach scale 1 (no shrinking
+ * needed either way), this naturally prefers the wider/shorter 3-column
+ * layout; on a narrow mobile viewport, 3 columns typically needs more
+ * shrinking than 2 does to fit the same width, so 2 wins on its own strictly
+ * higher scale — "모바일 기본 2열 / 데스크톱 2~3열" falls out of the real
+ * geometry instead of a hardcoded breakpoint.
+ */
+const MIN_TRAY_COLS = 2
+const MAX_TRAY_COLS = 3
+
+interface TrayColumnCandidate {
+  trayCols: number
+  trayRows: number
+  scale: number
+}
+
+function bestTrayColumns(lvl: PuzzleLevel, slotCells: number, availableWidthPx: number, availableHeightPx: number): TrayColumnCandidate {
+  const minCols = Math.min(lvl.pieces.length, MIN_TRAY_COLS) || 1
+  const maxCols = Math.max(minCols, Math.min(lvl.pieces.length, MAX_TRAY_COLS))
+
+  let best: TrayColumnCandidate | null = null
+  for (let trayCols = minCols; trayCols <= maxCols; trayCols += 1) {
+    const trayRows = Math.ceil(lvl.pieces.length / trayCols)
+    const widthUnitCells = Math.max(lvl.boardCols, trayCols * slotCells)
+    const heightUnitCells = lvl.boardRows + BOARD_TRAY_GAP_CELLS + trayRows * slotCells
+    const scaleFromWidth = availableWidthPx / (FIT_PUZZLE_CELL_SIZE_PX * widthUnitCells)
+    const scaleFromHeight = availableHeightPx / (FIT_PUZZLE_CELL_SIZE_PX * heightUnitCells)
+    const scale = Math.min(1, Math.max(MIN_CELL_SCALE, Math.min(scaleFromWidth, scaleFromHeight)))
+    if (!best || scale >= best.scale) best = { trayCols, trayRows, scale }
+  }
+  // minCols<=maxCols always holds above, so the loop runs at least once.
+  return best as TrayColumnCandidate
+}
+
 /** All of one level's arena geometry, derived from that level + the real available space alone — computed fresh from whichever level is actually being laid out (never read from a possibly-stale previous level's render-scoped variables; layoutPieces needs the TARGET level's metrics, not the outgoing one). */
 function computeArenaMetrics(lvl: PuzzleLevel, availableWidthPx: number, availableHeightPx: number): ArenaMetrics {
   const maxSpanCells = Math.max(1, ...lvl.pieces.map((p) => Math.max(p.widthCells, p.heightCells)))
   const slotCells = maxSpanCells * TRAY_SLOT_PADDING_RATIO
-  const trayCols = Math.max(1, Math.min(lvl.pieces.length, Math.floor(lvl.boardCols / slotCells) || 1))
-  const trayRows = Math.ceil(lvl.pieces.length / trayCols)
-
-  const widthUnitCells = Math.max(lvl.boardCols, trayCols * slotCells)
-  const heightUnitCells = lvl.boardRows + BOARD_TRAY_GAP_CELLS + trayRows * slotCells
-
-  const scaleFromWidth = availableWidthPx / (FIT_PUZZLE_CELL_SIZE_PX * widthUnitCells)
-  const scaleFromHeight = availableHeightPx / (FIT_PUZZLE_CELL_SIZE_PX * heightUnitCells)
-  const scale = Math.min(1, Math.max(MIN_CELL_SCALE, Math.min(scaleFromWidth, scaleFromHeight)))
+  const { trayCols, trayRows, scale } = bestTrayColumns(lvl, slotCells, availableWidthPx, availableHeightPx)
   // Math.floor (not round) — rounding UP even by a fraction of a pixel per
   // cell can accumulate across several tray rows into a real overflow of a
   // few px, which is exactly what re-introduces the scroll this rework

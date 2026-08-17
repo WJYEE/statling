@@ -332,12 +332,16 @@ export function usePetCare() {
           (t) => nowMs - t < OVERPET_WINDOW_MS,
         )
         petClickTimestampsRef.current = recentClicks
-        if (recentClicks.length >= OVERPET_COUNT_THRESHOLD) {
+        const overPetted = recentClicks.length >= OVERPET_COUNT_THRESHOLD
+        if (overPetted) {
           petClickTimestampsRef.current = [] // fires once per streak, not on every pet after
           setIsOverPetted(true)
           schedule(() => setIsOverPetted(false), OVERPET_REACTION_HOLD_MS)
         }
-        finalizeAction(performPet(pet, now), actionId)
+        // Same boolean the 'angry' art override already reads (see
+        // characterStateForInteraction) — passed straight into performPet so
+        // its message can agree with what the character is showing.
+        finalizeAction(performPet(pet, now, overPetted), actionId)
         trackCareInteractionDeferred(actionId, now)
         return
       }

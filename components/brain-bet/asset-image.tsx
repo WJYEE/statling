@@ -28,6 +28,15 @@ export function AssetImage({ src, alt, size = 160, scale = 1, className }: Asset
         className="max-h-full max-w-full object-contain"
         style={scale !== 1 ? { transform: `scale(${scale})` } : undefined}
         draggable={false}
+        // This asset is almost always already in the HTTP cache by the time
+        // this <img> mounts (preloadImages() in pet-mood-view.tsx/game-flow.tsx
+        // already fetched it ahead of time) — decoding="sync" skips the
+        // browser's default async-decode scheduling delay for that already-
+        // cached case, and fetchPriority="high" keeps it from queuing behind
+        // unrelated in-flight requests on the rare cache-miss path. Pairs
+        // with, but doesn't replace, the actual preload calls.
+        decoding="sync"
+        fetchPriority="high"
       />
     </div>
   )

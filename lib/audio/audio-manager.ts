@@ -50,8 +50,9 @@ class AudioManager {
    * last.
    */
   private introLocked = false
-  private unlocked = false
   private preloaded = false
+  /** See unlockBgm() — mirrors SoundPlayer's own per-element `elementUnlocked` tracking, just as a single flag since there's only one BGM element. */
+  private bgmUnlocked = false
 
   private bgmPlayer = new BgmPlayer()
   private bgmInitialized = false
@@ -175,13 +176,21 @@ class AudioManager {
   /**
    * Mobile Safari (and Chrome autoplay policy generally) refuses to play
    * *any* <audio> until a real user gesture has reached the page — playing
-   * one muted, zero-volume-safe tick here on the very first pointerdown
-   * "unlocks" the pooled elements for every sound played afterward. Safe to
-   * call repeatedly; only the first call after a fresh load does anything.
+   * one muted, zero-volume-safe tick here "unlocks" the pooled elements for
+   * every sound played afterward. Deliberately safe (and cheap) to call on
+   * *every* user gesture, not just the first: each SoundPlayer tracks its
+   * own elements' unlock outcome and skips ones already confirmed, so a
+   * steady-state session where everything unlocked on the first tap costs
+   * nothing on later taps — but an element that silently failed to unlock
+   * (a real risk on some mobile WebViews when ~30 elements get activated in
+   * one synchronous gesture — see SoundPlayer.unlock's doc comment) gets
+   * another real shot at it on the very next tap, instead of staying broken
+   * for the rest of the session. AudioProvider's gesture listener is what
+   * actually calls this repeatedly; toggleSfx() also calls it directly the
+   * moment SFX is switched on, since that click is itself a real gesture.
    */
   unlock(): void {
-    if (this.unlocked || typeof window === 'undefined') return
-    this.unlocked = true
+    if (typeof window === 'undefined') return
     for (const name of ALL_SOUND_NAMES) {
       this.getPlayer(name).unlock()
     }
@@ -232,10 +241,14 @@ class AudioManager {
    * state (unmuted, for an enabled BGM setting) once play() actually
    * settles, rather than forcing a pause that would silently strand a
    * returning user's already-enabled BGM in a paused, never-restarted
-   * state.
+   * state. Tracks its own success (`bgmUnlocked`) the same way SoundPlayer's
+   * per-element flags do, so this stays a safe no-op once confirmed but
+   * still gets retried on a later gesture if the first attempt failed —
+   * consistent with unlock() above now also being called on every gesture,
+   * not just the first.
    */
   unlockBgm(): void {
-    if (!this.bgmInitialized || !this.bgmSettings.enabled) return
+    if (!this.bgmInitialized || !this.bgmSettings.enabled || this.bgmUnlocked) return
     const el = this.bgmPlayer.getElement()
     if (!el) {
       this.bgmPlayer.play()
@@ -244,14 +257,15 @@ class AudioManager {
     try {
       const wasMuted = el.muted
       el.muted = true
-      const restore = () => {
+      const restore = (succeeded: boolean) => {
         el.muted = wasMuted
+        if (succeeded) this.bgmUnlocked = true
       }
       const playResult = el.play()
       if (playResult && typeof playResult.then === 'function') {
-        playResult.then(restore).catch(restore)
+        playResult.then(() => restore(true)).catch(() => restore(false))
       } else {
-        restore()
+        restore(true)
       }
     } catch {
       // ignore — nothing to unlock in this environment

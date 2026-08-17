@@ -204,7 +204,8 @@ export function performPlay(state: PetCareState, now: Date): ActionResult {
   return { petState, deltas, message: playMessageFor(tier), animation: 'play', playVariantId, levelUp: expGain.levelUp, expGained: playExpGained }
 }
 
-export function performPet(state: PetCareState, now: Date): ActionResult {
+/** `isOverPetted` — the same click-streak boolean hooks/use-pet-care.ts already computes (and uses to hold the character on its 'angry' art) before calling this, passed straight through so petMessageFor's text can agree with it. */
+export function performPet(state: PetCareState, now: Date, isOverPetted: boolean): ActionResult {
   const blocked = blockedByCooldown(state, 'pet', now)
   if (blocked) return blocked
 
@@ -224,7 +225,7 @@ export function performPet(state: PetCareState, now: Date): ActionResult {
   // Always 'pet' here — already-loved-plenty falling back to idle/happy/love
   // art instead (or to 'angry' when over-petted) is a mapping decision, made
   // from raw stats/isOverPetted by characterStateForInteraction.
-  return { petState, deltas, message: petMessageFor(tier, alreadySatisfied), animation: 'pet', levelUp: expGain.levelUp, expGained: petExpGained }
+  return { petState, deltas, message: petMessageFor(tier, alreadySatisfied, isOverPetted), animation: 'pet', levelUp: expGain.levelUp, expGained: petExpGained }
 }
 
 /**

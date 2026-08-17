@@ -168,6 +168,14 @@ export function RevealScreen({
   const shareGoodMatch = goodMatchCards[0]
   const shareDifferentRhythm = differentRhythmCards[0]
 
+  // Same `insight` CharacterTraits/CompatibleEnvironment already render
+  // on-screen (see the JSX below) — the share card just takes a smaller
+  // slice of the exact same arrays, never new copy, to fit its fixed
+  // 1080x1350 canvas alongside everything else on it.
+  const shareStrengths = insight.strengths.slice(0, 2)
+  const shareCautions = insight.cautions.slice(0, 1)
+  const shareCompatibleEnvironment = [...insight.learningStyle.slice(0, 1), ...insight.workStyle.slice(0, 1)]
+
   return (
     <div className="dot-grid-bg contain-[layout] mx-auto flex min-h-dvh w-full max-w-md flex-col items-center overflow-x-hidden px-5 py-6">
       <Logo size="sm" />
@@ -235,6 +243,10 @@ export function RevealScreen({
         topStats={shareTopStats}
         goodMatch={shareGoodMatch}
         differentRhythm={shareDifferentRhythm}
+        strengths={shareStrengths}
+        cautions={shareCautions}
+        compatibleEnvironment={shareCompatibleEnvironment}
+        finals={finals}
       />
 
       {fallback && (

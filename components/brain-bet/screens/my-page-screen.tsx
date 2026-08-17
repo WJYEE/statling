@@ -10,7 +10,6 @@ import {
   Mail,
   Music,
   RotateCcw,
-  Share2,
   User,
   Volume2,
   VolumeX,
@@ -97,23 +96,6 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
   const [signingOut, setSigningOut] = useState(false)
   const [confirmingReset, setConfirmingReset] = useState(false)
 
-  async function handleCopyShareLink() {
-    if (!petProfile) return
-    // encodeURIComponent is required, not defensive — every catalog id is
-    // Korean (see lib/pets/pet-profile.ts), and app/share/[petId]/page.tsx
-    // expects (and explicitly decodes) a properly percent-encoded segment.
-    // Routed through buildShareUrl (like the two share/save actions below)
-    // so a manually copy-pasted link still carries the same UTM attribution.
-    const url = buildShareUrl(`${window.location.origin}/share/${encodeURIComponent(petProfile.id)}`, SHARE_CONTEXT)
-    try {
-      await navigator.clipboard.writeText(url)
-      trackShare()
-      toastManager.add({ title: '공유 링크를 복사했어요.', type: 'success' })
-    } catch {
-      toastManager.add({ title: url, description: '링크를 직접 복사해주세요.', type: 'error' })
-    }
-  }
-
   async function handleShareFriendCard() {
     if (!petProfile || busyAction) return
     setBusyAction('share')
@@ -126,9 +108,10 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
           characterName: petProfile.name,
           level: friendCardStats.level,
         }),
-        // Reuses the exact same "친구 도감 등록" invite link handleCopyShareLink
-        // already shares above, rather than a plain app-root URL — the one
-        // existing structure this feature can hook a future friend system into.
+        // Same "친구 도감 등록" invite link the old standalone copy-link
+        // button used to share on its own, before this action absorbed it —
+        // the one existing structure this feature can hook a future friend
+        // system into.
         url: buildShareUrl(`${window.location.origin}/share/${encodeURIComponent(petProfile.id)}`, SHARE_CONTEXT),
       }
       const outcome = await shareStatlingResult(
@@ -141,10 +124,12 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
         case 'shared':
           toastManager.add({ title: '공유했어요!', type: 'success' })
           trackEvent('share_success', { action_type: 'web_share', share_context: SHARE_CONTEXT })
+          trackShare()
           break
         case 'copied':
           toastManager.add({ title: '공유 내용이 복사되었어요.', type: 'success' })
           trackEvent('share_success', { action_type: 'web_share', share_context: SHARE_CONTEXT })
+          trackShare()
           break
         case 'cancelled':
           break // user backed out of the share sheet — not an error
@@ -203,6 +188,11 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
     setSfxEnabled(next)
     saveSfxEnabled(next)
     audioManager.setMuted(!next)
+    // This click is itself a real user gesture — a good chance to retry any
+    // pooled element that failed to unlock earlier (see AudioManager.unlock's
+    // doc comment), so SFX can actually be heard right after being turned on
+    // instead of waiting for the next unrelated tap elsewhere in the app.
+    if (next) audioManager.unlock()
     trackEvent('audio_setting_change', { audio_type: 'sfx', enabled: next })
   }
 
@@ -340,22 +330,11 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
         </div>
       </button>
 
-      {petProfile && (
-        <button
-          type="button"
-          onClick={handleCopyShareLink}
-          className="mt-2 flex items-center gap-3 rounded-2xl bg-card px-4 py-4 text-left toy-border"
-        >
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground toy-border">
-            <Link2 size={20} strokeWidth={2.2} />
-          </span>
-          <div className="flex-1">
-            <p className="font-display text-sm font-extrabold text-foreground">내 Statling 공유 링크</p>
-            <p className="text-xs text-muted-foreground">친구가 링크를 열고 기록하면 친구 도감에 {withSubjectParticle(petProfile.name)} 등록돼요.</p>
-          </div>
-        </button>
-      )}
-
+      {/* Merged with the old standalone "친구에게 공유" button — one action
+          now covers both "링크만 복사" and "친구에게 공유", since
+          shareStatlingResult's own fallback chain already lands on a plain
+          link copy (see handleShareFriendCard) whenever native share isn't
+          available, so a separate copy-only button no longer added anything. */}
       {petProfile && (
         <>
           <button
@@ -369,14 +348,14 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
               {busyAction === 'share' ? (
                 <Loader2 size={20} strokeWidth={2.2} className="animate-spin" />
               ) : (
-                <Share2 size={20} strokeWidth={2.2} />
+                <Link2 size={20} strokeWidth={2.2} />
               )}
             </span>
             <div className="flex-1">
               <p className="font-display text-sm font-extrabold text-foreground">
-                {busyAction === 'share' ? '공유 준비 중...' : '친구에게 공유'}
+                {busyAction === 'share' ? '공유 준비 중...' : '내 Statling 친구에게 공유'}
               </p>
-              <p className="text-xs text-muted-foreground">지금 키우고 있는 {statlingName}을 카드로 소개해요.</p>
+              <p className="text-xs text-muted-foreground">친구가 링크를 열고 기록하면 친구 도감에 {withSubjectParticle(petProfile.name)} 등록돼요.</p>
             </div>
           </button>
 
