@@ -2,14 +2,16 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { PET_AUTONOMY_CONFIG } from '@/lib/config/pet-autonomy.config'
-import { USER_NOTE_ECHO_CHANCE } from '@/lib/config/talk.config'
+import { DIALOGUE_MEMORY_REFERENCE_CHANCE, USER_NOTE_ECHO_CHANCE } from '@/lib/config/talk.config'
 import {
   entryEventToDialogueCategory,
   pickInitiatedDialogue,
   pickMemoryCommentText,
+  pickMemoryReferenceLine,
   pickStateRequestCategory,
   type InitiatedDialogueCategory,
 } from '@/lib/pet-care/initiated-dialogue'
+import { loadDialogueMemory } from '@/lib/pet-care/dialogue-memory-storage'
 import { shouldShowMemoryComment, type PetMemory } from '@/lib/pet-care/pet-memory'
 import { loadUserNotes } from '@/lib/pet-care/user-notes-storage'
 import { computeEntryEvent, toLocalDateKey, type VisitContext } from '@/lib/pet-care/visit-context'
@@ -142,6 +144,19 @@ export function usePetInitiatedDialogue(input: UsePetInitiatedDialogueInput) {
         now - new Date(mem.lastInitiatedDialogueAt).getTime() >= PET_AUTONOMY_CONFIG.initiatedDialogueCooldownMs
       if (!generalReady) return
 
+      // "가끔 이전 답변을 참조" (spec §5) — checked first, at a low fixed
+      // odds, so it never crowds out the existing memoryStat/note-echo/idle
+      // lines below; when it doesn't fire (the common case) everything below
+      // behaves exactly as it did before this feature existed.
+      if (Math.random() < DIALOGUE_MEMORY_REFERENCE_CHANCE) {
+        const referenceLine = pickMemoryReferenceLine(loadDialogueMemory())
+        if (referenceLine) {
+          showSpeech(referenceLine.text, AMBIENT_HOLD_MS)
+          onDialogueShownRef.current(referenceLine.id, 'general')
+          return
+        }
+      }
+
       const memoryStat = shouldShowMemoryComment(mem, new Date())
       if (memoryStat) {
         const line = pickMemoryCommentText(memoryStat, intimacyLevelRef.current, mem.recentInitiatedDialogueIds)
@@ -162,7 +177,12 @@ export function usePetInitiatedDialogue(input: UsePetInitiatedDialogueInput) {
         return
       }
 
-      const line = pickInitiatedDialogue('idleThought', intimacyLevelRef.current, mem.recentInitiatedDialogueIds)
+      // Occasional unprompted self-talk (spec §7) instead of always the
+      // observational idleThought line — same category/cooldown treatment,
+      // just an alternating source so the player isn't always the only one
+      // "starting" a conversation.
+      const idleCategory: InitiatedDialogueCategory = Math.random() < 0.5 ? 'selfMusing' : 'idleThought'
+      const line = pickInitiatedDialogue(idleCategory, intimacyLevelRef.current, mem.recentInitiatedDialogueIds)
       showSpeech(line.text, AMBIENT_HOLD_MS)
       onDialogueShownRef.current(line.id, 'general')
     }

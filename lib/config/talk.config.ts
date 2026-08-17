@@ -6,8 +6,20 @@
  * changes a stat, only how the conversation UI behaves.
  */
 
-/** How many of the most-recently-shown questions are excluded from the next random pick — "간단한 최근 질문 회피", not a hard history log. */
-export const RECENT_QUESTION_HISTORY_SIZE = 3
+/**
+ * How many of the most-recently-shown ROOT questions are excluded from the
+ * next random pick — persisted now (lib/pet-care/dialogue-memory-storage.ts),
+ * not just a session-only ref, so a refresh/reconnect doesn't immediately
+ * repeat one. Never a permanent ban — once the pool is exhausted,
+ * pickRandomQuestion falls back to the full 42-question pool.
+ */
+export const RECENT_QUESTION_HISTORY_SIZE = 10
+
+/** How long a follow-up choice's reaction line stays up before the next question in the chain appears — the "짧은 자연스러운 transition" beat between steps. */
+export const TALK_FOLLOWUP_TRANSITION_MS = 1400
+
+/** Odds that a given ambient chatter tick (hooks/use-pet-initiated-dialogue.ts) references a previously-saved DialogueMemory answer instead of its normal line, whenever at least one is saved — kept low ("가끔") so it never reads as mechanical. */
+export const DIALOGUE_MEMORY_REFERENCE_CHANCE = 0.15
 
 /** How long a choice's forced expression (see TalkChoice.expression) holds the character art before falling back to the normal mood/animation read. Roughly matches the speech bubble's own hold so the face and the line clear together. */
 export const TALK_EXPRESSION_HOLD_MS = 2800

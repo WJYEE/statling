@@ -1,6 +1,7 @@
 import { STATS, type StatId } from '@/lib/brain-bet'
 import { PET_REACTION_THRESHOLDS } from '@/lib/config/pet-care.config'
 import { pickFromPool, type PickableLine } from '@/lib/pet-care/dialogue'
+import type { DialogueMemory, DialogueMemoryKey } from '@/lib/pet-care/dialogue-memory-storage'
 import type { CareStatId, SecondaryTag } from '@/lib/pet-care/types'
 import type { EntryEventType } from '@/lib/pet-care/visit-context'
 
@@ -16,6 +17,7 @@ export type InitiatedDialogueCategory =
   | 'roomMessyComment'
   | 'idleThought'
   | 'memoryComment'
+  | 'selfMusing'
 
 export interface InitiatedDialogueLine extends PickableLine {
   text: string
@@ -105,6 +107,89 @@ export const INITIATED_DIALOGUE_BANK: Record<InitiatedDialogueCategory, Initiate
     { id: 'memory-comment-4', text: '요즘 {stat} 쪽을 열심히 하는 것 같아.' },
     { id: 'memory-comment-5', text: '{stat} 게임, 꽤 자주 하네!' },
   ],
+  /**
+   * Statling initiates a short story/musing of its own, unprompted — so the
+   * 대화 flow isn't purely "player asks, Statling answers" (spec §7). Picked
+   * as an occasional alternative to `idleThought` in the ambient loop (see
+   * hooks/use-pet-initiated-dialogue.ts), never its own separate cooldown.
+   */
+  selfMusing: [
+    { id: 'self-musing-1', text: '아까 창밖을 보고 있었는데 구름이 물고기처럼 생겼어.' },
+    { id: 'self-musing-2', text: '가끔 내가 알 속에 있었을 때가 생각나. 그때는 밖이 이렇게 넓은 줄 몰랐어.' },
+    { id: 'self-musing-3', text: '오늘은 이상하게 모험을 떠나고 싶은 날이야.' },
+    { id: 'self-musing-4', text: '방에 작은 비밀 공간 하나 있었으면 좋겠다.' },
+    { id: 'self-musing-5', text: '너 없을 때 나 뭐 하고 있는지 궁금하지 않아?' },
+    { id: 'self-musing-6', text: '가만히 있다 보면 별의별 생각이 다 들어.' },
+    { id: 'self-musing-7', text: '오늘따라 하늘이 예뻐서 한참 봤어.' },
+    { id: 'self-musing-8', text: '언젠가 저 멀리까지 가보고 싶다는 생각을 해.' },
+    { id: 'self-musing-9', text: '가끔은 시간이 이렇게 빨리 가는 게 신기해.' },
+    { id: 'self-musing-10', text: '오늘은 왠지 몸이 근질근질해서 자꾸 움직이게 돼.' },
+    { id: 'self-musing-11', text: '너랑 처음 만났을 때가 아직도 가끔 생각나.' },
+    { id: 'self-musing-12', text: '내일은 또 어떤 하루일지 은근 기대돼.' },
+  ],
+}
+
+/**
+ * "이전에 저장된 취향을 가끔 자연스럽게 언급" (spec §5) — the ambient/
+ * initiated-dialogue counterpart of talk-questions.ts's structured
+ * DialogueMemory answers (never the free-text UserNote, which has its own
+ * separate echo path in hooks/use-pet-initiated-dialogue.ts). Every value is
+ * a small fixed set defined at the TalkChoice that writes it, so each line
+ * can be hand-written for correct Korean grammar instead of composed from a
+ * generic template.
+ */
+const MEMORY_REFERENCE_LINES: Record<DialogueMemoryKey, Record<string, string>> = {
+  favoriteSeason: {
+    '여름': '전에 여름을 좋아한다고 했었지? 시원한 거 챙겨 먹었어?',
+    '겨울': '전에 겨울을 좋아한다고 했었지? 오늘도 따뜻하게 지내!',
+  },
+  favoritePlaceType: {
+    '바다': '전에 바다가 좋다고 했었지? 파도 소리 그립지 않아?',
+    '산': '전에 산이 좋다고 했었지? 오늘도 상쾌한 기분이었으면 좋겠다.',
+  },
+  preferredTime: {
+    '아침': '전에 아침이 좋다고 했었지? 오늘 상쾌하게 시작했어?',
+    '밤': '전에 밤이 좋다고 했었지? 오늘도 밤까지 같이 있을 거야?',
+  },
+  likesRain: {
+    '좋아함': '전에 비 오는 날 좋아한다고 했었지? 그런 날엔 특히 더 반가워.',
+    '안좋아함': '전에 비 오는 날은 별로라고 했었지? 그래도 나랑 있으면 좀 낫지 않아?',
+  },
+  preferredFoodType: {
+    '단맛': '전에 달콤한 거 좋아한다고 했었지? 오늘 하나 챙겨 먹어!',
+    '짠맛': '전에 짭짤한 거 좋아한다고 했었지? 오늘 그런 거 먹었어?',
+  },
+  restStyle: {
+    '혼자': '전에 힘들 때는 혼자 있는 게 편하다고 했었지? 필요하면 조용히 옆에 있어줄게.',
+    '같이': '전에 힘들 때 옆에 누가 있어주면 좋다고 했었지? 오늘은 내가 옆에 있을게!',
+  },
+  travelPreference: {
+    '바다 여행': '전에 바다 여행 가고 싶다고 했었지? 언젠가 꼭 같이 가자.',
+    '산 여행': '전에 산 여행 가고 싶다고 했었지? 언젠가 꼭 같이 가자.',
+    '이곳저곳 다니는 여행': '전에 이곳저곳 다니는 여행이 좋다고 했었지? 다음엔 어디부터 갈까?',
+  },
+  studyType: {
+    '학교/전공': '전에 학교 공부 하고 있다고 했었지? 오늘도 화이팅!',
+    '취업 준비': '전에 취업 준비 하고 있다고 했었지? 좋은 소식 있으면 꼭 알려줘!',
+    '외국어': '전에 외국어 공부한다고 했었지? 오늘도 조금 했어?',
+    '그냥 이것저것': '전에 이것저것 공부한다고 했었지? 재밌는 거 찾았어?',
+  },
+}
+
+/**
+ * Picks one saved DialogueMemory answer at random and returns its reference
+ * line, or null when nothing's saved yet — the caller (usePetInitiatedDialogue)
+ * gates how OFTEN this is even attempted (DIALOGUE_MEMORY_REFERENCE_CHANCE),
+ * this function only ever decides WHICH saved fact to bring up.
+ */
+export function pickMemoryReferenceLine(memory: DialogueMemory): { id: string; text: string } | null {
+  const keys = (Object.keys(memory.answers) as DialogueMemoryKey[]).filter((key) => memory.answers[key])
+  if (keys.length === 0) return null
+  const key = keys[Math.floor(Math.random() * keys.length)]
+  const value = memory.answers[key]
+  const text = value ? MEMORY_REFERENCE_LINES[key]?.[value] : undefined
+  if (!text) return null
+  return { id: `memory-ref-${key}`, text }
 }
 
 export function pickInitiatedDialogue(

@@ -45,6 +45,8 @@ import { applyPetDecay } from '@/lib/pet-care/decay'
 import { buildDirectEffect } from '@/lib/pet-care/actions'
 import { FREE_PLAY_ENERGY_COST } from '@/lib/config/pet-care.config'
 import { clearPetCareState } from '@/lib/pet-care/pet-care-storage'
+import { clearUserNotes } from '@/lib/pet-care/user-notes-storage'
+import { clearDialogueMemory } from '@/lib/pet-care/dialogue-memory-storage'
 import { beginPetAssignment, confirmPet, refreshGrowthData, resolveCurrentPetProfile } from '@/lib/pets/pet-flow'
 import { addMetPet, markAllPetsMet } from '@/lib/pets/dex-storage'
 import {
@@ -1515,14 +1517,20 @@ export function GameFlow() {
   /**
    * Real user-facing reset (MyPageScreen's "펫 초기화") — unlike the QA-only
    * handleResetPetProfile above, this also wipes care state (hunger/mood/
-   * intimacy) and memory (visit/dialogue history) so a freshly-hatched pet
-   * doesn't inherit the previous pet's stats. Room decor is left untouched:
-   * it reads as "my room," not something owned by one specific pet.
+   * intimacy), memory (visit/dialogue history), saved free-text 대화 notes,
+   * and the structured DialogueMemory (recent-question window + remembered
+   * preferences) so a freshly-hatched pet doesn't inherit the previous pet's
+   * stats OR its conversation history — otherwise a new Statling could echo
+   * back a previous one's free-text answers or "전에 ~라고 했었지" lines
+   * built from preferences it never actually heard. Room decor is left
+   * untouched: it reads as "my room," not something owned by one specific pet.
    */
   const resetAllPetData = () => {
     clearStoredPetProfile()
     clearPetCareState()
     clearPetMemory()
+    clearUserNotes()
+    clearDialogueMemory()
     clearIntroProgress()
     setIntroResume(null)
     setPetRecord(null)

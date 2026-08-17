@@ -58,3 +58,9 @@ export function saveUserNote(text: string, now: Date = new Date()): UserNote[] {
   saveUserNotes(next)
   return next
 }
+
+/** Wipes this device's saved free-text notes — see resetAllPetData in game-flow.tsx. Without this, a freshly-reset Statling could echo back a previous Statling's free-text answers via the note-echo ambient line. */
+export function clearUserNotes(): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(userNotesStorageKey(getOrCreateDeviceId()))
+}

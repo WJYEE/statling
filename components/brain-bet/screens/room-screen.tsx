@@ -149,6 +149,23 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
     }
   }
 
+  /**
+   * A mid-chain follow-up step's reaction (see hooks/use-pet-talk.ts's
+   * `next`) — same speech-bubble/expression handling as handleTalkAnswered,
+   * but via care.sayText (no cooldown/exp effect) since the conversation
+   * isn't actually over yet, and no care/memory action is recorded either.
+   */
+  function handleTalkIntermediate(responseText: string, expression?: CharacterStateKey) {
+    care.sayText(responseText, TALK_EXPRESSION_HOLD_MS)
+    if (talkExpressionTimeoutRef.current !== null) window.clearTimeout(talkExpressionTimeoutRef.current)
+    if (expression) {
+      setTalkExpressionKey(expression)
+      talkExpressionTimeoutRef.current = window.setTimeout(() => setTalkExpressionKey(null), TALK_EXPRESSION_HOLD_MS)
+    } else {
+      setTalkExpressionKey(null)
+    }
+  }
+
   useEffect(
     () => () => {
       if (talkExpressionTimeoutRef.current !== null) window.clearTimeout(talkExpressionTimeoutRef.current)
@@ -169,6 +186,8 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
   const talk = usePetTalk({
     onOpen: () => care.registerTalkOpen(),
     onAnswered: handleTalkAnswered,
+    onIntermediateReaction: handleTalkIntermediate,
+    topStat,
   })
 
   /**

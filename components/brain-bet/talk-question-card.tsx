@@ -29,12 +29,18 @@ interface TalkQuestionCardProps {
  * edge so it sits right under the Statling and overlaps the room
  * background. `bg-card/95 backdrop-blur-sm` (not a flat `bg-card`) so it
  * stays readable over whatever background art happens to be behind it.
+ * `max-h-[70dvh]` (not `max-h-[70%]`) deliberately — the nearest positioned
+ * ancestor here is the small square room-canvas wrapper (capped ~280px on
+ * mobile), so a percentage-based cap left barely enough room for 3 choices
+ * and clipped a 4-choice follow-up question; a viewport-relative cap sizes
+ * off the actual screen instead, comfortably fitting up to a handful of
+ * choices while still acting as a real ceiling for an unusually long list.
  */
 export function TalkQuestionCard({ question, onChoose, onSubmitFreeText, onClose }: TalkQuestionCardProps) {
   const [freeText, setFreeText] = useState('')
 
   return (
-    <div className="animate-pop-in absolute inset-x-2 bottom-2 z-[60] flex max-h-[70%] flex-col gap-2.5 overflow-y-auto rounded-2xl bg-card/95 px-4 py-3.5 toy-border toy-shadow-sm backdrop-blur-sm sm:inset-x-3 sm:bottom-3">
+    <div className="animate-pop-in absolute inset-x-2 bottom-2 z-[60] flex max-h-[70dvh] flex-col gap-2.5 overflow-y-auto rounded-2xl bg-card/95 px-4 py-3.5 toy-border toy-shadow-sm backdrop-blur-sm sm:inset-x-3 sm:bottom-3">
       <div className="flex items-center justify-end">
         <button
           type="button"
