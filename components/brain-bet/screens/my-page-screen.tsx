@@ -188,11 +188,6 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
     setSfxEnabled(next)
     saveSfxEnabled(next)
     audioManager.setMuted(!next)
-    // This click is itself a real user gesture — a good chance to retry any
-    // pooled element that failed to unlock earlier (see AudioManager.unlock's
-    // doc comment), so SFX can actually be heard right after being turned on
-    // instead of waiting for the next unrelated tap elsewhere in the app.
-    if (next) audioManager.unlock()
     trackEvent('audio_setting_change', { audio_type: 'sfx', enabled: next })
   }
 

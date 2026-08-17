@@ -15,7 +15,7 @@ const CURATED_VOICE_IDS = new Set(['01_치즈털실냥이', '02_플로봇', '03_
 
 const FALLBACK_VOICE_FILE = 'statling2'
 
-/** Resolved path for every voice file this module can ever return — used to preload/unlock them all up front (see AudioManager.preloadAll/unlock), same as the fixed SoundName set. */
+/** Resolved path for every voice file this module can ever return — used to preload them all up front (see AudioManager.preloadAll), same as the fixed SoundName set. */
 export const ALL_CHARACTER_VOICE_SRCS: string[] = [...CURATED_VOICE_IDS, FALLBACK_VOICE_FILE].map(
   (fileName) => `${VOICE_BASE_PATH}/${fileName}.mp3`,
 )

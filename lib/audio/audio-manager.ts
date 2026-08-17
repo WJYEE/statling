@@ -51,7 +51,7 @@ class AudioManager {
    */
   private introLocked = false
   private preloaded = false
-  /** See unlockBgm() — mirrors SoundPlayer's own per-element `elementUnlocked` tracking, just as a single flag since there's only one BGM element. */
+  /** See unlockBgm() — true once a real, audible BGM play() has been confirmed, so later gestures skip the mute/retry dance entirely. */
   private bgmUnlocked = false
 
   private bgmPlayer = new BgmPlayer()
@@ -174,32 +174,6 @@ class AudioManager {
   }
 
   /**
-   * Mobile Safari (and Chrome autoplay policy generally) refuses to play
-   * *any* <audio> until a real user gesture has reached the page — playing
-   * one muted, zero-volume-safe tick here "unlocks" the pooled elements for
-   * every sound played afterward. Deliberately safe (and cheap) to call on
-   * *every* user gesture, not just the first: each SoundPlayer tracks its
-   * own elements' unlock outcome and skips ones already confirmed, so a
-   * steady-state session where everything unlocked on the first tap costs
-   * nothing on later taps — but an element that silently failed to unlock
-   * (a real risk on some mobile WebViews when ~30 elements get activated in
-   * one synchronous gesture — see SoundPlayer.unlock's doc comment) gets
-   * another real shot at it on the very next tap, instead of staying broken
-   * for the rest of the session. AudioProvider's gesture listener is what
-   * actually calls this repeatedly; toggleSfx() also calls it directly the
-   * moment SFX is switched on, since that click is itself a real gesture.
-   */
-  unlock(): void {
-    if (typeof window === 'undefined') return
-    for (const name of ALL_SOUND_NAMES) {
-      this.getPlayer(name).unlock()
-    }
-    for (const src of ALL_CHARACTER_VOICE_SRCS) {
-      this.getVoicePlayer(src).unlock()
-    }
-  }
-
-  /**
    * BGM is deliberately NOT gated by `muted`/`introLocked` — those encode an
    * SFX-only product decision (SFX defaults off until opt-in, forced silent
    * for the whole Intro). BGM defaults off the same way (see
@@ -227,25 +201,20 @@ class AudioManager {
   }
 
   /**
-   * Mirrors SoundPlayer/AudioManager's SFX unlock() — the same first-gesture
-   * listener in AudioProvider calls both. Unlike the pooled SFX elements
-   * (which mute, play, and immediately pause right back down — see
-   * SoundPlayer.unlock's doc comment — because they're only meant to be
-   * "primed" for a later real play() call), BGM's play() call here IS the
-   * real, intended start for a user who already had BGM enabled from a
-   * previous session (see BgmPlayer.play()'s own doc comment: a blocked
-   * autoplay attempt at initBgm() is "resolved later by
-   * AudioManager#unlockBgm()"). So this still mutes before calling play()
-   * — the same defensive guard against a leaked frame of audible sound if
-   * the browser rejects the attempt — but only restores the ORIGINAL mute
-   * state (unmuted, for an enabled BGM setting) once play() actually
-   * settles, rather than forcing a pause that would silently strand a
-   * returning user's already-enabled BGM in a paused, never-restarted
-   * state. Tracks its own success (`bgmUnlocked`) the same way SoundPlayer's
-   * per-element flags do, so this stays a safe no-op once confirmed but
-   * still gets retried on a later gesture if the first attempt failed —
-   * consistent with unlock() above now also being called on every gesture,
-   * not just the first.
+   * BGM-only unlock, called from AudioProvider's persistent gesture listener
+   * (see that file's doc comment for why SFX no longer has an equivalent).
+   * BGM's play() call here IS the real, intended start for a user who
+   * already had BGM enabled from a previous session (see BgmPlayer.play()'s
+   * own doc comment: a blocked autoplay attempt at initBgm() is "resolved
+   * later by AudioManager#unlockBgm()"). Mutes right before calling play()
+   * as a defensive guard against a leaked frame of audible sound if the
+   * browser rejects the attempt, and restores the ORIGINAL mute state
+   * (unmuted, for an enabled BGM setting) once play() actually settles,
+   * rather than forcing a pause that would silently strand a returning
+   * user's already-enabled BGM in a paused, never-restarted state. Tracks
+   * its own success (`bgmUnlocked`) so this stays a safe no-op once
+   * confirmed but still gets retried on a later gesture if the first
+   * attempt failed.
    */
   unlockBgm(): void {
     if (!this.bgmInitialized || !this.bgmSettings.enabled || this.bgmUnlocked) return
