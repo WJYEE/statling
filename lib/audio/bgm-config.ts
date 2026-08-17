@@ -49,6 +49,23 @@ export const BGM_TRACKS = [
   { id: 'bgm-28', title: 'Hopeful Steps', src: archieveSrc('28)Hopeful Steps (BGM 28).mp3') },
   { id: 'bgm-29', title: 'Stick Sword Hero', src: archieveSrc('29)Stick Sword Hero (BGM 29).mp3') },
   { id: 'bgm-30', title: "Hero's Folktale", src: archieveSrc('30)Hero’s Folktale (BGM 30).mp3') },
+  { id: 'bgm-31', title: "Bard's Flute Melody", src: archieveSrc('31)Bard’s Flute Melody (BGM 31).mp3') },
+  { id: 'bgm-32', title: 'Sunny Afternoon Tea', src: archieveSrc('32)Sunny Afternoon Tea (BGM 32).mp3') },
+  { id: 'bgm-33', title: 'Creaky Synth & Pinecones', src: archieveSrc('33)Creaky Synth & Pinecones (BGM 33).mp3') },
+  { id: 'bgm-34', title: 'Twisted & Bouncy', src: archieveSrc('34)Twisted & Bouncy (BGM 34).mp3') },
+  { id: 'bgm-35', title: 'Final Sunset & Memories', src: archieveSrc('35)Final Sunset & Memories (BGM 35).mp3') },
+  { id: 'bgm-36', title: 'Wood Soup & Rolling Acorns', src: archieveSrc('36)Wood Soup & Rolling Acorns (BGM 36).mp3') },
+  { id: 'bgm-37', title: 'The Lonely Guitarist', src: archieveSrc('37)The Lonely Guitarist (BGM 37).mp3') },
+  { id: 'bgm-38', title: 'Sea of Lanterns', src: archieveSrc('38)Sea of Lanterns (BGM 38).mp3') },
+  { id: 'bgm-39', title: 'Evening Storytime', src: archieveSrc('39)Evening Storytime (BGM 39).mp3') },
+  { id: 'bgm-40', title: 'First Stop, Grand City', src: archieveSrc('40)First Stop, Grand City (BGM 40).mp3') },
+  { id: 'bgm-41', title: "Jester's Town", src: archieveSrc("41)Jester's Town (BGM 41).mp3") },
+  // NOTE: no "...Jewel Contest (BGM 42)..." file exists in the Archieve
+  // folder — only "42)Sparkling Contest (BGM 42).mp3" — so `src` points at
+  // the file that's actually on disk while `title` keeps the exact display
+  // name requested. Flagged for the requester to confirm/re-upload if the
+  // "Jewel" title was intentional.
+  { id: 'bgm-42', title: 'Sparkling Jewel Contest', src: archieveSrc('42)Sparkling Contest (BGM 42).mp3') },
 ] as const
 
 export type BgmTrack = (typeof BGM_TRACKS)[number]
