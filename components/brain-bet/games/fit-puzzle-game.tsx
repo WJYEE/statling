@@ -139,6 +139,18 @@ interface ArenaMetrics {
  * shrinking than 2 does to fit the same width, so 2 wins on its own strictly
  * higher scale — "모바일 기본 2열 / 데스크톱 2~3열" falls out of the real
  * geometry instead of a hardcoded breakpoint.
+ *
+ * 2026-08 QA 5차: that last sentence stopped being true once a level's
+ * pieces got large enough that BOTH the 2-col and 3-col candidates need
+ * more shrinking than MIN_CELL_SCALE allows — comparing the post-floor
+ * `scale` (clamped to MIN_CELL_SCALE) made them read as tied even though
+ * their real, pre-floor space requirements still differed a lot, and the
+ * `>=` tie-break then picked the WIDER 3-col candidate on a narrow phone,
+ * producing real horizontal overflow. `comparisonScale` below applies only
+ * the ceiling clamp (so the genuine "both already fit, prefer wider" desktop
+ * tie above is untouched) and leaves the floor out of the comparison
+ * entirely, so a still-narrower 2-col candidate keeps winning on its own
+ * merits even after both would floor-clamp to the same final `scale`.
  */
 const MIN_TRAY_COLS = 2
 const MAX_TRAY_COLS = 3
@@ -153,15 +165,16 @@ function bestTrayColumns(lvl: PuzzleLevel, slotCells: number, availableWidthPx: 
   const minCols = Math.min(lvl.pieces.length, MIN_TRAY_COLS) || 1
   const maxCols = Math.max(minCols, Math.min(lvl.pieces.length, MAX_TRAY_COLS))
 
-  let best: TrayColumnCandidate | null = null
+  let best: (TrayColumnCandidate & { comparisonScale: number }) | null = null
   for (let trayCols = minCols; trayCols <= maxCols; trayCols += 1) {
     const trayRows = Math.ceil(lvl.pieces.length / trayCols)
     const widthUnitCells = Math.max(lvl.boardCols, trayCols * slotCells)
     const heightUnitCells = lvl.boardRows + BOARD_TRAY_GAP_CELLS + trayRows * slotCells
     const scaleFromWidth = availableWidthPx / (FIT_PUZZLE_CELL_SIZE_PX * widthUnitCells)
     const scaleFromHeight = availableHeightPx / (FIT_PUZZLE_CELL_SIZE_PX * heightUnitCells)
-    const scale = Math.min(1, Math.max(MIN_CELL_SCALE, Math.min(scaleFromWidth, scaleFromHeight)))
-    if (!best || scale >= best.scale) best = { trayCols, trayRows, scale }
+    const comparisonScale = Math.min(1, scaleFromWidth, scaleFromHeight)
+    const scale = Math.max(MIN_CELL_SCALE, comparisonScale)
+    if (!best || comparisonScale >= best.comparisonScale) best = { trayCols, trayRows, scale, comparisonScale }
   }
   // minCols<=maxCols always holds above, so the loop runs at least once.
   return best as TrayColumnCandidate
