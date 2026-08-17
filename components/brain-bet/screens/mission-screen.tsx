@@ -1,17 +1,49 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { Toast } from '@base-ui/react/toast'
 import { ArrowLeft, Check, Trophy } from 'lucide-react'
 import { ToyButton } from '@/components/brain-bet/toy-button'
 import { cn } from '@/lib/utils'
 import { localDateKey } from '@/lib/missions/attendance-storage'
 import { pickTodayMissions, type DailyMissionDef } from '@/lib/missions/daily-missions.config'
 import { ensureToday, loadDailyMissionState, type DailyMissionState } from '@/lib/missions/daily-mission-storage'
-import { claimDailyMissionReward, evaluateSyncAchievements } from '@/lib/missions/mission-tracker'
+import { claimAchievementReward, claimDailyMissionReward, evaluateSyncAchievements, type ClaimAchievementResult } from '@/lib/missions/mission-tracker'
 import { evaluateRankAchievements } from '@/lib/missions/ranking-achievements'
+import { loadAchievementState } from '@/lib/missions/achievement-storage'
 import { ACHIEVEMENT_CATEGORY_LABELS, type AchievementCategory } from '@/lib/missions/achievements.config'
 import type { AchievementTierProgress } from '@/lib/missions/achievement-evaluator'
 import { ROOM_ASSETS } from '@/lib/room-assets'
+
+/** A tier's status relative to the player's own AchievementState — see lib/missions/achievement-storage.ts. Purely a display concept, never persisted itself (derived fresh from unlockedTierIds/claimedTierIds + the live `completed` each render). */
+type AchievementTierStatus = 'in_progress' | 'completed_unclaimed' | 'claimed'
+
+function statusFor(item: AchievementTierProgress, claimedTierIds: readonly string[]): AchievementTierStatus {
+  if (claimedTierIds.includes(item.tierId)) return 'claimed'
+  if (item.completed) return 'completed_unclaimed'
+  return 'in_progress'
+}
+
+/** Correct 을/를 for a Korean noun by checking whether its last syllable has a batchim (Hangul syllables are a fixed Unicode block starting at U+AC00, in 28-value groups — remainder 0 means no final consonant). Falls back to '를' for anything that isn't a plain Hangul syllable (defensive only — every Room reward name in lib/room-assets.ts is Korean). */
+function withObjectParticle(word: string): string {
+  const last = word.trim().slice(-1)
+  const code = last.charCodeAt(0)
+  if (code < 0xac00 || code > 0xd7a3) return `${word}를`
+  const hasBatchim = (code - 0xac00) % 28 !== 0
+  return `${word}${hasBatchim ? '을' : '를'}`
+}
+
+/** "100 XP와 산 액자를 획득했어요!" / "산 액자를 획득했어요!" / "100 XP를 획득했어요!" — concise claim-success feedback, see Part D of the achievement-claim spec. */
+function buildClaimToastTitle(result: ClaimAchievementResult): string {
+  const roomAssetName = result.roomReward ? ROOM_ASSETS[result.roomReward]?.name : undefined
+  if (roomAssetName && result.rewardXp) {
+    return `${result.rewardXp} XP와 ${withObjectParticle(roomAssetName)} 획득했어요!`
+  }
+  if (roomAssetName) {
+    return `${withObjectParticle(roomAssetName)} 획득했어요!`
+  }
+  return `${result.rewardXp ?? 0} XP를 획득했어요!`
+}
 
 type MissionTab = 'daily' | 'achievement'
 
@@ -112,10 +144,15 @@ function DailyMissionPanel() {
                 {isClaimed ? '완료' : `+${mission.rewardXp} XP`}
               </ToyButton>
             </div>
+            {/* fill uses bg-primary/45 (not bg-secondary) while in progress —
+                bg-secondary and the track's bg-muted render nearly (light
+                mode) or exactly (dark mode) identical, making the fill
+                invisible regardless of its width. See AchievementRow's
+                identical fix below for the same underlying issue. */}
             <div className="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-muted">
               <div
-                className={cn('h-full rounded-full transition-all', isComplete ? 'bg-primary' : 'bg-secondary')}
-                style={{ width: `${(progress / mission.target) * 100}%` }}
+                className={cn('h-full rounded-full transition-all', isComplete ? 'bg-primary' : 'bg-primary/45')}
+                style={{ width: `${Math.min(100, (progress / mission.target) * 100)}%` }}
               />
             </div>
             <p className="mt-1 text-right text-[10px] font-bold text-muted-foreground">
@@ -130,6 +167,8 @@ function DailyMissionPanel() {
 
 function AchievementPanel({ statlingName, userId }: { statlingName: string; userId: string | null }) {
   const [progress, setProgress] = useState<AchievementTierProgress[] | null>(null)
+  const [claimedTierIds, setClaimedTierIds] = useState<string[]>(() => loadAchievementState().claimedTierIds)
+  const toastManager = Toast.useToastManager()
 
   useEffect(() => {
     let cancelled = false
@@ -138,15 +177,29 @@ function AchievementPanel({ statlingName, userId }: { statlingName: string; user
     // rather than blocking the whole tab on them — see
     // lib/missions/ranking-achievements.ts.
     const syncProgress = evaluateSyncAchievements()
-    if (!cancelled) setProgress(syncProgress)
+    if (!cancelled) {
+      setProgress(syncProgress)
+      // Re-read after evaluateSyncAchievements — it may have just unlocked
+      // (but never auto-claims) a tier, which doesn't change claimedTierIds,
+      // but keeps this in sync with whatever WAS already claimed on load.
+      setClaimedTierIds(loadAchievementState().claimedTierIds)
+    }
     evaluateRankAchievements(statlingName || '게스트', userId).then((rankProgress) => {
       if (cancelled) return
       setProgress((prev) => [...(prev ?? []), ...rankProgress])
+      setClaimedTierIds(loadAchievementState().claimedTierIds)
     })
     return () => {
       cancelled = true
     }
   }, [statlingName, userId])
+
+  function handleClaim(item: AchievementTierProgress) {
+    const result = claimAchievementReward(item.tierId)
+    if (!result.claimed) return // already claimed / not actually unlocked — silent no-op, see claimAchievementReward's own guard
+    setClaimedTierIds(loadAchievementState().claimedTierIds)
+    toastManager.add({ title: buildClaimToastTitle(result), type: 'success' })
+  }
 
   if (progress === null) {
     return (
@@ -170,7 +223,12 @@ function AchievementPanel({ statlingName, userId }: { statlingName: string; user
             </p>
             <div className="flex flex-col gap-2">
               {items.map((item) => (
-                <AchievementRow key={item.tierId} item={item} />
+                <AchievementRow
+                  key={item.tierId}
+                  item={item}
+                  status={statusFor(item, claimedTierIds)}
+                  onClaim={() => handleClaim(item)}
+                />
               ))}
             </div>
           </div>
@@ -180,16 +238,32 @@ function AchievementPanel({ statlingName, userId }: { statlingName: string; user
   )
 }
 
-function AchievementRow({ item }: { item: AchievementTierProgress }) {
+function AchievementRow({
+  item,
+  status,
+  onClaim,
+}: {
+  item: AchievementTierProgress
+  status: AchievementTierStatus
+  onClaim: () => void
+}) {
   const isRank = RANK_FAMILY_IDS.has(item.familyId)
   const value = item.currentValue ?? 0
+  // Drives every "does this look done" visual below — deliberately the
+  // derived status, not the live `item.completed`, so a claimed tier always
+  // reads as done even in the (currently never-happens, but not
+  // type-guaranteed) case a metric's live value were to regress.
+  const isCompletedLike = status !== 'in_progress'
   // Real ROOM_ASSETS PNG (never a placeholder icon) — only set for the
   // handful of "특별 Achievement" tiers with a roomReward (see
-  // lib/missions/achievements.config.ts). Most tiers stay XP-only.
+  // lib/missions/achievements.config.ts). Most tiers stay XP-only. Shown
+  // regardless of status — in_progress/completed_unclaimed show it as a
+  // preview of what's coming, claimed shows it as confirmation of what was
+  // actually received (same PNG either way, reused as-is).
   const roomAsset = item.roomReward ? ROOM_ASSETS[item.roomReward] : undefined
 
   return (
-    <div className={cn('rounded-2xl px-4 py-3.5 toy-border', item.completed ? 'bg-accent toy-shadow-sm' : 'bg-card')}>
+    <div className={cn('rounded-2xl px-4 py-3.5 toy-border', isCompletedLike ? 'bg-accent toy-shadow-sm' : 'bg-card')}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="font-display text-sm font-extrabold text-foreground">{item.title}</p>
@@ -198,10 +272,10 @@ function AchievementRow({ item }: { item: AchievementTierProgress }) {
         <span
           className={cn(
             'grid h-7 w-7 shrink-0 place-items-center rounded-full toy-border',
-            item.completed ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
+            isCompletedLike ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
           )}
         >
-          {item.completed ? <Check size={14} strokeWidth={3} /> : <Trophy size={13} strokeWidth={2.2} />}
+          {isCompletedLike ? <Check size={14} strokeWidth={3} /> : <Trophy size={13} strokeWidth={2.2} />}
         </span>
       </div>
 
@@ -211,9 +285,14 @@ function AchievementRow({ item }: { item: AchievementTierProgress }) {
         </p>
       ) : (
         <>
+          {/* Fill is bg-primary/45 while in progress, solid bg-primary once
+              completed — bg-secondary (the old fill color) renders nearly
+              (light mode) or byte-for-byte identical (dark mode) to the
+              track's own bg-muted, so a partially-filled bar was previously
+              invisible regardless of its (correctly-computed) width. */}
           <div className="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-muted">
             <div
-              className={cn('h-full rounded-full transition-all', item.completed ? 'bg-primary' : 'bg-secondary')}
+              className={cn('h-full rounded-full transition-all', isCompletedLike ? 'bg-primary' : 'bg-primary/45')}
               style={{ width: `${Math.min(100, (value / item.target) * 100)}%` }}
             />
           </div>
@@ -234,6 +313,18 @@ function AchievementRow({ item }: { item: AchievementTierProgress }) {
           </div>
         )}
       </div>
+
+      {status === 'completed_unclaimed' && (
+        <ToyButton className="mt-2.5 w-full py-2.5 text-xs" onClick={onClaim}>
+          보상 받기
+        </ToyButton>
+      )}
+      {status === 'claimed' && (
+        <p className="mt-2.5 flex items-center justify-center gap-1 text-[11px] font-bold text-muted-foreground">
+          <Check size={12} strokeWidth={3} />
+          보상 수령 완료
+        </p>
+      )}
     </div>
   )
 }

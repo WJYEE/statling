@@ -24,9 +24,10 @@ import {
   claimDailyMission,
   type DailyMissionState,
 } from '@/lib/missions/daily-mission-storage'
-import { ACHIEVEMENT_FAMILIES, ACHIEVEMENT_TIERS_FLAT, RANK_ACHIEVEMENT_METRICS, type AchievementMetricKey } from '@/lib/missions/achievements.config'
+import { ACHIEVEMENT_FAMILIES, ACHIEVEMENT_TIERS_FLAT, RANK_ACHIEVEMENT_METRICS, findAchievementTier, type AchievementMetricKey } from '@/lib/missions/achievements.config'
 import { evaluateAchievementFamilies, type AchievementTierProgress } from '@/lib/missions/achievement-evaluator'
 import { loadAchievementState, saveAchievementState } from '@/lib/missions/achievement-storage'
+import { publishAchievementUnlocked } from '@/lib/missions/achievement-notifications'
 import { grantRoomReward, loadRoomInventoryState, saveRoomInventoryState } from '@/lib/room-inventory-storage'
 
 /**
@@ -37,11 +38,14 @@ import { grantRoomReward, loadRoomInventoryState, saveRoomInventoryState } from 
  * counter(s) (lib/missions/activity-counters.ts), bumps today's daily
  * mission progress where relevant (lib/missions/daily-mission-storage.ts),
  * then re-evaluates every SYNC achievement family (lib/missions/
- * achievements.config.ts) and unlocks+rewards+plays SFX for anything newly
- * completed. Rank-based achievement families (bestGameRank/overallRank) are
- * deliberately NOT checked here — see lib/missions/ranking-achievements.ts,
- * called only when the 업적 tab is actually opened, since they need an
- * async ranking-provider call this synchronous choke point can't await.
+ * achievements.config.ts) and marks anything newly-completed as unlocked
+ * (condition met, reward still pending — see claimAchievementReward for the
+ * actual XP/Room-reward grant, a separate user-initiated step triggered from
+ * MissionScreen's "보상 받기"). Rank-based achievement families
+ * (bestGameRank/overallRank) are deliberately NOT checked here — see
+ * lib/missions/ranking-achievements.ts, called only when the 업적 tab is
+ * actually opened, since they need an async ranking-provider call this
+ * synchronous choke point can't await.
  */
 
 const SYNC_FAMILIES = ACHIEVEMENT_FAMILIES.filter((family) => !RANK_ACHIEVEMENT_METRICS.includes(family.metric))
@@ -83,16 +87,21 @@ function collectSyncMetricValues(counters: ActivityCounters): Partial<Record<Ach
 
 /**
  * Backfills a Room Decoration reward for any tier that's already in
- * `unlockedTierIds` (achieved in a past session — possibly before that tier
- * even had a `roomReward` attached) but whose reward isn't in inventory yet.
- * Never touches XP — that's only ever granted once, in the newly-unlocked
- * path below. Self-terminating: once backfilled, the reward is in
- * inventory, so the very next call finds nothing left to reconcile for that
- * tier — no separate "migration already ran" flag needed, so this is safe
- * to call on every evaluation pass (see applyNewlyUnlockedAchievements).
+ * `claimedTierIds` (its reward was actually granted in a past session —
+ * possibly before that tier even had a `roomReward` attached, or before
+ * this device's RoomInventoryState existed) but whose reward isn't in
+ * inventory yet. Deliberately keyed off `claimedTierIds`, not
+ * `unlockedTierIds` — an unlocked-but-not-yet-claimed tier must NOT have its
+ * Room reward leak into inventory ahead of the player actually pressing
+ * "보상 받기" (see claimAchievementReward). Never touches XP — that's only
+ * ever granted once, inside claimAchievementReward. Self-terminating: once
+ * backfilled, the reward is in inventory, so the very next call finds
+ * nothing left to reconcile for that tier — no separate "migration already
+ * ran" flag needed, so this is safe to call on every evaluation pass (see
+ * applyNewlyUnlockedAchievements).
  */
-function reconcileRoomRewards(unlockedTierIds: readonly string[]): void {
-  const owned = new Set(unlockedTierIds)
+function reconcileRoomRewards(claimedTierIds: readonly string[]): void {
+  const owned = new Set(claimedTierIds)
   const missing = ACHIEVEMENT_TIERS_FLAT.filter((tier) => tier.roomReward && owned.has(tier.id))
   if (missing.length === 0) return
 
@@ -107,12 +116,13 @@ function reconcileRoomRewards(unlockedTierIds: readonly string[]): void {
 }
 
 /**
- * Diffs freshly-evaluated progress against what's already been unlocked,
- * grants each newly-completed tier's rewardXp (and Room Decoration reward,
- * if any — see AchievementTierDef.roomReward), persists the updated
- * unlocked set, and plays the Achievement SFX exactly once for the whole
- * batch (audioManager.play already no-ops when SFX is off — see
- * lib/audio/audio-manager.ts — so no extra mute check is needed here).
+ * Diffs freshly-evaluated progress against what's already been unlocked and
+ * marks each newly-completed tier as unlocked (condition met) — persists
+ * `unlockedTierIds` and notifies GameFlow's toast subscription (see
+ * achievement-notifications.ts) so the player gets a small "업적을
+ * 달성했어요!" nudge even if they never open the 업적 tab. Deliberately
+ * grants NO XP and NO Room reward here — see claimAchievementReward for
+ * that, now a separate user-initiated step.
  */
 export function applyNewlyUnlockedAchievements(progressList: AchievementTierProgress[]): AchievementTierProgress[] {
   const state = loadAchievementState()
@@ -120,34 +130,68 @@ export function applyNewlyUnlockedAchievements(progressList: AchievementTierProg
   const newlyUnlocked = progressList.filter((p) => p.completed && !unlockedSet.has(p.tierId))
 
   // Runs regardless of whether anything is newly-unlocked this call — a
-  // returning player's pre-existing unlocks may still be missing a Room
-  // reward that didn't exist when they first earned the tier.
-  reconcileRoomRewards(state.unlockedTierIds)
+  // returning player's pre-existing CLAIMED tiers may still be missing a
+  // Room reward that didn't exist when they first claimed the tier.
+  reconcileRoomRewards(state.claimedTierIds)
 
   if (newlyUnlocked.length === 0) return newlyUnlocked
-
-  let xp = loadXpState()
-  for (const p of newlyUnlocked) xp = addXp(xp, p.rewardXp)
-  saveXpState(xp)
-
-  const newRoomRewardIds = newlyUnlocked.map((p) => p.roomReward).filter((id): id is string => !!id)
-  if (newRoomRewardIds.length > 0) {
-    let inventory = loadRoomInventoryState()
-    for (const assetId of newRoomRewardIds) inventory = grantRoomReward(inventory, assetId)
-    saveRoomInventoryState(inventory)
-  }
 
   saveAchievementState({
     version: 1,
     unlockedTierIds: [...state.unlockedTierIds, ...newlyUnlocked.map((p) => p.tierId)],
+    claimedTierIds: state.claimedTierIds,
+    updatedAt: new Date().toISOString(),
+  })
+
+  publishAchievementUnlocked(newlyUnlocked)
+  return newlyUnlocked
+}
+
+export interface ClaimAchievementResult {
+  claimed: boolean
+  rewardXp?: number
+  roomReward?: string
+}
+
+/**
+ * MissionScreen's "보상 받기" — grants a tier's rewardXp (and Room reward,
+ * if any) exactly once. Mirrors claimDailyMissionReward's guard style: a
+ * tier must already be unlocked (condition met) and NOT already claimed, or
+ * this is a silent no-op (`{ claimed: false }`), never a throw — a stray
+ * double-click or a stale UI render racing a fresh claim must never
+ * double-grant XP. This double guard (unlocked-but-not-claimed) is the only
+ * thing standing between a re-click and a duplicate XP grant, since addXp
+ * itself has no idempotency of its own (see lib/ranking/xp-ledger.ts) —
+ * unlike grantRoomReward, which is additionally safe to call twice on its
+ * own. SFX plays only here, on an actual grant — never at unlock time.
+ */
+export function claimAchievementReward(tierId: string): ClaimAchievementResult {
+  const tier = findAchievementTier(tierId)
+  if (!tier) return { claimed: false }
+
+  const state = loadAchievementState()
+  if (!state.unlockedTierIds.includes(tierId)) return { claimed: false }
+  if (state.claimedTierIds.includes(tierId)) return { claimed: false }
+
+  saveXpState(addXp(loadXpState(), tier.rewardXp))
+
+  if (tier.roomReward) {
+    saveRoomInventoryState(grantRoomReward(loadRoomInventoryState(), tier.roomReward))
+  }
+
+  saveAchievementState({
+    version: 1,
+    unlockedTierIds: state.unlockedTierIds,
+    claimedTierIds: [...state.claimedTierIds, tierId],
     updatedAt: new Date().toISOString(),
   })
 
   audioManager.play('achievement')
-  return newlyUnlocked
+
+  return { claimed: true, rewardXp: tier.rewardXp, roomReward: tier.roomReward }
 }
 
-/** Re-evaluates every sync achievement family against current storage and unlocks/rewards any newly-completed tier. Safe to call often — pure reads until something actually changed. */
+/** Re-evaluates every sync achievement family against current storage and unlocks (marks completed) any newly-completed tier — rewards are granted separately via claimAchievementReward. Safe to call often — pure reads until something actually changed. */
 export function evaluateSyncAchievements(): AchievementTierProgress[] {
   const counters = loadActivityCounters()
   const values = collectSyncMetricValues(counters)

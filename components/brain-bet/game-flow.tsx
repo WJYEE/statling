@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { Toast } from '@base-ui/react/toast'
 import { ConfirmDialog } from '@/components/brain-bet/confirm-dialog'
 import { LandingScreen } from '@/components/brain-bet/screens/landing-screen'
 import { LoginScreen } from '@/components/brain-bet/screens/login-screen'
@@ -81,6 +82,7 @@ import {
 import { addXp, loadXpState, saveXpState } from '@/lib/ranking/xp-ledger'
 import { useAuth } from '@/lib/auth/auth-provider'
 import { trackDailyVisit, trackFirstLogin, trackGamePlayed } from '@/lib/missions/mission-tracker'
+import { subscribeToAchievementUnlocks } from '@/lib/missions/achievement-notifications'
 import { loadActivityCounters } from '@/lib/missions/activity-counters'
 import {
   clearIntroProgress,
@@ -184,6 +186,7 @@ const emptyFinals = () =>
 
 export function GameFlow() {
   const { user, loading: authLoading } = useAuth()
+  const toastManager = Toast.useToastManager()
   const [phase, setPhase] = useState<Phase>('landing')
   const [flowMode, setFlowMode] = useState<'first' | 'free'>('first')
   const [index, setIndex] = useState(0)
@@ -409,6 +412,22 @@ export function GameFlow() {
   useEffect(() => {
     trackDailyVisit()
   }, [])
+
+  // Achievement-unlock nudge — GameFlow is the one component guaranteed to
+  // be mounted for the whole session regardless of which screen/hook
+  // actually triggered the unlock (feed/wash/play/pet/talk in RoomScreen,
+  // a mini-game completion right here, a room/Statling decor save, a share
+  // — see mission-tracker.ts's track* functions), so this is the single
+  // place that can reliably show the toast no matter where the achievement
+  // fired from. Deliberately a small "you unlocked something" nudge, NOT a
+  // reward notification — XP/Room reward only grant once the player opens
+  // 업적 and presses "보상 받기" (see mission-screen.tsx's claim handler /
+  // mission-tracker.ts#claimAchievementReward).
+  useEffect(() => {
+    return subscribeToAchievementUnlocks((tier) => {
+      toastManager.add({ title: `업적 달성! ${tier.title}`, type: 'success' })
+    })
+  }, [toastManager])
 
   // "첫 로그인" — fires the moment useAuth() first resolves a real user,
   // idempotent so a later remount/session never re-fires it.

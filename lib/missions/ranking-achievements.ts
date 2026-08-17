@@ -34,7 +34,15 @@ async function collectRankMetricValues(
   return { overallRank, bestGameRank }
 }
 
-/** Evaluates + unlocks/rewards ONLY the rank-based families (bestGameRank/overallRank) — pair with lib/missions/mission-tracker.ts#evaluateSyncAchievements for the full picture. */
+/**
+ * Evaluates + unlocks (marks completed) ONLY the rank-based families
+ * (bestGameRank/overallRank) — pair with lib/missions/mission-tracker.ts's
+ * evaluateSyncAchievements for the full picture. Routes through the same
+ * applyNewlyUnlockedAchievements as every sync family, so a rank tier
+ * reaching its target here also lands in `completed_unclaimed` rather than
+ * auto-granting — the player still has to open 업적 and press "보상 받기",
+ * exactly like every other family.
+ */
 export async function evaluateRankAchievements(
   displayName: string,
   userId: string | null,
