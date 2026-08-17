@@ -14,6 +14,7 @@ import { loadAchievementState } from '@/lib/missions/achievement-storage'
 import { ACHIEVEMENT_CATEGORY_LABELS, type AchievementCategory } from '@/lib/missions/achievements.config'
 import type { AchievementTierProgress } from '@/lib/missions/achievement-evaluator'
 import { ROOM_ASSETS } from '@/lib/room-assets'
+import { trackEvent } from '@/lib/analytics/ga'
 
 /** A tier's status relative to the player's own AchievementState — see lib/missions/achievement-storage.ts. Purely a display concept, never persisted itself (derived fresh from unlockedTierIds/claimedTierIds + the live `completed` each render). */
 type AchievementTierStatus = 'in_progress' | 'completed_unclaimed' | 'claimed'
@@ -68,6 +69,12 @@ interface MissionScreenProps {
 export function MissionScreen({ onBack, statlingName, userId }: MissionScreenProps) {
   const [activeTab, setActiveTab] = useState<MissionTab>('daily')
 
+  // Fires on mount (default 'daily' tab -> daily_mission_view) and every tab
+  // switch ('achievement' -> achievement_view).
+  useEffect(() => {
+    trackEvent(activeTab === 'daily' ? 'daily_mission_view' : 'achievement_view', {})
+  }, [activeTab])
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col px-5 pb-24 pt-8 sm:pb-10">
       <header className="flex items-center gap-3">
@@ -119,7 +126,15 @@ function DailyMissionPanel() {
 
   function handleClaim(mission: DailyMissionDef) {
     const result = claimDailyMissionReward(mission.id, mission.target, mission.rewardXp, new Date())
-    if (result.claimed) setState(ensureToday(loadDailyMissionState(), new Date()))
+    if (result.claimed) {
+      setState(ensureToday(loadDailyMissionState(), new Date()))
+      trackEvent('daily_mission_complete', {
+        mission_id: mission.id,
+        mission_type: mission.trigger,
+        reward_type: 'xp',
+        reward_amount: mission.rewardXp,
+      })
+    }
   }
 
   return (
@@ -196,9 +211,16 @@ function AchievementPanel({ statlingName, userId }: { statlingName: string; user
 
   function handleClaim(item: AchievementTierProgress) {
     const result = claimAchievementReward(item.tierId)
-    if (!result.claimed) return // already claimed / not actually unlocked — silent no-op, see claimAchievementReward's own guard
+    if (!result.claimed) return // already claimed / not actually unlocked — silent no-op, see claimAchievementReward's own guard; no event on this path
     setClaimedTierIds(loadAchievementState().claimedTierIds)
     toastManager.add({ title: buildClaimToastTitle(result), type: 'success' })
+    trackEvent('achievement_reward_claim', {
+      achievement_id: item.tierId,
+      achievement_type: item.category,
+      reward_type: result.roomReward ? 'xp_and_room_item' : 'xp',
+      reward_amount: result.rewardXp ?? 0,
+      ...(result.roomReward ? { room_reward_id: result.roomReward } : {}),
+    })
   }
 
   if (progress === null) {

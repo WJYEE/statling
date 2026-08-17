@@ -41,6 +41,7 @@ import { createDefaultRoomCareState, loadRoomCareState, saveRoomCareState } from
 import type { CareActionId, CareStatId, Mood, PetAnimation, PetCareState, RoomCareState, SecondaryTag } from '@/lib/pet-care/types'
 import { useSound } from '@/hooks/use-sound'
 import { trackCareInteraction } from '@/lib/missions/mission-tracker'
+import { trackEvent } from '@/lib/analytics/ga'
 
 const ACTION_IDS: CareActionId[] = ['feed', 'shower', 'clean', 'play', 'pet', 'talk']
 
@@ -53,6 +54,8 @@ export interface FloatingDelta {
 export interface LevelUpEvent {
   key: number
   level: number
+  /** intimacyLevel immediately before this gain — lets GA4's level_up event report previous_level/new_level without the UI recomputing it. */
+  previousLevel: number
   unlocks: RewardUnlock[]
 }
 
@@ -242,7 +245,7 @@ export function usePetCare() {
     }, holdMs)
   }
 
-  function finalizeAction(result: ActionResult, room?: RoomCareState) {
+  function finalizeAction(result: ActionResult, actionId: CareActionId, room?: RoomCareState) {
     const beforeLevel = petStateRef.current.intimacyLevel
     let finalPetState = result.petState
 
@@ -255,9 +258,11 @@ export function usePetCare() {
         giftReadyLevel: giftLevel ?? finalPetState.giftReadyLevel,
       }
       play('level-up')
-      setLevelUpEvent({ key: Date.now(), level: result.levelUp.level, unlocks })
+      setLevelUpEvent({ key: Date.now(), level: result.levelUp.level, previousLevel: beforeLevel, unlocks })
       schedule(() => setLevelUpEvent(null), 4000)
     }
+
+    if (result.expGained > 0) trackEvent('xp_earned', { xp_amount: result.expGained, xp_source: actionId })
 
     setPetState(finalPetState)
     savePetCareState(finalPetState)
@@ -294,7 +299,7 @@ export function usePetCare() {
 
     switch (actionId) {
       case 'feed':
-        finalizeAction(performFeed(pet, now))
+        finalizeAction(performFeed(pet, now), actionId)
         trackCareInteractionDeferred(actionId, now)
         return
       case 'shower': {
@@ -307,18 +312,18 @@ export function usePetCare() {
           setIsShowerAlreadySatisfied(true)
           schedule(() => setIsShowerAlreadySatisfied(false), REACTION_FEEDBACK_MS)
         }
-        finalizeAction(performShower(pet, now))
+        finalizeAction(performShower(pet, now), actionId)
         trackCareInteractionDeferred(actionId, now)
         return
       }
       case 'clean': {
         const result = performClean(pet, room, now)
-        finalizeAction(result, result.roomState)
+        finalizeAction(result, actionId, result.roomState)
         trackCareInteractionDeferred(actionId, now)
         return
       }
       case 'play':
-        finalizeAction(performPlay(pet, now))
+        finalizeAction(performPlay(pet, now), actionId)
         trackCareInteractionDeferred(actionId, now)
         return
       case 'pet': {
@@ -332,7 +337,7 @@ export function usePetCare() {
           setIsOverPetted(true)
           schedule(() => setIsOverPetted(false), OVERPET_REACTION_HOLD_MS)
         }
-        finalizeAction(performPet(pet, now))
+        finalizeAction(performPet(pet, now), actionId)
         trackCareInteractionDeferred(actionId, now)
         return
       }
@@ -362,7 +367,7 @@ export function usePetCare() {
   function answerTalk(responseText: string) {
     const now = new Date()
     setLastUserActionAt(now.getTime())
-    finalizeAction(performTalkAnswer(petStateRef.current, now, responseText))
+    finalizeAction(performTalkAnswer(petStateRef.current, now, responseText), 'talk')
     trackCareInteractionDeferred('talk', now)
   }
 
@@ -437,10 +442,17 @@ export function usePetCare() {
         giftReadyLevel: giftLevel ?? finalPetState.giftReadyLevel,
       }
       play('level-up')
-      setLevelUpEvent({ key: Date.now(), level: result.levelUp.level, unlocks })
+      setLevelUpEvent({ key: Date.now(), level: result.levelUp.level, previousLevel: beforeLevel, unlocks })
       schedule(() => setLevelUpEvent(null), 4000)
       playAnimation('jump')
     }
+
+    // The only caller that ever passes a nonzero expGain here today is
+    // usePetMemory's minigame-completion reaction bonus (hooks/use-pet-memory.ts) —
+    // the sleep/playAlone autonomous bonus always passes 0, so this can't
+    // double-count that path. Revisit xp_source if a second nonzero caller
+    // shows up.
+    if (result.expGained > 0) trackEvent('xp_earned', { xp_amount: result.expGained, xp_source: 'game_reaction' })
 
     setPetState(finalPetState)
     savePetCareState(finalPetState)

@@ -29,6 +29,7 @@ import { evaluateAchievementFamilies, type AchievementTierProgress } from '@/lib
 import { loadAchievementState, saveAchievementState } from '@/lib/missions/achievement-storage'
 import { publishAchievementUnlocked } from '@/lib/missions/achievement-notifications'
 import { grantRoomReward, loadRoomInventoryState, saveRoomInventoryState } from '@/lib/room-inventory-storage'
+import { trackEvent } from '@/lib/analytics/ga'
 
 /**
  * Every tracked gameplay event's single entry point — the ONLY file
@@ -118,11 +119,14 @@ function reconcileRoomRewards(claimedTierIds: readonly string[]): void {
 /**
  * Diffs freshly-evaluated progress against what's already been unlocked and
  * marks each newly-completed tier as unlocked (condition met) — persists
- * `unlockedTierIds` and notifies GameFlow's toast subscription (see
- * achievement-notifications.ts) so the player gets a small "업적을
- * 달성했어요!" nudge even if they never open the 업적 tab. Deliberately
- * grants NO XP and NO Room reward here — see claimAchievementReward for
- * that, now a separate user-initiated step.
+ * `unlockedTierIds`, fires the existing `achievement_unlock` GA4 event
+ * (relocated here from the old auto-grant path; same event name/params as
+ * before, now fired at the moment that's actually true to its name — see
+ * lib/analytics/ga.ts, untouched), and notifies GameFlow's toast
+ * subscription (see achievement-notifications.ts) so the player gets a
+ * small "업적을 달성했어요!" nudge even if they never open the 업적 tab.
+ * Deliberately grants NO XP and NO Room reward here — see
+ * claimAchievementReward for that, now a separate user-initiated step.
  */
 export function applyNewlyUnlockedAchievements(progressList: AchievementTierProgress[]): AchievementTierProgress[] {
   const state = loadAchievementState()
@@ -143,6 +147,9 @@ export function applyNewlyUnlockedAchievements(progressList: AchievementTierProg
     updatedAt: new Date().toISOString(),
   })
 
+  for (const p of newlyUnlocked) {
+    trackEvent('achievement_unlock', { achievement_id: p.tierId, achievement_type: p.category })
+  }
   publishAchievementUnlocked(newlyUnlocked)
   return newlyUnlocked
 }

@@ -28,6 +28,7 @@ import { loadDecoInventoryState } from '@/lib/deco-inventory-storage'
 import type { PetProfile } from '@/lib/pets/pet-profile'
 import { cn } from '@/lib/utils'
 import { trackStatlingDecorSaved } from '@/lib/missions/mission-tracker'
+import { trackEvent } from '@/lib/analytics/ga'
 
 interface StatlingScreenProps {
   statlingName: string
@@ -90,6 +91,16 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
     onDirtyChange(themeDirty || decoDirty)
   }, [themeDirty, decoDirty, onDirtyChange])
 
+  // "Statling 꾸미기 화면 진입" — this component's default view (see `view`
+  // above), fires once per mount (i.e. every time the user opens the
+  // Statling tab). The nested room-deco view fires its own customization_open
+  // from the "방 꾸미기" button below instead, since switching to it doesn't
+  // remount this component.
+  useEffect(() => {
+    trackEvent('customization_open', { customization_type: 'statling' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per mount only
+  }, [])
+
   // Warn on refresh/tab close only — never touches savedDeco itself. Mirrors theme-screen.tsx's identical guard.
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
@@ -127,6 +138,10 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
     const newItem = spawnDefaultDecoItem(asset, draftDeco.items, anchors)
     setDraftDeco((prev) => ({ ...prev, items: [...prev.items, newItem] }))
     setSelectedInstanceId(newItem.instanceId)
+    // item_type has no dedicated category field for Statling deco (unlike
+    // Room assets' RoomAssetCategory) — unlockSource.type ('default'/
+    // 'level_gift') is the closest real classification, so that's used here.
+    trackEvent('customization_apply', { customization_type: 'statling', item_id: asset.id, item_type: asset.unlockSource.type })
   }
 
   /** Tapping a not-yet-claimed level_gift item — never places it, just names the level it unlocks at. No further detail (see the grid's lock UI below). */
@@ -137,9 +152,17 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
 
   function confirmDeleteSelected() {
     if (!selectedInstanceId) return
+    const removedAsset = selectedItem ? getSupportedDecoAssetById(selectedItem.itemId) : null
     setDraftDeco((prev) => ({ ...prev, items: prev.items.filter((item) => item.instanceId !== selectedInstanceId) }))
     setSelectedInstanceId(null)
     setConfirmingDeleteDeco(false)
+    if (removedAsset) {
+      trackEvent('customization_remove', {
+        customization_type: 'statling',
+        item_id: removedAsset.id,
+        item_type: removedAsset.unlockSource.type,
+      })
+    }
   }
 
   function handleFlip() {
@@ -168,6 +191,7 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
       setSavedDeco(persisted)
       setDraftDeco(deepCloneDecoPlacementState(persisted))
       trackStatlingDecorSaved()
+      trackEvent('customization_save', { customization_type: 'statling', item_count: persisted.items.length })
       toastManager.add({ title: '꾸미기가 저장되었어요.', type: 'success' })
     } catch {
       toastManager.add({ title: '저장하지 못했어요. 다시 시도해주세요.', type: 'error' })
@@ -239,7 +263,10 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
         </button>
         <button
           type="button"
-          onClick={() => setView('dex')}
+          onClick={() => {
+            trackEvent('collection_view', {})
+            setView('dex')
+          }}
           className="flex items-center justify-center gap-1.5 rounded-2xl bg-card px-4 py-3 text-sm font-bold text-foreground toy-border active:translate-y-0.5"
         >
           <BookOpen size={16} strokeWidth={2.4} />

@@ -16,6 +16,7 @@ import {
   VolumeX,
 } from 'lucide-react'
 import { Toast } from '@base-ui/react/toast'
+import { trackEvent, type ShareContext } from '@/lib/analytics/ga'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { AuthForm } from '@/components/brain-bet/auth/auth-form'
 import { ConfirmDialog } from '@/components/brain-bet/confirm-dialog'
@@ -46,6 +47,9 @@ const BGM_MODE_LABELS: Record<BgmMode, string> = {
   sequential: '선택곡 순차 재생',
   shuffle: '선택곡 랜덤 재생',
 }
+
+/** This screen's fixed share_context/utm_content value — see lib/analytics/ga.ts's ShareContext doc comment for why the same constant feeds both the GA event param and buildShareUrl's UTM. */
+const SHARE_CONTEXT: ShareContext = 'my_page'
 
 interface MyPageScreenProps {
   statlingName: string
@@ -89,7 +93,9 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
     // encodeURIComponent is required, not defensive — every catalog id is
     // Korean (see lib/pets/pet-profile.ts), and app/share/[petId]/page.tsx
     // expects (and explicitly decodes) a properly percent-encoded segment.
-    const url = `${window.location.origin}/share/${encodeURIComponent(petProfile.id)}`
+    // Routed through buildShareUrl (like the two share/save actions below)
+    // so a manually copy-pasted link still carries the same UTM attribution.
+    const url = buildShareUrl(`${window.location.origin}/share/${encodeURIComponent(petProfile.id)}`, SHARE_CONTEXT)
     try {
       await navigator.clipboard.writeText(url)
       trackShare()
@@ -102,6 +108,7 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
   async function handleShareFriendCard() {
     if (!petProfile || busyAction) return
     setBusyAction('share')
+    trackEvent('share_click', { action_type: 'web_share', share_context: SHARE_CONTEXT })
     try {
       const content = {
         title: buildFriendInviteTitle(),
@@ -113,7 +120,7 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
         // Reuses the exact same "친구 도감 등록" invite link handleCopyShareLink
         // already shares above, rather than a plain app-root URL — the one
         // existing structure this feature can hook a future friend system into.
-        url: buildShareUrl(`${window.location.origin}/share/${encodeURIComponent(petProfile.id)}`),
+        url: buildShareUrl(`${window.location.origin}/share/${encodeURIComponent(petProfile.id)}`, SHARE_CONTEXT),
       }
       const outcome = await shareStatlingResult(
         content,
@@ -124,9 +131,11 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
       switch (outcome.status) {
         case 'shared':
           toastManager.add({ title: '공유했어요!', type: 'success' })
+          trackEvent('share_success', { action_type: 'web_share', share_context: SHARE_CONTEXT })
           break
         case 'copied':
           toastManager.add({ title: '공유 내용이 복사되었어요.', type: 'success' })
+          trackEvent('share_success', { action_type: 'web_share', share_context: SHARE_CONTEXT })
           break
         case 'cancelled':
           break // user backed out of the share sheet — not an error
@@ -135,6 +144,7 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
           break
         case 'error':
           toastManager.add({ title: '공유하지 못했어요. 다시 시도해주세요.', type: 'error' })
+          trackEvent('share_fail', { action_type: 'web_share', share_context: SHARE_CONTEXT, error_type: 'unknown' })
           break
       }
     } finally {
@@ -145,10 +155,12 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
   async function handleSaveFriendCardImage() {
     if (!petProfile || busyAction || !shareCardRef.current) return
     setBusyAction('save')
+    trackEvent('share_click', { action_type: 'png', share_context: SHARE_CONTEXT })
     try {
       const blob = await createShareImage(shareCardRef.current)
       if (!blob) {
         toastManager.add({ title: '이미지를 만들지 못했어요. 다시 시도해주세요.', type: 'error' })
+        trackEvent('share_fail', { action_type: 'png', share_context: SHARE_CONTEXT, error_type: 'image_creation_failed' })
         return
       }
 
@@ -156,18 +168,22 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
       switch (outcome.status) {
         case 'shared':
           toastManager.add({ title: '공유 시트에서 사진 앱에 저장할 수 있어요.', type: 'success' })
+          trackEvent('share_success', { action_type: 'png', share_context: SHARE_CONTEXT })
           break
         case 'downloaded':
           toastManager.add({ title: '이미지가 저장되었어요.', type: 'success' })
+          trackEvent('share_success', { action_type: 'png', share_context: SHARE_CONTEXT })
           break
         case 'cancelled':
           break // user backed out of the native share sheet — not an error
         case 'error':
           toastManager.add({ title: '이미지를 저장하지 못했어요. 다시 시도해주세요.', type: 'error' })
+          trackEvent('share_fail', { action_type: 'png', share_context: SHARE_CONTEXT, error_type: 'unknown' })
           break
       }
     } catch {
       toastManager.add({ title: '이미지를 만들지 못했어요. 다시 시도해주세요.', type: 'error' })
+      trackEvent('share_fail', { action_type: 'png', share_context: SHARE_CONTEXT, error_type: 'unknown' })
     } finally {
       setBusyAction(null)
     }
@@ -178,22 +194,26 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
     setSfxEnabled(next)
     saveSfxEnabled(next)
     audioManager.setMuted(!next)
+    trackEvent('audio_setting_change', { audio_type: 'sfx', enabled: next })
   }
 
   function toggleBgm() {
     const next = !bgmEnabled
     setBgmEnabledState(next)
     bgm.setEnabled(next)
+    trackEvent('audio_setting_change', { audio_type: 'bgm', enabled: next })
   }
 
   function changeBgmMode(mode: BgmMode) {
     setBgmModeState(mode)
     bgm.setMode(mode)
+    trackEvent('bgm_play_mode_change', { play_mode: mode })
   }
 
   function changeBgmRepeatTrack(id: BgmTrackId) {
     setBgmRepeatTrackIdState(id)
     bgm.setRepeatTrack(id)
+    trackEvent('bgm_track_change', { track_id: id })
   }
 
   function toggleBgmTrackSelection(id: BgmTrackId) {
@@ -206,6 +226,7 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
     if (next.length === 0) return
     setBgmSelectedTrackIdsState(next)
     bgm.setSelectedTrackIds(next)
+    trackEvent('bgm_track_change', { track_id: id })
   }
 
   async function handleSignOut() {
@@ -213,6 +234,7 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
     await signOut()
     setSigningOut(false)
     toastManager.add({ title: '로그아웃했어요.', type: 'success' })
+    trackEvent('logout', {})
   }
 
   return (

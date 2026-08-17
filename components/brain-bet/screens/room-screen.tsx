@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, Crosshair, Sparkles } from 'lucide-react'
 import { Toast } from '@base-ui/react/toast'
+import { trackEvent } from '@/lib/analytics/ga'
 import { CareActionButton } from '@/components/brain-bet/care-action-button'
 import { GiftQaMenu } from '@/components/brain-bet/gift-qa-menu'
 import { GiftRewardPopup } from '@/components/brain-bet/gift-reward-popup'
@@ -326,6 +327,7 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
       toastManager.add({ title: reward.title, description: reward.description, type: 'success' })
     })
     playCharacterVoice(petProfile?.id)
+    trackEvent('level_up', { previous_level: care.levelUpEvent.previousLevel, new_level: care.levelUpEvent.level })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire only when a new levelUpEvent object appears
   }, [care.levelUpEvent])
 
@@ -394,6 +396,12 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
   const secondaryLabel = care.secondaryTags[0] ? SECONDARY_TAG_LABEL[care.secondaryTags[0]] : null
 
   function handleCareAction(actionId: (typeof CARE_ACTIONS)[number]['id']) {
+    // Fired at button-press for every action, including 'talk' — matches
+    // the other 5 actions' "실행" (executed) semantics. 'talk' specifically
+    // fires when the question opens, not when it's answered (that resolution
+    // has no separate event in the tracking plan); see handleTalkAnswered
+    // above for where the actual stat/cooldown/exp effect lands afterward.
+    trackEvent('pet_action', { action_type: actionId })
     // 대화 no longer performs an action directly — it opens a question
     // (see hooks/use-pet-talk.ts); the actual stats/cooldown/exp effect only
     // applies once the player answers (handleTalkAnswered above).
@@ -431,10 +439,14 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
    */
   function handleClaimGift() {
     if (rewardPopup) return
+    const giftLevel = care.petState.giftReadyLevel
     const reward = care.claimGift()
     if (reward) {
       playCharacterVoice(petProfile?.id)
       setRewardPopup(reward)
+      if (giftLevel !== null) {
+        trackEvent('level_reward_received', { level: giftLevel, reward_type: 'statling_decoration', item_id: reward.id })
+      }
     }
   }
 

@@ -9,6 +9,7 @@ import { buildCharacterStateFolder, CHARACTER_STATE_SEQUENCE } from '@/lib/chara
 import { CHARACTER_CATALOG } from '@/lib/pets/pet-profile'
 import { loadDex } from '@/lib/pets/dex-storage'
 import { useSound } from '@/hooks/use-sound'
+import { trackEvent } from '@/lib/analytics/ga'
 import { cn } from '@/lib/utils'
 
 interface DexScreenProps {
@@ -61,7 +62,11 @@ export function DexScreen({ onBack }: DexScreenProps) {
             <button
               key={pet.id}
               type="button"
-              onClick={() => (met ? setOpenId(pet.id) : setShowUndiscovered(true))}
+              onClick={() => {
+                trackEvent('collection_statling_view', { statling_type: pet.id, is_unlocked: met })
+                if (met) setOpenId(pet.id)
+                else setShowUndiscovered(true)
+              }}
               className={cn(
                 'flex flex-col items-center gap-1 rounded-2xl bg-card p-2 toy-border',
                 met ? 'active:translate-y-0.5' : 'cursor-not-allowed opacity-70',

@@ -70,6 +70,7 @@ import { FIT_PUZZLE_GAME_VERSION } from '@/lib/config/fit-puzzle.config'
 import { NUMBER_PATTERN_GAME_VERSION } from '@/lib/config/number-pattern.config'
 import { detectDevice } from '@/lib/game/device'
 import { generateSessionId } from '@/lib/game/id'
+import { trackEvent, RELEASE_STAGE } from '@/lib/analytics/ga'
 import type { GameDifficulty } from '@/lib/game/difficulty'
 import {
   computeCurrentStats,
@@ -503,8 +504,9 @@ export function GameFlow() {
 
   /** First Play only — always stages the stat's classic game at Normal difficulty (see getClassicGameKey; spec §17: "Normal ... 최초 플레이 가능", the only tier Intro ever uses). Free Play picks a specific game+difficulty explicitly instead (see selectFreePlayGame/confirmFreePlayGame below). */
   const enterStatGame = (statId: StatId) => {
+    const gameKey = getClassicGameKey(statId)
     setActiveStatId(statId)
-    setActiveGameKey(getClassicGameKey(statId))
+    setActiveGameKey(gameKey)
     setActiveDifficulty('normal')
     currentAttemptIdRef.current = generateSessionId() // new round starting — see the ref's own doc comment
     // A brand-new stat always starts with its 1 Initial-Assessment retry
@@ -514,6 +516,19 @@ export function GameFlow() {
     setRetryAvailable(true)
     isRetryAttemptRef.current = false
     if (statId === 'spatial') spatialFirstAttemptShapeIdsRef.current = null
+    // Initial Assessment only ever reaches this via First Play's fixed
+    // 6-stat sequence (Free Play stages games through confirmFreePlayGame
+    // instead, which never calls enterStatGame) — game_index is always this
+    // stat's fixed position in PLAY_ORDER, computed directly rather than
+    // read from `index` state (which may still hold the previous stat's
+    // value at this exact call site, since setIndex from the caller hasn't
+    // committed yet).
+    trackEvent('mini_game_start', {
+      ability: statId,
+      game_name: gameKey,
+      game_index: PLAY_ORDER.indexOf(statId) + 1,
+      attempt: 1,
+    })
   }
 
   /**
@@ -595,8 +610,40 @@ export function GameFlow() {
     saveIntroProgress(isRetry ? replaceIntroGameCompletion(progress, entry) : recordIntroGameCompletion(progress, entry))
   }
 
+  /**
+   * GA4 choke point for every one of the 12 on*Complete handlers' valid
+   * attempts — First Play (flowMode 'first') sends `mini_game_complete`,
+   * Free Play sends `free_play_complete`. Only the 6 classic games ever run
+   * under flowMode 'first' (the 6 alt games are Free-Play-only, staged via
+   * confirmFreePlayGame, never enterStatGame), so the mini_game_complete
+   * branch below is unreachable for them in practice — left as a real branch
+   * rather than assumed, so it stays correct if that ever changes.
+   * xp_earned mirrors FreePlayResultScreen's own `Math.max(0,
+   * Math.round(gameScore))` display formula exactly.
+   */
+  function emitCompletionEvent(statId: StatId, gameScore: number, isRetry: boolean) {
+    if (flowMode === 'first') {
+      trackEvent('mini_game_complete', {
+        ability: statId,
+        game_name: activeGameKey,
+        game_index: PLAY_ORDER.indexOf(statId) + 1,
+        attempt: isRetry ? 2 : 1,
+        score: gameScore,
+      })
+    } else {
+      trackEvent('free_play_complete', {
+        ability: statId,
+        game_name: activeGameKey,
+        difficulty: activeDifficulty,
+        score: gameScore,
+        xp_earned: Math.max(0, Math.round(gameScore)),
+      })
+    }
+  }
+
   /** Fresh Intro run — first-ever visit, "다시 하기" after a full completion, or "처음부터 다시 하기" from Landing. Always starts a brand-new checkpoint (see startNewIntroProgress). */
   const start = () => {
+    trackEvent('assessment_start', { release_stage: RELEASE_STAGE })
     setIndex(0)
     enterStatGame(PLAY_ORDER[0])
     setFlowMode('first')
@@ -687,6 +734,14 @@ export function GameFlow() {
    * retry actually begins, for all 6 stats.
    */
   const startRetry = () => {
+    const gameIndex = PLAY_ORDER.indexOf(activeStatId) + 1
+    trackEvent('mini_game_retry', {
+      ability: activeStatId,
+      game_name: activeGameKey,
+      game_index: gameIndex,
+      previous_score: lastResult?.gameScore ?? 0,
+    })
+    trackEvent('mini_game_start', { ability: activeStatId, game_name: activeGameKey, game_index: gameIndex, attempt: 2 })
     setRetryAvailable(false)
     isRetryAttemptRef.current = true
     currentAttemptIdRef.current = generateSessionId() // a genuinely new attempt, even though it replays the same game
@@ -771,6 +826,7 @@ export function GameFlow() {
     if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt && !isRetry) recordSkillCompletion('reaction', gameScore, result.raw, { medianReactionMs: rawSummary.medianReactionMs, consistency: rawSummary.consistency }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reaction', activeGameKey, gameScore, isRetry)
+    if (result.isValidAttempt) emitCompletionEvent('reaction', gameScore, isRetry)
     setFinals((f) => ({ ...f, reaction: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -821,6 +877,7 @@ export function GameFlow() {
     if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt && !isRetry) recordSkillCompletion('memory', gameScore, result.raw, { weightedAccuracy: rawSummary.weightedAccuracy, averageAdjustedResponseTimeMs: rawSummary.averageAdjustedResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('memory', activeGameKey, gameScore, isRetry)
+    if (result.isValidAttempt) emitCompletionEvent('memory', gameScore, isRetry)
     setFinals((f) => ({ ...f, memory: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -871,6 +928,7 @@ export function GameFlow() {
     if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt && !isRetry) recordSkillCompletion('focus', gameScore, result.raw, { weightedAccuracy: rawSummary.weightedAccuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('focus', activeGameKey, gameScore, isRetry)
+    if (result.isValidAttempt) emitCompletionEvent('focus', gameScore, isRetry)
     setFinals((f) => ({ ...f, focus: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -928,6 +986,7 @@ export function GameFlow() {
         isPersonalBest,
       )
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('judgment', activeGameKey, gameScore, isRetry)
+    if (result.isValidAttempt) emitCompletionEvent('judgment', gameScore, isRetry)
     setFinals((f) => ({ ...f, judgment: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -991,6 +1050,7 @@ export function GameFlow() {
       }
       spatialFirstAttemptShapeIdsRef.current = shownShapeIds
     }
+    if (result.isValidAttempt) emitCompletionEvent('spatial', gameScore, isRetry)
     setFinals((f) => ({ ...f, spatial: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -1041,6 +1101,7 @@ export function GameFlow() {
     if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt && !isRetry) recordSkillCompletion('reasoning', gameScore, result.raw, { difficultyWeightedAccuracy: rawSummary.difficultyWeightedAccuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reasoning', activeGameKey, gameScore, isRetry)
+    if (result.isValidAttempt) emitCompletionEvent('reasoning', gameScore, isRetry)
     setFinals((f) => ({ ...f, reasoning: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -1096,6 +1157,7 @@ export function GameFlow() {
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt) recordSkillCompletion('memory', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('memory', activeGameKey, gameScore, false)
+    if (result.isValidAttempt) emitCompletionEvent('memory', gameScore, false)
     setFinals((f) => ({ ...f, memory: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -1138,6 +1200,7 @@ export function GameFlow() {
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt) recordSkillCompletion('focus', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageReactionTimeMs: rawSummary.averageReactionTimeMs, switchAccuracy: rawSummary.switchAccuracy }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('focus', activeGameKey, gameScore, false)
+    if (result.isValidAttempt) emitCompletionEvent('focus', gameScore, false)
     setFinals((f) => ({ ...f, focus: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -1195,6 +1258,7 @@ export function GameFlow() {
         isPersonalBest,
       )
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reaction', activeGameKey, gameScore, false)
+    if (result.isValidAttempt) emitCompletionEvent('reaction', gameScore, false)
     setFinals((f) => ({ ...f, reaction: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -1237,6 +1301,7 @@ export function GameFlow() {
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt) recordSkillCompletion('judgment', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('judgment', activeGameKey, gameScore, false)
+    if (result.isValidAttempt) emitCompletionEvent('judgment', gameScore, false)
     setFinals((f) => ({ ...f, judgment: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -1279,6 +1344,7 @@ export function GameFlow() {
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt) recordSkillCompletion('spatial', gameScore, result.raw, { totalCompletionMs: rawSummary.totalCompletionMs, misplacements: rawSummary.misplacements }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('spatial', activeGameKey, gameScore, false)
+    if (result.isValidAttempt) emitCompletionEvent('spatial', gameScore, false)
     setFinals((f) => ({ ...f, spatial: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -1321,6 +1387,7 @@ export function GameFlow() {
     if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
     if (result.isValidAttempt) recordSkillCompletion('reasoning', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reasoning', activeGameKey, gameScore, false)
+    if (result.isValidAttempt) emitCompletionEvent('reasoning', gameScore, false)
     setFinals((f) => ({ ...f, reasoning: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))
     setPhase(flowMode === 'first' ? 'complete' : 'freeplay-complete')
   }
@@ -1338,6 +1405,7 @@ export function GameFlow() {
     setActiveGameKey(gameKey)
     setActiveDifficulty(difficulty)
     currentAttemptIdRef.current = generateSessionId() // new round starting — see the ref's own doc comment
+    trackEvent('free_play_start', { game_name: gameKey, ability: activeStatId, difficulty })
     setPhase('game')
   }
 
@@ -1403,6 +1471,10 @@ export function GameFlow() {
 
     saveStoredPetProfile(next)
     setPetRecord(next)
+    trackEvent('egg_hatch_start', {
+      top_ability: getTopStat(effectiveFinals),
+      second_ability: getSecondStat(effectiveFinals),
+    })
     setPhase('egg')
   }
 
@@ -1585,6 +1657,7 @@ export function GameFlow() {
               // from the last (6th) result screen (see CompleteScreen's
               // isLast branch), which is this flow's final result page now
               // that MY STATUS no longer appears in it.
+              trackEvent('assessment_complete', { top_ability: topStat, second_ability: secondaryStat })
               clearIntroProgress()
               handleMeetStatling()
             }}
@@ -1632,6 +1705,11 @@ export function GameFlow() {
             onConfirm={(name) => {
               setStatlingName(name)
               if (petRecord) saveStoredPetProfile({ ...petRecord, statlingName: name })
+              // The one genuinely first-ever Home entry — every other
+              // setPhase('room') call site (stored-profile restore on mount,
+              // post-login restore, returnToRoom nav) is a revisit, not a
+              // first arrival, so home_enter must fire only here.
+              if (displayedPetProfile) trackEvent('home_enter', { statling_type: displayedPetProfile.id })
               setPhase('room')
             }}
           />

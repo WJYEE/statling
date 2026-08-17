@@ -1,8 +1,9 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Toast } from '@base-ui/react/toast'
 import { ArrowRight, Download, Loader2, Share2 } from 'lucide-react'
+import { trackEvent, type ShareContext } from '@/lib/analytics/ga'
 import { CharacterTraits } from '@/components/brain-bet/result/character-traits'
 import { CompatibleEnvironment } from '@/components/brain-bet/result/compatible-environment'
 import { StatDistribution } from '@/components/brain-bet/result/stat-distribution'
@@ -22,6 +23,9 @@ import { saveShareImage } from '@/lib/share/save-share-image'
 import { shareStatlingResult } from '@/lib/share/share-statling-result'
 import { buildDifferentRhythmCards, buildGoodMatchCards } from '@/lib/stats/stat-compatibility-copy'
 import { buildStatInsight } from '@/lib/stats/stat-insights'
+
+/** This screen's fixed share_context/utm_content value — see lib/analytics/ga.ts's ShareContext doc comment for why the same constant feeds both the GA event param and buildShareUrl's UTM. */
+const SHARE_CONTEXT: ShareContext = 'character_result'
 
 interface RevealScreenProps {
   petProfile: PetProfile
@@ -51,9 +55,19 @@ export function RevealScreen({
   const [busyAction, setBusyAction] = useState<'share' | 'save' | null>(null)
   const [fallback, setFallback] = useState<{ title: string; text: string; url: string } | null>(null)
 
+  // "캐릭터 공개" — fires on every mount, including a refresh that bounces
+  // straight back here pre-confirm (see game-flow.tsx's restore effect), by
+  // design: this is view-based telemetry ("was the reveal screen shown"),
+  // not a first-time-only funnel step like home_enter.
+  useEffect(() => {
+    trackEvent('statling_reveal', { statling_type: petProfile.id, top_ability: topStat, second_ability: secondaryStat })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per mount only
+  }, [])
+
   const handleShare = async () => {
     if (busyAction) return // prevent double-clicks while an action is in flight
     setBusyAction('share')
+    trackEvent('share_click', { action_type: 'web_share', share_context: SHARE_CONTEXT })
     try {
       const content = {
         title: buildShareTitle(),
@@ -62,16 +76,21 @@ export function RevealScreen({
         // — carries TOP1/TOP2 as extra path segments so both the link
         // preview card and the page itself can headline the same 2 stats,
         // rather than sharing a generic site-root URL.
-        url: buildShareUrl(`${window.location.origin}/share/${encodeURIComponent(petProfile.id)}/${topStat}/${secondaryStat}`),
+        url: buildShareUrl(
+          `${window.location.origin}/share/${encodeURIComponent(petProfile.id)}/${topStat}/${secondaryStat}`,
+          SHARE_CONTEXT,
+        ),
       }
       const outcome = await shareStatlingResult(content, shareCardRef.current ?? undefined)
 
       switch (outcome.status) {
         case 'shared':
           toastManager.add({ title: '공유했어요!', type: 'success' })
+          trackEvent('share_success', { action_type: 'web_share', share_context: SHARE_CONTEXT })
           break
         case 'copied':
           toastManager.add({ title: '공유 내용이 복사되었어요.', type: 'success' })
+          trackEvent('share_success', { action_type: 'web_share', share_context: SHARE_CONTEXT })
           break
         case 'cancelled':
           break // user backed out of the share sheet — not an error
@@ -80,6 +99,7 @@ export function RevealScreen({
           break
         case 'error':
           toastManager.add({ title: '공유하지 못했어요. 다시 시도해주세요.', type: 'error' })
+          trackEvent('share_fail', { action_type: 'web_share', share_context: SHARE_CONTEXT, error_type: 'unknown' })
           break
       }
     } finally {
@@ -90,10 +110,12 @@ export function RevealScreen({
   const handleSaveImage = async () => {
     if (busyAction || !shareCardRef.current) return
     setBusyAction('save')
+    trackEvent('share_click', { action_type: 'png', share_context: SHARE_CONTEXT })
     try {
       const blob = await createShareImage(shareCardRef.current)
       if (!blob) {
         toastManager.add({ title: '이미지를 만들지 못했어요. 다시 시도해주세요.', type: 'error' })
+        trackEvent('share_fail', { action_type: 'png', share_context: SHARE_CONTEXT, error_type: 'image_creation_failed' })
         return
       }
 
@@ -101,18 +123,22 @@ export function RevealScreen({
       switch (outcome.status) {
         case 'shared':
           toastManager.add({ title: '공유 시트에서 사진 앱에 저장할 수 있어요.', type: 'success' })
+          trackEvent('share_success', { action_type: 'png', share_context: SHARE_CONTEXT })
           break
         case 'downloaded':
           toastManager.add({ title: '이미지가 저장되었어요.', type: 'success' })
+          trackEvent('share_success', { action_type: 'png', share_context: SHARE_CONTEXT })
           break
         case 'cancelled':
           break // user backed out of the native share sheet — not an error
         case 'error':
           toastManager.add({ title: '이미지를 저장하지 못했어요. 다시 시도해주세요.', type: 'error' })
+          trackEvent('share_fail', { action_type: 'png', share_context: SHARE_CONTEXT, error_type: 'unknown' })
           break
       }
     } catch {
       toastManager.add({ title: '이미지를 만들지 못했어요. 다시 시도해주세요.', type: 'error' })
+      trackEvent('share_fail', { action_type: 'png', share_context: SHARE_CONTEXT, error_type: 'unknown' })
     } finally {
       setBusyAction(null)
     }

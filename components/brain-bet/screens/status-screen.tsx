@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { ArrowRight, ChevronDown, RotateCcw, Trophy } from 'lucide-react'
 import { Logo } from '@/components/brain-bet/logo'
+import { trackEvent } from '@/lib/analytics/ga'
 import { RadarChart } from '@/components/brain-bet/radar-chart'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { ToyButton } from '@/components/brain-bet/toy-button'
@@ -46,6 +47,11 @@ export function StatusScreen({
   useEffect(() => {
     if (isFirstComplete) play('final-result')
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire exactly once per mount, only for the real "all 6 games done" moment
+  }, [])
+
+  useEffect(() => {
+    trackEvent('my_status_view', { view_context: context })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per mount only
   }, [])
 
   return (

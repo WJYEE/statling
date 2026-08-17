@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Toast } from '@base-ui/react/toast'
 import { Check, CheckCircle2, ChevronDown, MessageCircleHeart, Pencil } from 'lucide-react'
 import { loadFeedbackRecord, upsertFeedbackRecord } from '@/lib/feedback/feedback-storage'
+import { trackEvent } from '@/lib/analytics/ga'
 import {
   emptyFeedbackDraft,
   FAVORITE_PART_OPTIONS,
@@ -200,8 +201,20 @@ export function FeedbackSection({ petProfile, className = 'mt-6' }: FeedbackSect
       setExistingRecord(saved)
       setJustSubmitted(true)
       toastManager.add({ title: isEditingExisting ? '의견을 수정했어요!' : '소중한 의견 감사해요!', type: 'success' })
+      // Only the fixed-choice fields go to GA4 — comment and every *OtherText/
+      // *Detail follow-up are user-authored free text and must never be sent
+      // (see lib/feedback/feedback-types.ts). satisfaction_reason joins the
+      // multi-select favoritePart array into one comma-separated string,
+      // since GA4 event params must be scalar.
+      trackEvent('feedback_submit', {
+        feedback_context: 'my_page',
+        rating: draft.satisfaction as SatisfactionValue,
+        satisfaction_reason: draft.favoritePart.join(','),
+        reuse_intent: draft.returnIntent as ReturnIntentValue,
+      })
     } catch {
       toastManager.add({ title: '제출하지 못했어요. 다시 시도해주세요.', type: 'error' })
+      trackEvent('feedback_fail', { feedback_context: 'my_page', error_type: 'unknown' })
     } finally {
       setIsSubmitting(false)
     }
@@ -211,7 +224,13 @@ export function FeedbackSection({ petProfile, className = 'mt-6' }: FeedbackSect
     <div className={cn(className, 'rounded-2xl bg-card px-4 py-5 toy-border')}>
       <button
         type="button"
-        onClick={() => setIsOpen((v) => !v)}
+        onClick={() =>
+          setIsOpen((v) => {
+            const next = !v
+            if (next) trackEvent('feedback_open', { feedback_context: 'my_page' })
+            return next
+          })
+        }
         aria-expanded={isOpen}
         className="flex w-full items-center gap-2 text-left"
       >

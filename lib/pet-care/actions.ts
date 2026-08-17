@@ -70,6 +70,8 @@ export interface ActionResult {
   playVariantId?: string
   dialogue?: string
   levelUp?: ExpGainResult
+  /** Raw intimacy EXP actually granted by this action (0 when on cooldown or the action's "already satisfied" tier gates it to 0) — GA4's Growth|xp_earned event reads this directly rather than re-deriving it from intimacyExp before/after (which level-rollover would make lossy). */
+  expGained: number
 }
 
 function gainExp(state: PetCareState, exp: number): { intimacyLevel: number; intimacyExp: number; levelUp?: ExpGainResult } {
@@ -94,7 +96,7 @@ function applyDeltas(stats: PetCareState['stats'], deltas: Partial<Record<CareSt
 function blockedByCooldown(state: PetCareState, action: CareActionId, now: Date): ActionResult | null {
   const status = getCooldownStatus(state.cooldowns, action, now)
   if (!status.onCooldown) return null
-  return { petState: state, deltas: {}, animation: 'idle' }
+  return { petState: state, deltas: {}, animation: 'idle', expGained: 0 }
 }
 
 export function performFeed(state: PetCareState, now: Date): ActionResult {
@@ -105,7 +107,8 @@ export function performFeed(state: PetCareState, now: Date): ActionResult {
   const deltas = feedEffectFor(tier)
   const nextStats = applyDeltas(state.stats, deltas)
 
-  const expGain = gainExp(state, tier === 'high' ? 0 : FEED_EXP)
+  const feedExpGained = tier === 'high' ? 0 : FEED_EXP
+  const expGain = gainExp(state, feedExpGained)
   const petState = withCooldown(
     { ...state, stats: nextStats, intimacyLevel: expGain.intimacyLevel, intimacyExp: expGain.intimacyExp },
     'feed',
@@ -115,7 +118,7 @@ export function performFeed(state: PetCareState, now: Date): ActionResult {
   // Always 'eat' here — whether the already-full case still shows 'eat' art
   // or falls back to idle/happy is a mapping decision, made from raw stats
   // by characterStateForInteraction, not duplicated here.
-  return { petState, deltas, message: feedMessageFor(tier), animation: 'eat', levelUp: expGain.levelUp }
+  return { petState, deltas, message: feedMessageFor(tier), animation: 'eat', levelUp: expGain.levelUp, expGained: feedExpGained }
 }
 
 export function performShower(state: PetCareState, now: Date): ActionResult {
@@ -126,7 +129,8 @@ export function performShower(state: PetCareState, now: Date): ActionResult {
   const deltas = showerEffectFor(tier)
   const nextStats = applyDeltas(state.stats, deltas)
 
-  const expGain = gainExp(state, tier === 'high' ? 0 : SHOWER_EXP)
+  const showerExpGained = tier === 'high' ? 0 : SHOWER_EXP
+  const expGain = gainExp(state, showerExpGained)
   const petState = withCooldown(
     { ...state, stats: nextStats, intimacyLevel: expGain.intimacyLevel, intimacyExp: expGain.intimacyExp },
     'shower',
@@ -135,7 +139,7 @@ export function performShower(state: PetCareState, now: Date): ActionResult {
 
   // Always 'wash' here — already-clean reading as 'surprised' instead is a
   // mapping decision, made from raw stats by characterStateForInteraction.
-  return { petState, deltas, message: showerMessageFor(tier), animation: 'wash', levelUp: expGain.levelUp }
+  return { petState, deltas, message: showerMessageFor(tier), animation: 'wash', levelUp: expGain.levelUp, expGained: showerExpGained }
 }
 
 export function performClean(state: PetCareState, room: RoomCareState, now: Date): ActionResult {
@@ -151,7 +155,8 @@ export function performClean(state: PetCareState, room: RoomCareState, now: Date
 
   const nextStats = applyDeltas(state.stats, deltas)
 
-  const expGain = gainExp(state, alreadyClean ? 0 : CLEAN_EXP)
+  const cleanExpGained = alreadyClean ? 0 : CLEAN_EXP
+  const expGain = gainExp(state, cleanExpGained)
   const petState = withCooldown(
     { ...state, stats: nextStats, intimacyLevel: expGain.intimacyLevel, intimacyExp: expGain.intimacyExp },
     'clean',
@@ -165,6 +170,7 @@ export function performClean(state: PetCareState, room: RoomCareState, now: Date
     message: alreadyClean ? '방이 아직 깨끗해요!' : undefined,
     animation: 'shake',
     levelUp: expGain.levelUp,
+    expGained: cleanExpGained,
   }
 }
 
@@ -179,7 +185,8 @@ export function performPlay(state: PetCareState, now: Date): ActionResult {
   const candidates = PLAY_VARIANT_IDS.filter((id) => id !== state.lastPlayVariantId)
   const playVariantId = candidates[Math.floor(Math.random() * candidates.length)]
 
-  const expGain = gainExp(state, tier === 'high' ? 0 : PLAY_EXP)
+  const playExpGained = tier === 'high' ? 0 : PLAY_EXP
+  const expGain = gainExp(state, playExpGained)
   const petState = withCooldown(
     {
       ...state,
@@ -194,7 +201,7 @@ export function performPlay(state: PetCareState, now: Date): ActionResult {
 
   // Always 'play' here — already-plenty-happy falling back to idle/happy art
   // instead is a mapping decision, made from raw stats by characterStateForInteraction.
-  return { petState, deltas, message: playMessageFor(tier), animation: 'play', playVariantId, levelUp: expGain.levelUp }
+  return { petState, deltas, message: playMessageFor(tier), animation: 'play', playVariantId, levelUp: expGain.levelUp, expGained: playExpGained }
 }
 
 export function performPet(state: PetCareState, now: Date): ActionResult {
@@ -206,7 +213,8 @@ export function performPet(state: PetCareState, now: Date): ActionResult {
   const deltas = petEffectFor(alreadySatisfied)
   const nextStats = applyDeltas(state.stats, deltas)
 
-  const expGain = gainExp(state, alreadySatisfied ? 0 : PET_INTIMACY_EXP)
+  const petExpGained = alreadySatisfied ? 0 : PET_INTIMACY_EXP
+  const expGain = gainExp(state, petExpGained)
   const petState = withCooldown(
     { ...state, stats: nextStats, intimacyLevel: expGain.intimacyLevel, intimacyExp: expGain.intimacyExp },
     'pet',
@@ -216,7 +224,7 @@ export function performPet(state: PetCareState, now: Date): ActionResult {
   // Always 'pet' here — already-loved-plenty falling back to idle/happy/love
   // art instead (or to 'angry' when over-petted) is a mapping decision, made
   // from raw stats/isOverPetted by characterStateForInteraction.
-  return { petState, deltas, message: petMessageFor(tier, alreadySatisfied), animation: 'pet', levelUp: expGain.levelUp }
+  return { petState, deltas, message: petMessageFor(tier, alreadySatisfied), animation: 'pet', levelUp: expGain.levelUp, expGained: petExpGained }
 }
 
 /**
@@ -238,7 +246,7 @@ export function performTalkAnswer(state: PetCareState, now: Date, responseText: 
     now,
   )
 
-  return { petState, deltas: {}, animation: 'talk', dialogue: responseText, levelUp: expGain.levelUp }
+  return { petState, deltas: {}, animation: 'talk', dialogue: responseText, levelUp: expGain.levelUp, expGained: TALK_INTIMACY_EXP }
 }
 
 /**
@@ -264,7 +272,7 @@ export function buildDirectEffect(
     intimacyExp: gained.intimacyExp,
     lastUpdatedAt: now.toISOString(),
   }
-  return { petState, deltas, animation: 'idle', levelUp: gained.levelUp }
+  return { petState, deltas, animation: 'idle', levelUp: gained.levelUp, expGained: Math.max(0, expGain) }
 }
 
 export { getNewlyUnlockedRewards }

@@ -6,6 +6,7 @@ import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { PLAY_ORDER, STATS, type StatId } from '@/lib/brain-bet'
 import { GAME_POOL } from '@/lib/game/game-registry'
 import { useAuth } from '@/lib/auth/auth-provider'
+import { trackEvent } from '@/lib/analytics/ga'
 import {
   rankingProvider,
   type GameRankingEntry,
@@ -52,6 +53,14 @@ interface RankingScreenProps {
 export function RankingScreen({ statlingName }: RankingScreenProps) {
   const [activeTab, setActiveTab] = useState<RankingTab>('overall')
   const { user } = useAuth()
+
+  // Fires on mount (the default 'overall' tab) and every subsequent tab
+  // switch. `period` has no real filter behind it yet (no daily/weekly view
+  // exists) — sent as a fixed 'all_time' placeholder rather than omitted, so
+  // the parameter is present the moment a real period filter ships.
+  useEffect(() => {
+    trackEvent('ranking_view', { ranking_type: activeTab, period: 'all_time' })
+  }, [activeTab])
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col px-5 pb-28 pt-8">

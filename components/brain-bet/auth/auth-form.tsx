@@ -5,6 +5,7 @@ import { Lock, Mail } from 'lucide-react'
 import { Toast } from '@base-ui/react/toast'
 import { ToyButton } from '@/components/brain-bet/toy-button'
 import { useAuth } from '@/lib/auth/auth-provider'
+import { trackEvent } from '@/lib/analytics/ga'
 import { cn } from '@/lib/utils'
 
 interface AuthFormProps {
@@ -43,7 +44,10 @@ export function AuthForm({ onAuthenticated, defaultMode = 'signup', className }:
       setError(result.error)
       setSubmitting(null)
     }
-    // On success the browser navigates away to Google — nothing else to do here.
+    // On success the browser navigates away to Google — there's no
+    // same-page moment to confirm sign_up/login from here (that would need
+    // instrumenting app/auth/callback/route.ts once Google OAuth actually
+    // completes end-to-end, which the active auth backend doesn't yet).
   }
 
   async function handlePasswordSubmit(event: FormEvent) {
@@ -64,6 +68,7 @@ export function AuthForm({ onAuthenticated, defaultMode = 'signup', className }:
       return
     }
     toastManager.add({ title: mode === 'signup' ? '가입되었어요!' : '로그인했어요!', type: 'success' })
+    trackEvent(mode === 'signup' ? 'sign_up' : 'login', { method: 'password' })
     onAuthenticated?.()
   }
 

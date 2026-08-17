@@ -20,6 +20,7 @@ import { loadSavedRoomState, saveRoomState } from '@/lib/room/room-storage'
 import { deepCloneRoomState, roomStatesEqual, type RoomItem, type RoomState } from '@/lib/room/room-state'
 import { cn } from '@/lib/utils'
 import { trackRoomDecorSaved } from '@/lib/missions/mission-tracker'
+import { trackEvent } from '@/lib/analytics/ga'
 
 /** `ROOM_ASSETS[id]`'s position among locked ("achievement"-sourced) items in the Room grid — the SAME order their Achievement tiers are declared in achievements.config.ts, so a harder/later achievement's reward always sorts after an easier/earlier one's. Computed once at module load. */
 const ROOM_REWARD_ACHIEVEMENT_ORDER: Map<string, number> = (() => {
@@ -88,6 +89,14 @@ export function ThemeScreen({ topStat, petProfile, onDirtyChange }: ThemeScreenP
   useEffect(() => {
     onDirtyChange(dirty)
   }, [dirty, onDirtyChange])
+
+  // "방 꾸미기 화면 진입" — this component only ever mounts via
+  // statling-screen.tsx's 방 꾸미기 nested view, so a mount effect here is
+  // the single choke point (no separate tracking needed at that button).
+  useEffect(() => {
+    trackEvent('customization_open', { customization_type: 'room' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per mount only
+  }, [])
 
   // Warn on refresh/tab close only — never touches savedState itself.
   useEffect(() => {
@@ -171,8 +180,12 @@ export function ThemeScreen({ topStat, petProfile, onDirtyChange }: ThemeScreenP
 
   function deleteSelected() {
     if (!selectedInstanceId) return
+    const removedAsset = selectedItem ? ROOM_ASSETS[selectedItem.assetId] : null
     setDraftState((prev) => ({ ...prev, items: prev.items.filter((item) => item.instanceId !== selectedInstanceId) }))
     setSelectedInstanceId(null)
+    if (removedAsset) {
+      trackEvent('customization_remove', { customization_type: 'room', item_id: removedAsset.id, item_type: removedAsset.category })
+    }
   }
 
   function bringToFront() {
@@ -207,6 +220,7 @@ export function ThemeScreen({ topStat, petProfile, onDirtyChange }: ThemeScreenP
     }
     if (asset.category === 'background') {
       setDraftState((prev) => ({ ...prev, backgroundId: asset.id }))
+      trackEvent('customization_apply', { customization_type: 'room', item_id: asset.id, item_type: asset.category })
       return
     }
 
@@ -219,6 +233,7 @@ export function ThemeScreen({ topStat, petProfile, onDirtyChange }: ThemeScreenP
     const newItem = spawnDefaultItem(asset, draftState.items)
     setDraftState((prev) => ({ ...prev, items: [...prev.items, newItem] }))
     setSelectedInstanceId(newItem.instanceId)
+    trackEvent('customization_apply', { customization_type: 'room', item_id: asset.id, item_type: asset.category })
   }
 
   function handleSave() {
@@ -229,6 +244,7 @@ export function ThemeScreen({ topStat, petProfile, onDirtyChange }: ThemeScreenP
       setSavedState(persisted)
       setDraftState(deepCloneRoomState(persisted))
       trackRoomDecorSaved()
+      trackEvent('customization_save', { customization_type: 'room', item_count: persisted.items.length })
       toastManager.add({ title: '방이 저장되었어요.', type: 'success' })
     } catch {
       toastManager.add({ title: '저장하지 못했어요. 다시 시도해주세요.', type: 'error' })
