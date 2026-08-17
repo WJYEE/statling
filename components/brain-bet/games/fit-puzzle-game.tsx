@@ -1,6 +1,13 @@
 'use client'
 
-import { type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react'
+import {
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 import { RotateCw } from 'lucide-react'
 import { GameCountdown } from '@/components/brain-bet/games/shared/game-countdown'
 import { GameHud } from '@/components/brain-bet/games/shared/game-hud'
@@ -27,6 +34,9 @@ interface PieceState {
   rotation: 0 | 90 | 180 | 270
   x: number
   y: number
+  /** Its scattered tray position — where a wrong drop bounces back to (see handlePointerUp), fixed once per level in layoutPieces. */
+  homeX: number
+  homeY: number
   placed: boolean
 }
 
@@ -41,7 +51,7 @@ interface FitPuzzleGameProps {
 const TUTORIAL: TutorialContent = {
   goal: '퍼즐 조각을 드래그해서 빈 공간(점선 테두리)에 알맞게 끼워요.',
   steps: ['조각을 손가락으로 끌어 빈 공간 위로 옮기세요.', '조각을 탭하면 회전 버튼이 나타나요. 눌러서 90도씩 돌리세요. (PC에서는 조각을 우클릭해도 돌릴 수 있어요)', '방향과 위치가 맞으면 자동으로 딸깍 끼워져요.'],
-  scoring: '정확한 배치 수, 완성 시간, 불필요한 조작 횟수를 함께 반영해요.',
+  scoring: '완성 시간을 가장 중요하게 보고, 회전을 얼마나 효율적으로 썼는지도 함께 반영해요.',
 }
 
 function footprintPx(widthCells: number, heightCells: number, cellPx: number) {
@@ -57,38 +67,149 @@ function renderedFootprint(piece: PieceState, cellPx: number) {
 }
 
 /**
- * PC/mobile QA 2026-08 후속 보정: the tallest levels (Extreme's 5-row
- * level-12 combined with a 3-cell-tall tray piece) pushed the board+tray
- * taller than a single screen, forcing mid-play vertical scrolling. Rather
- * than shrinking every level uniformly ("무조건 작게"), each level computes
- * its OWN cell size so its arena (board height + tray row height + the
- * small fixed gaps between them) never exceeds MAX_ARENA_HEIGHT_PX — most
- * Easy/Normal/Hard levels already fit at the full FIT_PUZZLE_CELL_SIZE_PX
- * and stay untouched; only genuinely tall levels shrink, floored at
- * MIN_CELL_SCALE so pieces never become too small to drag/tap.
+ * 2026-08 QA 3차 보정: the previous fix (shrink cellPx against a flat
+ * MAX_ARENA_HEIGHT_PX=460 guess) capped every level at the same height
+ * regardless of the player's ACTUAL viewport — on a tall monitor this left
+ * a large dead zone below the card while somehow still not fully solving
+ * short-viewport scrolling. Replaced with a real measurement: the caller
+ * passes the actual available width/height (viewport minus the measured
+ * header block and known fixed chrome — see useAvailableArenaSize below),
+ * and this solves for the largest cellPx that fits BOTH budgets at once, so
+ * a roomy screen gets full-size (or larger-than-before) pieces with zero
+ * wasted space, and only a genuinely short/narrow viewport shrinks.
+ *
+ * The tray also changed shape: instead of one long horizontal row (which is
+ * what forced horizontal scrolling once a level had several/wide pieces —
+ * see 퍼즐 조각 산재 배치 below), pieces now scatter into a grid of
+ * `trayCols` × `trayRows` slots sized to the level's own largest piece
+ * (`TRAY_SLOT_PADDING_RATIO` gives each slot ~30% headroom over the piece
+ * itself for jitter, still without permitting full occlusion). `trayCols`
+ * is derived purely from cell-COUNT ratios (board cols ÷ slot cells), so it
+ * doesn't depend on the cellPx this function is solving for.
  */
-const MAX_ARENA_HEIGHT_PX = 460
-const MIN_CELL_SCALE = 0.75
-/** The fixed (non-cell-scaled) vertical gaps inside the arena — trayTopPx's +24 gap above the tray, +8 gap before the tray row itself, +16 bottom padding below it. Kept as constants here so cellSizeForLevel's budget math and arenaHeightPx below stay in sync. */
-const ARENA_FIXED_GAPS_PX = 24 + 8 + 16
+const MIN_CELL_SCALE = 0.55
+const TRAY_SLOT_PADDING_RATIO = 1.3
+/** Board→tray gap, in cell units (so it scales with cellPx like everything else). */
+const BOARD_TRAY_GAP_CELLS = 0.5
 
-function cellSizeForLevel(lvl: PuzzleLevel): number {
-  const maxSpanCells = Math.max(1, ...lvl.pieces.map((p) => Math.max(p.widthCells, p.heightCells)))
-  const unitCells = lvl.boardRows + maxSpanCells // board height + the tallest tray row, in cells
-  const idealScale = (MAX_ARENA_HEIGHT_PX - ARENA_FIXED_GAPS_PX) / (FIT_PUZZLE_CELL_SIZE_PX * unitCells)
-  const scale = Math.min(1, Math.max(MIN_CELL_SCALE, idealScale))
-  return Math.round(FIT_PUZZLE_CELL_SIZE_PX * scale)
+interface ArenaMetrics {
+  cellPx: number
+  boardWidthPx: number
+  boardHeightPx: number
+  trayTopPx: number
+  trayCols: number
+  trayRows: number
+  traySlotPx: number
+  arenaWidthPx: number
+  arenaHeightPx: number
 }
 
-/** All of one level's arena geometry, derived from that level alone — computed fresh from whichever level is actually being laid out (never read from a possibly-stale previous level's render-scoped variables; layoutPieces needs the TARGET level's metrics, not the outgoing one). */
-function computeArenaMetrics(lvl: PuzzleLevel) {
-  const cellPx = cellSizeForLevel(lvl)
+/** All of one level's arena geometry, derived from that level + the real available space alone — computed fresh from whichever level is actually being laid out (never read from a possibly-stale previous level's render-scoped variables; layoutPieces needs the TARGET level's metrics, not the outgoing one). */
+function computeArenaMetrics(lvl: PuzzleLevel, availableWidthPx: number, availableHeightPx: number): ArenaMetrics {
+  const maxSpanCells = Math.max(1, ...lvl.pieces.map((p) => Math.max(p.widthCells, p.heightCells)))
+  const slotCells = maxSpanCells * TRAY_SLOT_PADDING_RATIO
+  const trayCols = Math.max(1, Math.min(lvl.pieces.length, Math.floor(lvl.boardCols / slotCells) || 1))
+  const trayRows = Math.ceil(lvl.pieces.length / trayCols)
+
+  const widthUnitCells = Math.max(lvl.boardCols, trayCols * slotCells)
+  const heightUnitCells = lvl.boardRows + BOARD_TRAY_GAP_CELLS + trayRows * slotCells
+
+  const scaleFromWidth = availableWidthPx / (FIT_PUZZLE_CELL_SIZE_PX * widthUnitCells)
+  const scaleFromHeight = availableHeightPx / (FIT_PUZZLE_CELL_SIZE_PX * heightUnitCells)
+  const scale = Math.min(1, Math.max(MIN_CELL_SCALE, Math.min(scaleFromWidth, scaleFromHeight)))
+  // Math.floor (not round) — rounding UP even by a fraction of a pixel per
+  // cell can accumulate across several tray rows into a real overflow of a
+  // few px, which is exactly what re-introduces the scroll this rework
+  // exists to remove. Flooring guarantees cellPx * unitCells never exceeds
+  // the solved budget.
+  const cellPx = Math.floor(FIT_PUZZLE_CELL_SIZE_PX * scale)
+
   const boardWidthPx = lvl.boardCols * cellPx
   const boardHeightPx = lvl.boardRows * cellPx
-  const trayTopPx = boardHeightPx + 24
-  const trayPieceMaxSpanPx = Math.max(cellPx, ...lvl.pieces.map((p) => Math.max(p.widthCells, p.heightCells) * cellPx))
-  const arenaHeightPx = trayTopPx + 8 + trayPieceMaxSpanPx + 16
-  return { cellPx, boardWidthPx, boardHeightPx, trayTopPx, trayPieceMaxSpanPx, arenaHeightPx }
+  const traySlotPx = slotCells * cellPx
+  const trayTopPx = boardHeightPx + BOARD_TRAY_GAP_CELLS * cellPx
+  const arenaWidthPx = Math.max(boardWidthPx, trayCols * traySlotPx)
+  const arenaHeightPx = trayTopPx + trayRows * traySlotPx
+
+  return { cellPx, boardWidthPx, boardHeightPx, trayTopPx, trayCols, trayRows, traySlotPx, arenaWidthPx, arenaHeightPx }
+}
+
+function shuffledIndices(n: number): number[] {
+  const order = Array.from({ length: n }, (_, i) => i)
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[order[i], order[j]] = [order[j], order[i]]
+  }
+  return order
+}
+
+/**
+ * Scatters each piece into a shuffled tray slot (grid position) with a
+ * small random jitter — "약간 산재, 약간 겹침, 어떤 조각인지는 항상 식별
+ * 가능" per QA: jitter is bounded well under the slot's own padding margin
+ * (TRAY_SLOT_PADDING_RATIO already reserves ~30% headroom per slot beyond
+ * the piece's own size), so adjacent pieces can nudge into each other's
+ * space without either ever being fully covered. Never rotates pieces
+ * decoratively — rotation here has real gameplay meaning (it's what the
+ * player must match to the target), so faking it would make it impossible
+ * to tell whether a piece still needs turning.
+ */
+function layoutPieces(lvl: PuzzleLevel, metrics: ArenaMetrics): PieceState[] {
+  const slotOrder = shuffledIndices(lvl.pieces.length)
+  return lvl.pieces.map((spec, i) => {
+    const slot = slotOrder[i]
+    const slotCol = slot % metrics.trayCols
+    const slotRow = Math.floor(slot / metrics.trayCols)
+    const { w, h } = footprintPx(spec.widthCells, spec.heightCells, metrics.cellPx)
+    const slotCenterX = slotCol * metrics.traySlotPx + metrics.traySlotPx / 2
+    const slotCenterY = metrics.trayTopPx + slotRow * metrics.traySlotPx + metrics.traySlotPx / 2
+    const jitterRange = metrics.traySlotPx * 0.12
+    const jitterX = (Math.random() * 2 - 1) * jitterRange
+    const jitterY = (Math.random() * 2 - 1) * jitterRange
+    const x = Math.max(4, slotCenterX - w / 2 + jitterX)
+    const y = Math.max(4, slotCenterY - h / 2 + jitterY)
+    return { spec, rotation: 0, x, y, homeX: x, homeY: y, placed: false }
+  })
+}
+
+/** Sane pre-measurement fallback (roughly what the old flat guess used) — only ever visible for the first paint before the effect below runs, since the arena itself isn't rendered until `stage === 'playing'`, well after mount. */
+const FALLBACK_ARENA_SIZE = { width: 696, height: 460 }
+/** Vertical space the arena's own card and the page around it always consume, beyond the measured header block: page bottom padding (py-6 → 24px) + the card's own top+bottom padding (py-5 → 40px) + the mt-5 gap above the card (20px) + a small safety margin. */
+const NON_ARENA_VERTICAL_BUFFER_PX = 24 + 40 + 20 + 16
+/** Horizontal space always lost to the page's own px-5 padding + the card's px-4 padding, both sides. */
+const NON_ARENA_HORIZONTAL_BUFFER_PX = 40 + 32
+/** Page content is capped at max-w-3xl (768px) — the arena should never try to claim more width than that even on an ultra-wide monitor. */
+const PAGE_MAX_WIDTH_PX = 768
+
+/**
+ * Measures the REAL space available for the arena — window size minus the
+ * actual rendered header block (GameHud + difficulty hint, via
+ * ResizeObserver) minus the known fixed chrome around the card. Re-measures
+ * on window resize/orientation change and whenever the header's own height
+ * changes. See computeArenaMetrics's doc comment for why this replaced the
+ * previous flat-460px guess.
+ */
+function useAvailableArenaSize(headerRef: RefObject<HTMLDivElement | null>) {
+  const [size, setSize] = useState(FALLBACK_ARENA_SIZE)
+  useEffect(() => {
+    function measure() {
+      const headerHeight = headerRef.current?.getBoundingClientRect().height ?? 0
+      const height = Math.max(240, window.innerHeight - headerHeight - NON_ARENA_VERTICAL_BUFFER_PX)
+      const width = Math.max(240, Math.min(window.innerWidth, PAGE_MAX_WIDTH_PX) - NON_ARENA_HORIZONTAL_BUFFER_PX)
+      setSize({ width, height })
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    window.addEventListener('orientationchange', measure)
+    const ro = new ResizeObserver(measure)
+    if (headerRef.current) ro.observe(headerRef.current)
+    return () => {
+      window.removeEventListener('resize', measure)
+      window.removeEventListener('orientationchange', measure)
+      ro.disconnect()
+    }
+  }, [headerRef])
+  return size
 }
 
 /** "퍼즐 끼우기" — new Spatial-stat game (spec §8). Pointer-based drag (works uniformly for mouse + touch via Pointer Events + setPointerCapture), tap-to-select + rotate button, target-zone (not pixel-perfect) snap detection with generous tolerance. */
@@ -110,27 +231,23 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
   const roundStartRef = useRef(0)
   const draggingRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null)
   const arenaRef = useRef<HTMLDivElement>(null)
+  const headerRef = useRef<HTMLDivElement>(null)
+  const availableSize = useAvailableArenaSize(headerRef)
 
   const level = levels[levelIndex]
-  const { cellPx, boardWidthPx, boardHeightPx, trayTopPx, arenaHeightPx } = computeArenaMetrics(level)
-
-  const layoutPieces = (lvl: PuzzleLevel): PieceState[] => {
-    const metrics = computeArenaMetrics(lvl)
-    let trayX = 8
-    return lvl.pieces.map((spec) => {
-      const { w, h } = footprintPx(spec.widthCells, spec.heightCells, metrics.cellPx)
-      const state: PieceState = { spec, rotation: 0, x: trayX, y: metrics.trayTopPx + 8, placed: false }
-      trayX += Math.max(w, h) + 16
-      return state
-    })
-  }
+  const { cellPx, boardWidthPx, boardHeightPx, arenaWidthPx, arenaHeightPx } = computeArenaMetrics(
+    level,
+    availableSize.width,
+    availableSize.height,
+  )
 
   const startGame = () => setStage('countdown')
 
   const startLevel = (lvlIndex: number) => {
     const lvl = levels[lvlIndex]
+    const metrics = computeArenaMetrics(lvl, availableSize.width, availableSize.height)
     setLevelIndex(lvlIndex)
-    setPieces(layoutPieces(lvl))
+    setPieces(layoutPieces(lvl, metrics))
     setSelectedId(null)
     setRoundRotations(0)
     setRoundMisplacements(0)
@@ -239,10 +356,8 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
 
       play('wrong')
       setRoundMisplacements((n) => n + 1)
-      // Bounce back to the tray.
-      const trayIndex = level.pieces.findIndex((p) => p.id === id)
-      const trayX = 8 + trayIndex * (Math.max(footprint.w, footprint.h) + 16)
-      return prev.map((p) => (p.spec.id === id ? { ...p, x: trayX, y: trayTopPx + 8 } : p))
+      // Bounce back to its own scattered tray slot (fixed once per level in layoutPieces).
+      return prev.map((p) => (p.spec.id === id ? { ...p, x: p.homeX, y: p.homeY } : p))
     })
   }
 
@@ -274,23 +389,25 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-6">
-      <GameHud
-        stat={stat}
-        gameName="퍼즐 끼우기"
-        mode={mode}
-        index={index}
-        objective="조각을 끌어 빈 공간에 맞게 끼우세요."
-        statusSlot={
-          stage === 'playing' ? (
-            <span className="rounded-xl bg-secondary px-3 py-1.5 text-xs font-bold text-secondary-foreground toy-border">
-              {levelIndex + 1} / {levels.length} · {secondsLeft}s
-            </span>
-          ) : undefined
-        }
-        onHelp={() => setTutorialOpen(true)}
-        onBack={onBack}
-      />
-      <p className="-mt-2 text-xs font-semibold text-muted-foreground">{GAME_DIFFICULTIES[difficulty].hint}</p>
+      <div ref={headerRef}>
+        <GameHud
+          stat={stat}
+          gameName="퍼즐 끼우기"
+          mode={mode}
+          index={index}
+          objective="조각을 끌어 빈 공간에 맞게 끼우세요."
+          statusSlot={
+            stage === 'playing' ? (
+              <span className="rounded-xl bg-secondary px-3 py-1.5 text-xs font-bold text-secondary-foreground toy-border">
+                {levelIndex + 1} / {levels.length} · {secondsLeft}s
+              </span>
+            ) : undefined
+          }
+          onHelp={() => setTutorialOpen(true)}
+          onBack={onBack}
+        />
+        <p className="-mt-2 text-xs font-semibold text-muted-foreground">{GAME_DIFFICULTIES[difficulty].hint}</p>
+      </div>
 
       <div className="mt-5 flex flex-1 flex-col">
         {stage === 'intro' && (
@@ -308,20 +425,16 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
 
         {stage === 'playing' && (
           <div className="flex flex-1 flex-col items-center rounded-3xl bg-card px-4 py-5 toy-border toy-shadow-lg">
-            {/* Board + tray are laid out with absolute-pixel geometry (see layoutPieces/footprintPx)
-                that can exceed a 375px-wide screen once several pieces are queued in the tray —
-                wrapping in a horizontally scrollable strip keeps every piece reachable on mobile
-                instead of silently rendering off-canvas. Inert on desktop, where content already fits.
-                Setting overflow-x here also computes this element's overflow-y to 'auto' per the CSS
-                spec (an x/y overflow pair can't mix 'visible' with anything else) — arenaHeightPx
-                above is sized to the tallest piece the current level can ever render (any rotation
-                included), so that vertical auto-scroll is never actually needed; it exists purely as
-                a safety net, not the primary fit mechanism. */}
+            {/* arenaWidthPx/arenaHeightPx (see computeArenaMetrics) are solved
+                against the REAL measured available width/height, so the arena
+                fits inside the viewport by construction — this wrapper's
+                overflow-x-auto is only a defensive fallback (e.g. a brief
+                pre-measurement frame), never the primary fit mechanism. */}
             <div className="w-full overflow-x-auto">
               <div
                 ref={arenaRef}
                 className="relative mx-auto"
-                style={{ width: Math.max(boardWidthPx, 280), height: arenaHeightPx }}
+                style={{ width: arenaWidthPx, height: arenaHeightPx }}
               >
                 {/* board */}
                 <div

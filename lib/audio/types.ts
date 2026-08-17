@@ -12,6 +12,8 @@ export type SoundName =
   | 'ui-back'
   | 'modal-open'
   | 'countdown-whole'
+  | 'countdown-tick'
+  | 'countdown-final'
   | 'game-start'
   | 'answer-correct'
   | 'answer-wrong-soft'

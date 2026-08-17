@@ -22,7 +22,17 @@ function archieveSfxSrc(fileName: string): string {
  * - countdown-whole: one baked-in clip covering the entire 3-2-1-go
  *   countdown (countdown-intro's 3 ticks immediately followed by
  *   countdown-final's "go" accent, pre-mixed — see sfx_fix/countdown-whole.mp3)
- *   — played once per countdown, never overlapped with itself
+ *   — no longer used by game-countdown.tsx (2026-08 QA 3차: its baked-in
+ *   internal timing couldn't be made to match a uniform on-screen 3-2-1
+ *   beat), kept registered in case anything else ever wants the old
+ *   single-clip behavior.
+ * - countdown-tick / countdown-final: game-countdown.tsx's replacement —
+ *   countdown-tick.mp3 (transcoded from the pre-existing sfx_fix/
+ *   countdown-tick.wav, itself a 3-beat clip with audible ticks starting at
+ *   ~0/993/1993ms — i.e. already an even ~1s cadence) plays once at mount,
+ *   and countdown-final.mp3 (the dedicated "go" accent this readme's own
+ *   §5 always intended for this exact moment) fires exactly when the 4th,
+ *   code-timed beat (1000ms after "1") arrives — see game-countdown.tsx.
  */
 export const SFX_CONFIG: Record<SoundName, SoundConfig> = {
   'ui-click-soft': { src: sfxSrc('ui-click-soft'), volume: 0.25, minIntervalMs: 70, maxConcurrent: 2 },
@@ -30,6 +40,8 @@ export const SFX_CONFIG: Record<SoundName, SoundConfig> = {
   'ui-back': { src: sfxSrc('ui-back'), volume: 0.25, minIntervalMs: 80, maxConcurrent: 1 },
   'modal-open': { src: sfxSrc('modal-open'), volume: 0.3, minIntervalMs: 100, maxConcurrent: 1 },
   'countdown-whole': { src: sfxSrc('countdown-whole'), volume: 0.4, minIntervalMs: 500, maxConcurrent: 1 },
+  'countdown-tick': { src: sfxSrc('countdown-tick'), volume: 0.4, minIntervalMs: 500, maxConcurrent: 1 },
+  'countdown-final': { src: sfxSrc('countdown-final'), volume: 0.45, minIntervalMs: 300, maxConcurrent: 1 },
   'game-start': { src: sfxSrc('game-start'), volume: 0.45, minIntervalMs: 200, maxConcurrent: 1 },
   'answer-correct': { src: sfxSrc('answer-correct'), volume: 0.35, minIntervalMs: 60, maxConcurrent: 3 },
   'answer-wrong-soft': { src: sfxSrc('answer-wrong-soft'), volume: 0.3, minIntervalMs: 60, maxConcurrent: 3 },

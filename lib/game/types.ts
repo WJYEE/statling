@@ -178,7 +178,15 @@ export type JudgmentRuleId = 'shape' | 'count'
 export type JudgmentAnswer = 'left' | 'mid' | 'right'
 
 export interface JudgmentStimulus {
-  shape: 'circle' | 'square' | 'triangle'
+  /**
+   * 2026-08 QA 3차 보정: 'triangle' was replaced with 'diamond' — a
+   * triangle has one directional apex, which QA found still read as an
+   * arrow/pointer cue even with the actual Direction Rule long gone. A
+   * diamond (a rotated square) has 4-fold rotational symmetry, so it never
+   * implies a direction the way a triangle does, while still being a third
+   * shape clearly distinct from circle/square for Hard/Extreme's 3-way ramp.
+   */
+  shape: 'circle' | 'square' | 'diamond'
   dotCount: 1 | 2 | 3
 }
 

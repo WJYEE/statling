@@ -1,7 +1,7 @@
 import type { JudgmentAnswer, JudgmentMappingValue, JudgmentRuleId, JudgmentRuleMapping, JudgmentStimulus } from '@/lib/game/types'
 
 /**
- * Segments 0-1 (2-way, every tier) draw only from this pool — no triangle,
+ * Segments 0-1 (2-way, every tier) draw only from this pool — no diamond,
  * no 3rd dot.
  */
 export const JUDGMENT_STIMULI_2WAY: JudgmentStimulus[] = [
@@ -23,9 +23,9 @@ export const JUDGMENT_STIMULI_3WAY: JudgmentStimulus[] = [
   { shape: 'square', dotCount: 1 },
   { shape: 'square', dotCount: 2 },
   { shape: 'square', dotCount: 3 },
-  { shape: 'triangle', dotCount: 1 },
-  { shape: 'triangle', dotCount: 2 },
-  { shape: 'triangle', dotCount: 3 },
+  { shape: 'diamond', dotCount: 1 },
+  { shape: 'diamond', dotCount: 2 },
+  { shape: 'diamond', dotCount: 3 },
 ]
 
 function shuffled<T>(items: T[]): T[] {
@@ -43,7 +43,7 @@ function sameStimulus(a: JudgmentStimulus, b: JudgmentStimulus): boolean {
 
 /** The domain of values a rule's mapping needs to cover — every shape/dotCount value that can actually appear at this choiceCount. */
 function mappingDomain(ruleId: JudgmentRuleId, choiceCount: 2 | 3): JudgmentMappingValue[] {
-  if (ruleId === 'shape') return choiceCount === 3 ? ['circle', 'square', 'triangle'] : ['circle', 'square']
+  if (ruleId === 'shape') return choiceCount === 3 ? ['circle', 'square', 'diamond'] : ['circle', 'square']
   return choiceCount === 3 ? [1, 2, 3] : [1, 2]
 }
 

@@ -9,13 +9,16 @@ interface JudgmentSymbolViewProps {
 }
 
 /**
- * CSS/SVG-only symbol. Shape (circle/square/triangle) carries the Shape Rule
+ * CSS/SVG-only symbol. Shape (circle/square/diamond) carries the Shape Rule
  * cue, dot count (1/2/3) carries the Count Rule cue — color is otherwise
  * decorative only, never the deciding cue (GAME_SPEC-style color-vision
- * independence). 2026-08 QA 2차 보정: the small direction-arrow badge (and
- * 'diamond'/4th-dot, which only existed to fill a 4-way answer domain) were
- * removed along with the 'direction' rule itself — see lib/game/types.ts's
- * JudgmentRuleId doc comment.
+ * independence). 2026-08 QA 2차 보정: the small direction-arrow badge was
+ * removed along with the 'direction' rule itself. 2026-08 QA 3차 보정: the
+ * 3rd shape was 'triangle' at that point, but a triangle's single pointed
+ * apex still read as a direction/arrow cue in practice — swapped for
+ * 'diamond' (4-fold rotational symmetry, points nowhere in particular) so
+ * every rendered symbol is now genuinely shape-only, no directional
+ * implication at all — see lib/game/types.ts's JudgmentStimulus doc comment.
  */
 export function JudgmentSymbolView({ stimulus, color, size = 64, className }: JudgmentSymbolViewProps) {
   const dotPositions: [number, number][] =
@@ -37,7 +40,7 @@ export function JudgmentSymbolView({ stimulus, color, size = 64, className }: Ju
       <g fill={color} stroke="var(--ink)" strokeWidth={2.5} strokeLinejoin="round">
         {stimulus.shape === 'circle' && <circle cx={32} cy={32} r={26} />}
         {stimulus.shape === 'square' && <rect x={8} y={8} width={48} height={48} rx={8} />}
-        {stimulus.shape === 'triangle' && <polygon points="32,7 58,55 6,55" />}
+        {stimulus.shape === 'diamond' && <polygon points="32,6 58,32 32,58 6,32" />}
       </g>
       {dotPositions.map(([cx, cy]) => (
         <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={5} fill="var(--ink)" />

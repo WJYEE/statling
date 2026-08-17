@@ -107,7 +107,7 @@ type LastMappingByRule = Record<JudgmentRuleId, JudgmentRuleMapping | null>
 const RULE_LABEL: Record<JudgmentRuleId, string> = { shape: '모양 규칙', count: '개수 규칙' }
 const RULE_FOCUS_LABEL: Record<JudgmentRuleId, string> = { shape: '모양', count: '개수' }
 const ANSWER_ICON: Record<JudgmentAnswer, string> = { left: '←', right: '→', mid: '●' }
-const SHAPE_LABEL: Record<JudgmentStimulus['shape'], string> = { circle: '동그라미', square: '네모', triangle: '세모' }
+const SHAPE_LABEL: Record<JudgmentStimulus['shape'], string> = { circle: '동그라미', square: '네모', diamond: '마름모' }
 const COUNT_LABEL: Record<JudgmentStimulus['dotCount'], string> = { 1: '점 1개', 2: '점 2개', 3: '점 3개' }
 
 /** A mapping value is a dot count or a shape name — `typeof` separates the two unambiguously. */
@@ -119,6 +119,27 @@ function mappingValueLabel(value: JudgmentMappingValue): string {
 function labelForAnswer(mapping: JudgmentRuleMapping, answer: JudgmentAnswer): string {
   const value = answer === 'left' ? mapping.left : answer === 'right' ? mapping.right : mapping.mid
   return value === null ? '' : mappingValueLabel(value)
+}
+
+/**
+ * 2026-08 QA 3차 보정: the persistent GameRuleReminder line used to show a
+ * generic, rule-agnostic sentence ("Block을 빠르게 처리하세요") that never
+ * actually told the player what Left/Mid/Right currently mean — that
+ * mapping is randomized per segment specifically so it can't be memorized,
+ * so it has to be read from somewhere every single Block. The Rule Banner
+ * above already shows it, but QA found it too easy to miss; this repeats it
+ * in the one slot every other mini-game already treats as "the always-on
+ * rule line" — e.g. "모양 규칙 · 동그라미 ← / 네모 →" — one line, no
+ * memorization required, updates live with the mapping.
+ */
+function ruleReminderText(mapping: JudgmentRuleMapping | null): string {
+  if (!mapping) return '규칙에 맞게 Block을 빠르게 처리하세요.'
+  const parts = [
+    `${labelForAnswer(mapping, 'left')} ${ANSWER_ICON.left}`,
+    ...(mapping.choiceCount === 3 ? [`${labelForAnswer(mapping, 'mid')} ${ANSWER_ICON.mid}`] : []),
+    `${labelForAnswer(mapping, 'right')} ${ANSWER_ICON.right}`,
+  ]
+  return `${RULE_LABEL[mapping.ruleId]} · ${parts.join(' / ')}`
 }
 
 /**
@@ -712,7 +733,7 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
             )}
           </div>
 
-          <GameRuleReminder text="규칙에 맞게 Block을 빠르게 처리하세요 · 제한시간 안에 최대한 많이, 정확하게!" />
+          <GameRuleReminder text={ruleReminderText(bannerMapping)} />
 
           {/* Block Queue: current (enlarged, glowing) + upcoming preview, fading out.
               Sizes are mobile-first (smaller) with `sm:` restoring the original desktop
