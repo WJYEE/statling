@@ -25,7 +25,7 @@ import {
   getJudgmentGameDurationForDifficulty,
   getSegmentConfig,
 } from '@/lib/config/judgment.config'
-import { GAME_DIFFICULTIES } from '@/lib/game/difficulty'
+import { GAME_DIFFICULTY_DISPLAY_LABEL } from '@/lib/game/difficulty'
 import type { GameDifficulty } from '@/lib/game/difficulty'
 import {
   JUDGMENT_STIMULI_2WAY,
@@ -714,7 +714,9 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
       <div className="mt-6 flex h-14 items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <StatBadge stat={stat} size="md" />
-          <h1 className="font-display text-2xl font-extrabold leading-none text-foreground">{stat.name}</h1>
+          <h1 className="font-display text-2xl font-extrabold leading-none text-foreground">
+            {stat.name} <span className="text-base font-bold text-muted-foreground">({GAME_DIFFICULTY_DISPLAY_LABEL[difficulty]})</span>
+          </h1>
         </div>
 
         {appStage === 'tutorial' ? (
@@ -770,7 +772,6 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
             <p className="font-display text-lg font-bold leading-snug text-foreground">
               규칙에 맞게 Block을 빠르게 처리하세요. 제한시간 안에 최대한 많이, 정확하게!
             </p>
-            <p className="mt-1 text-xs font-semibold text-muted-foreground">{GAME_DIFFICULTIES[difficulty].hint}</p>
             <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-card px-3 py-1 text-xs font-bold text-muted-foreground toy-border">
               탭해서 시작하기
             </p>

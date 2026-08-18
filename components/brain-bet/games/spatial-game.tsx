@@ -16,7 +16,7 @@ import {
   getSpatialTimeLimitForDifficulty,
 } from '@/lib/config/spatial.config'
 import { detectDevice } from '@/lib/game/device'
-import { GAME_DIFFICULTIES } from '@/lib/game/difficulty'
+import { GAME_DIFFICULTY_DISPLAY_LABEL } from '@/lib/game/difficulty'
 import type { GameDifficulty } from '@/lib/game/difficulty'
 import {
   buildTutorialQuestion1,
@@ -286,7 +286,9 @@ export function SpatialGame({ index, mode, difficulty, onComplete, onBack, avoid
       <div className="mt-4 flex items-center justify-between gap-4 sm:mt-6">
         <div className="flex items-center gap-3">
           <StatBadge stat={stat} size="md" />
-          <h1 className="font-display text-2xl font-extrabold leading-none text-foreground">{stat.name}</h1>
+          <h1 className="font-display text-2xl font-extrabold leading-none text-foreground">
+            {stat.name} <span className="text-base font-bold text-muted-foreground">({GAME_DIFFICULTY_DISPLAY_LABEL[difficulty]})</span>
+          </h1>
         </div>
         {round !== 'real' ? (
           <div className="flex items-center gap-2">
@@ -329,7 +331,6 @@ export function SpatialGame({ index, mode, difficulty, onComplete, onBack, avoid
             <p className="font-display text-lg font-bold leading-snug text-foreground">
               기준 조각을 머릿속으로 돌렸을 때 같은 모양이 되는 조각을 찾아주세요.
             </p>
-            <p className="text-xs font-semibold text-muted-foreground">{GAME_DIFFICULTIES[difficulty].hint}</p>
             <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-card px-3 py-1 text-xs font-bold text-muted-foreground toy-border">
               탭해서 시작하기
             </p>
@@ -357,11 +358,7 @@ export function SpatialGame({ index, mode, difficulty, onComplete, onBack, avoid
             </p>
             {stage === 'feedback' && tutorialHint ? (
               <p className="text-[11px] font-semibold text-secondary-foreground">{tutorialHint}</p>
-            ) : (
-              <p className={cn('text-[11px] font-semibold text-muted-foreground', round === 'real' && 'invisible')}>
-                이 기록은 결과에 포함되지 않아요.
-              </p>
-            )}
+            ) : null}
           </div>
 
           <GameRuleReminder text="기준 조각을 머릿속으로 돌렸을 때 같은 모양이 되는 조각을 찾아주세요." />

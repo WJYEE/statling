@@ -22,7 +22,7 @@ import {
   getMemoryDifficultySequence,
   type MemoryDifficultyLevel,
 } from '@/lib/config/memory.config'
-import { GAME_DIFFICULTIES } from '@/lib/game/difficulty'
+import { GAME_DIFFICULTY_DISPLAY_LABEL } from '@/lib/game/difficulty'
 import type { GameDifficulty } from '@/lib/game/difficulty'
 import { detectDevice } from '@/lib/game/device'
 import { pickRandomTargetCells } from '@/lib/game/memory-grid'
@@ -283,7 +283,9 @@ export function MemoryGame({ index, mode, difficulty: gameDifficulty, onComplete
       <div className="mt-4 flex items-center justify-between gap-4 sm:mt-6">
         <div className="flex items-center gap-3">
           <StatBadge stat={stat} size="md" />
-          <h1 className="font-display text-2xl font-extrabold leading-none text-foreground">{stat.name}</h1>
+          <h1 className="font-display text-2xl font-extrabold leading-none text-foreground">
+            {stat.name} <span className="text-base font-bold text-muted-foreground">({GAME_DIFFICULTY_DISPLAY_LABEL[gameDifficulty]})</span>
+          </h1>
         </div>
         {round === 'practice' ? (
           <div className="flex items-center gap-2">
@@ -314,7 +316,6 @@ export function MemoryGame({ index, mode, difficulty: gameDifficulty, onComplete
           </span>
           <div className="max-w-sm">
             <p className="font-display text-lg font-bold leading-snug text-foreground">{INSTRUCTION_TEXT}</p>
-            <p className="mt-2 text-xs font-semibold text-muted-foreground">{GAME_DIFFICULTIES[gameDifficulty].hint}</p>
             <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-card px-3 py-1 text-xs font-bold text-muted-foreground toy-border">
               탭해서 시작하기
             </p>
@@ -332,14 +333,6 @@ export function MemoryGame({ index, mode, difficulty: gameDifficulty, onComplete
               )}
             >
               {message}
-            </p>
-            <p
-              className={cn(
-                'text-[11px] font-semibold text-muted-foreground',
-                round !== 'practice' && 'invisible',
-              )}
-            >
-              이 기록은 결과에 포함되지 않아요.
             </p>
           </div>
 

@@ -63,7 +63,9 @@ export function GrowGameScreen({ statId, onSelect, onBack, initialGameKey }: Gro
           </div>
         </header>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        <p className="mt-3 text-sm font-semibold text-primary">{game.description}</p>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
           {GAME_DIFFICULTY_ORDER.map((difficulty) => {
             const def = GAME_DIFFICULTIES[difficulty]
             const unlocked = isDifficultyUnlocked(skill, game.key, difficulty)
@@ -92,7 +94,6 @@ export function GrowGameScreen({ statId, onSelect, onBack, initialGameKey }: Gro
                   {def.label}
                   {!unlocked && <Lock size={14} strokeWidth={2.6} />}
                 </span>
-                <span className="text-xs leading-snug text-muted-foreground">{def.hint}</span>
 
                 {unlockedBadge && (
                   <span className="rounded-full bg-accent px-2 py-0.5 text-[11px] font-bold text-accent-foreground">
@@ -117,7 +118,7 @@ export function GrowGameScreen({ statId, onSelect, onBack, initialGameKey }: Gro
                     {/* leading-snug (not the default leading-normal) so a wrapped 2-line
                         unlock hint (now stating the real "Normal에서 70점 이상..." threshold,
                         longer than the old vague copy) keeps its own lines close without
-                        crowding the def.hint/badge above it — the `gap-2` on the button
+                        crowding the badge above it — the `gap-2` on the button
                         already provides that separation. */}
                     <p className="text-xs font-bold leading-snug text-primary">{unlockHintFor(difficulty)}</p>
                     {progressPercent !== null && (

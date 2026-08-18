@@ -195,6 +195,9 @@ const SHOW_QA_SKIP =
 const emptyFinals = () =>
   Object.fromEntries(PLAY_ORDER.map((id) => [id, 0])) as Record<StatId, number>
 
+/** Auto-dismiss delay for the "업적 달성!" unlock toast — long enough to actually read the title, still closable early via Toast.Close. */
+const ACHIEVEMENT_TOAST_TIMEOUT_MS = 7000
+
 export function GameFlow() {
   const { user, loading: authLoading } = useAuth()
   const toastManager = Toast.useToastManager()
@@ -530,7 +533,7 @@ export function GameFlow() {
       if (isIntroPhaseRef.current) return
       if (isAchievementNotified(tier.tierId)) return
       markAchievementNotified(tier.tierId)
-      toastManager.add({ title: `업적 달성! ${tier.title}`, type: 'success' })
+      toastManager.add({ title: `업적 달성! ${tier.title}`, type: 'success', timeout: ACHIEVEMENT_TOAST_TIMEOUT_MS })
     })
   }, [toastManager])
 
@@ -562,7 +565,7 @@ export function GameFlow() {
           if (isAchievementNotified(tierId)) return
           markAchievementNotified(tierId)
           const tier = findAchievementTier(tierId)
-          if (tier) toastManager.add({ title: `업적 달성! ${tier.title}`, type: 'success' })
+          if (tier) toastManager.add({ title: `업적 달성! ${tier.title}`, type: 'success', timeout: ACHIEVEMENT_TOAST_TIMEOUT_MS })
         }, delay),
       )
     }

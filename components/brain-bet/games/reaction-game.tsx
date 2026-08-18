@@ -20,7 +20,7 @@ import {
 } from '@/lib/config/reaction.config'
 import { calculateReactionScore, summarizeReactionTrials } from '@/lib/scoring/reaction'
 import { detectDevice } from '@/lib/game/device'
-import { GAME_DIFFICULTIES } from '@/lib/game/difficulty'
+import { GAME_DIFFICULTY_DISPLAY_LABEL } from '@/lib/game/difficulty'
 import type { GameDifficulty } from '@/lib/game/difficulty'
 import type { ReactionRawSummary, ReactionTrial } from '@/lib/game/types'
 import { cn } from '@/lib/utils'
@@ -318,14 +318,8 @@ export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: Re
               {round === 'practice' ? 'TUTORIAL' : '실전 측정 중'}
             </p>
             <h1 className="font-display text-2xl font-extrabold leading-none text-foreground">
-              {stat.name}
+              {stat.name} <span className="text-base font-bold text-muted-foreground">({GAME_DIFFICULTY_DISPLAY_LABEL[difficulty]})</span>
             </h1>
-            {round === 'practice' && (
-              <p className="mt-1 text-[11px] font-semibold text-muted-foreground">
-                이 기록은 결과에 포함되지 않아요.
-              </p>
-            )}
-            <p className="text-xs font-semibold text-muted-foreground">{GAME_DIFFICULTIES[difficulty].hint}</p>
           </div>
         </div>
         {round === 'practice' ? (

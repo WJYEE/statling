@@ -15,13 +15,26 @@ export const GAME_DIFFICULTY_ORDER: GameDifficulty[] = ['easy', 'normal', 'hard'
 export interface GameDifficultyDef {
   id: GameDifficulty
   label: string
-  /** One short line shown on every game's start/HUD screen — see spec §19. Identical layout across all games, only the copy differs per tier. */
-  hint: string
 }
 
 export const GAME_DIFFICULTIES: Record<GameDifficulty, GameDifficultyDef> = {
-  easy: { id: 'easy', label: 'EASY', hint: '연습용이에요.' },
-  normal: { id: 'normal', label: 'NORMAL', hint: '기본 난이도예요.' },
-  hard: { id: 'hard', label: 'HARD', hint: '대표 기록에 반영되는 도전 난이도예요.' },
-  extreme: { id: 'extreme', label: 'EXTREME', hint: '최고 난이도예요.' },
+  easy: { id: 'easy', label: 'EASY' },
+  normal: { id: 'normal', label: 'NORMAL' },
+  hard: { id: 'hard', label: 'HARD' },
+  extreme: { id: 'extreme', label: 'EXTREME' },
+}
+
+/**
+ * Title-case label for the "스탯명 (난이도)" tag shown next to a stat name on
+ * every mini-game's common header (spec: Free Play difficulty UX
+ * consistency) — e.g. "순발력 (Easy)". Deliberately separate from
+ * GAME_DIFFICULTIES[x].label (all-caps "EASY", used on the tier-select
+ * cards in GrowGameScreen), since that spot wants the shoutier all-caps
+ * treatment and this one doesn't.
+ */
+export const GAME_DIFFICULTY_DISPLAY_LABEL: Record<GameDifficulty, string> = {
+  easy: 'Easy',
+  normal: 'Normal',
+  hard: 'Hard',
+  extreme: 'Extreme',
 }

@@ -15,7 +15,6 @@ import {
   dodgeObstacleSpeedAt,
   getDodgeObstacleTierConfig,
 } from '@/lib/config/dodge-obstacle.config'
-import { GAME_DIFFICULTIES } from '@/lib/game/difficulty'
 import type { GameDifficulty } from '@/lib/game/difficulty'
 import { pickDefaultSpawn, pickGreenGapPattern, pickScriptedPattern, type DodgeLane } from '@/lib/game/dodge-obstacle-patterns'
 import type { DodgeObstacleEvent, DodgeObstacleRawSummary } from '@/lib/game/types'
@@ -386,6 +385,7 @@ export function DodgeObstacleGame({
         gameName="장애물 피하기"
         mode={mode}
         index={index}
+        difficulty={difficulty}
         objective={objective}
         statusSlot={
           stage === 'playing' ? (
@@ -403,8 +403,6 @@ export function DodgeObstacleGame({
         onHelp={() => setTutorialOpen(true)}
         onBack={onBack}
       />
-      <p className="mt-1 text-xs font-semibold text-muted-foreground">{GAME_DIFFICULTIES[difficulty].hint}</p>
-
       <div className="mt-5 flex flex-1 flex-col">
         {stage === 'intro' && (
           <div className="flex flex-1 flex-col items-center justify-center gap-5 rounded-3xl bg-card px-6 py-12 text-center toy-border toy-shadow-lg">

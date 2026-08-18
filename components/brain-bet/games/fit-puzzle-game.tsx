@@ -19,7 +19,6 @@ import {
   FIT_PUZZLE_INTRO_COUNTDOWN_SECONDS,
   getFitPuzzleSnapToleranceForDifficulty,
 } from '@/lib/config/fit-puzzle.config'
-import { GAME_DIFFICULTIES } from '@/lib/game/difficulty'
 import type { GameDifficulty } from '@/lib/game/difficulty'
 import {
   finalCells,
@@ -561,6 +560,7 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
           gameName="퍼즐 끼우기"
           mode={mode}
           index={index}
+          difficulty={difficulty}
           objective="조각을 끌어 빈 공간에 맞게 끼우세요."
           statusSlot={
             stage === 'playing' ? (
@@ -572,7 +572,6 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
           onHelp={() => setTutorialOpen(true)}
           onBack={onBack}
         />
-        <p className="-mt-2 text-xs font-semibold text-muted-foreground">{GAME_DIFFICULTIES[difficulty].hint}</p>
       </div>
 
       <div className="mt-5 flex flex-1 flex-col">

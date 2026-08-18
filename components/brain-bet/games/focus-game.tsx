@@ -25,7 +25,7 @@ import {
   getFocusRoundTimeLimitForDifficulty,
 } from '@/lib/config/focus.config'
 import { buildFocusRound, type FocusRoundView } from '@/lib/game/focus-grid'
-import { GAME_DIFFICULTIES, type GameDifficulty } from '@/lib/game/difficulty'
+import { GAME_DIFFICULTY_DISPLAY_LABEL, type GameDifficulty } from '@/lib/game/difficulty'
 import { selectNoTargetRoundIndices } from '@/lib/game/focus-rounds'
 import { buildFocusTargetSymbol, type FocusShape } from '@/lib/game/focus-symbol'
 import type { FocusRawSummary, FocusRoundTrial } from '@/lib/game/types'
@@ -360,7 +360,9 @@ export function FocusGame({ index, mode, difficulty, onComplete, onBack }: Focus
       <div className="mt-4 flex items-center justify-between gap-4 sm:mt-6">
         <div className="flex items-center gap-3">
           <StatBadge stat={stat} size="md" />
-          <h1 className="font-display text-2xl font-extrabold leading-none text-foreground">{stat.name}</h1>
+          <h1 className="font-display text-2xl font-extrabold leading-none text-foreground">
+            {stat.name} <span className="text-base font-bold text-muted-foreground">({GAME_DIFFICULTY_DISPLAY_LABEL[difficulty]})</span>
+          </h1>
         </div>
         {round !== 'real' ? (
           <div className="flex items-center gap-2">
@@ -393,7 +395,6 @@ export function FocusGame({ index, mode, difficulty, onComplete, onBack }: Focus
             <p className="font-display text-lg font-bold leading-snug text-foreground">
               정해진 모양만 찾아 눌러보세요. 다른 모양은 누르면 안 돼요.
             </p>
-            <p className="mt-1 text-xs font-semibold text-muted-foreground">{GAME_DIFFICULTIES[difficulty].hint}</p>
             <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-card px-3 py-1 text-xs font-bold text-muted-foreground toy-border">
               탭해서 시작하기
             </p>
@@ -416,14 +417,6 @@ export function FocusGame({ index, mode, difficulty, onComplete, onBack }: Focus
               )}
             >
               {message}
-            </p>
-            <p
-              className={cn(
-                'text-[11px] font-semibold text-muted-foreground',
-                round === 'real' && 'invisible',
-              )}
-            >
-              이 기록은 결과에 포함되지 않아요.
             </p>
           </div>
 

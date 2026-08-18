@@ -69,8 +69,7 @@ export interface DodgeObstacleTierConfig {
 export const DODGE_OBSTACLE_TIER_CONFIG: Record<GameDifficulty, DodgeObstacleTierConfig> = {
   easy: {
     mode: 'fixed-time',
-    // v4 QA: was 35_000 — 35s felt far too long for the intended "practice"
-    // tier (GAME_DIFFICULTIES.easy.hint literally says "연습용이에요").
+    // v4 QA: was 35_000 — 35s felt far too long for the intended "practice" tier.
     durationMs: 10_000,
     initialSpeedPxPerS: 150,
     speedRampPxPerSPerSec: 3,

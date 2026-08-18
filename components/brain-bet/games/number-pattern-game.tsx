@@ -13,7 +13,6 @@ import {
   NUMBER_PATTERN_QUESTION_COUNT,
   NUMBER_PATTERN_WRONG_ADVANCE_MS,
 } from '@/lib/config/number-pattern.config'
-import { GAME_DIFFICULTIES } from '@/lib/game/difficulty'
 import type { GameDifficulty } from '@/lib/game/difficulty'
 import { detectDevice } from '@/lib/game/device'
 import { pickNumberPatternSession } from '@/lib/game/number-pattern-data'
@@ -121,6 +120,7 @@ export function NumberPatternGame({ index, mode, difficulty, onComplete, onBack 
         gameName="숫자 규칙"
         mode={mode}
         index={index}
+        difficulty={difficulty}
         objective="빈칸에 들어갈 숫자를 규칙에 맞게 고르세요."
         statusSlot={
           stage === 'playing' ? (
@@ -132,8 +132,6 @@ export function NumberPatternGame({ index, mode, difficulty, onComplete, onBack 
         onHelp={() => setTutorialOpen(true)}
         onBack={onBack}
       />
-      <p className="text-xs font-semibold text-muted-foreground">{GAME_DIFFICULTIES[difficulty].hint}</p>
-
       <div className="mt-5 flex flex-1 flex-col">
         {stage === 'intro' && (
           <div className="flex flex-1 flex-col items-center justify-center gap-5 rounded-3xl bg-card px-6 py-12 text-center toy-border toy-shadow-lg">

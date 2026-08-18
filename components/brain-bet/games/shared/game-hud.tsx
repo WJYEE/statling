@@ -5,12 +5,14 @@ import { ProgressTrack } from '@/components/brain-bet/progress-track'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { FreePlayBadge } from '@/components/brain-bet/games/shared/free-play-badge'
 import type { StatDef } from '@/lib/brain-bet'
+import { GAME_DIFFICULTY_DISPLAY_LABEL, type GameDifficulty } from '@/lib/game/difficulty'
 
 interface GameHudProps {
   stat: StatDef
   gameName: string
   mode: 'first' | 'free'
   index: number
+  difficulty: GameDifficulty
   /**
    * One short line always visible (spec §3: "게임 시작 전 짧은 한 줄 목표는 항상 표시 가능")
    * — e.g. "목표 색만 클릭하세요". Styled orange (the same persistent rule-reminder
@@ -32,7 +34,7 @@ interface GameHudProps {
  * (Logo + ProgressTrack/FREE PLAY, then a stat/title row) so the new games
  * don't feel like a bolt-on.
  */
-export function GameHud({ stat, gameName, mode, index, objective, statusSlot, onHelp, onBack }: GameHudProps) {
+export function GameHud({ stat, gameName, mode, index, difficulty, objective, statusSlot, onHelp, onBack }: GameHudProps) {
   return (
     <header className="flex flex-col gap-4">
       {mode === 'first' && (
@@ -53,6 +55,9 @@ export function GameHud({ stat, gameName, mode, index, objective, statusSlot, on
         <div className="flex items-center gap-3">
           <StatBadge stat={stat} size="md" />
           <div>
+            <p className="text-xs font-bold text-muted-foreground">
+              {stat.name} <span>({GAME_DIFFICULTY_DISPLAY_LABEL[difficulty]})</span>
+            </p>
             <h1 className="font-display text-xl font-extrabold leading-none text-foreground">{gameName}</h1>
             <p className="mt-1 max-w-[14rem] text-pretty text-xs font-semibold text-primary">
               {objective}

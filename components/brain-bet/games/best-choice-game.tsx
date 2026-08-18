@@ -11,7 +11,6 @@ import {
   getBestChoiceRoundCountForDifficulty,
   getBestChoiceTimeLimitMsForDifficulty,
 } from '@/lib/config/best-choice.config'
-import { GAME_DIFFICULTIES } from '@/lib/game/difficulty'
 import type { GameDifficulty } from '@/lib/game/difficulty'
 import { pickComparisonQuestions } from '@/lib/game/decision-scenarios'
 import type { BestChoiceAnswer, BestChoiceRawSummary } from '@/lib/game/types'
@@ -112,6 +111,7 @@ export function BestChoiceGame({ index, mode, difficulty, onComplete, onBack }: 
         gameName="무엇을 선택할까"
         mode={mode}
         index={index}
+        difficulty={difficulty}
         objective="사실에 맞는 답을 빠르고 정확하게 고르세요."
         statusSlot={
           stage === 'playing' ? (
@@ -123,8 +123,6 @@ export function BestChoiceGame({ index, mode, difficulty, onComplete, onBack }: 
         onHelp={() => setTutorialOpen(true)}
         onBack={onBack}
       />
-      <p className="mt-1 text-xs font-semibold text-muted-foreground">{GAME_DIFFICULTIES[difficulty].hint}</p>
-
       <div className="mt-5 flex flex-1 flex-col">
         {stage === 'intro' && (
           <div className="flex flex-1 flex-col items-center justify-center gap-5 rounded-3xl bg-card px-6 py-12 text-center toy-border toy-shadow-lg">

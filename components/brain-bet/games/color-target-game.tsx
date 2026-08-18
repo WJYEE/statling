@@ -13,7 +13,7 @@ import {
   getStroopTierConfig,
   type StroopRule,
 } from '@/lib/config/color-target.config'
-import { GAME_DIFFICULTIES, type GameDifficulty } from '@/lib/game/difficulty'
+import type { GameDifficulty } from '@/lib/game/difficulty'
 import { generateStroopSession, type StroopTrialSpec } from '@/lib/game/stroop-session'
 import type { ColorTargetClickEvent, ColorTargetRawSummary } from '@/lib/game/types'
 import { calculateColorTargetScore, summarizeColorTargetEvents } from '@/lib/scoring/color-target'
@@ -163,6 +163,7 @@ export function ColorTargetGame({ index, mode, difficulty, onComplete, onBack }:
         gameName="특정 색만 클릭"
         mode={mode}
         index={index}
+        difficulty={difficulty}
         objective="지금 규칙에 맞는 색을 클릭하세요."
         statusSlot={
           stage === 'trial' || stage === 'feedback' ? (
@@ -174,8 +175,6 @@ export function ColorTargetGame({ index, mode, difficulty, onComplete, onBack }:
         onHelp={() => setTutorialOpen(true)}
         onBack={onBack}
       />
-      <p className="text-xs font-semibold text-muted-foreground">{GAME_DIFFICULTIES[difficulty].hint}</p>
-
       <div className="mt-5 flex flex-1 flex-col">
         {stage === 'intro' && (
           <div className="flex flex-1 flex-col items-center justify-center gap-5 rounded-3xl bg-card px-6 py-12 text-center toy-border toy-shadow-lg">
