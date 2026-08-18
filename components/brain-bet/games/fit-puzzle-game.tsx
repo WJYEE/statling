@@ -23,9 +23,8 @@ import { GAME_DIFFICULTIES } from '@/lib/game/difficulty'
 import type { GameDifficulty } from '@/lib/game/difficulty'
 import {
   finalCells,
-  finalFootprint,
+  levelRequiredCells,
   pickFitPuzzleSession,
-  rotationMatchesTarget,
   type PuzzleLevel,
   type PuzzlePieceSpec,
 } from '@/lib/game/puzzle-levels'
@@ -45,6 +44,13 @@ interface PieceState {
   /** Its scattered tray position — where a wrong drop bounces back to (see handlePointerUp), fixed once per level in layoutPieces. */
   homeX: number
   homeY: number
+  /**
+   * Whether the piece currently rests on a valid board cell (in bounds, not
+   * overlapping any other placed piece) — NOT "this is the piece's one true
+   * answer". A placed piece can still be picked up and moved again (real
+   * jigsaw pieces don't glue down), so occupancy is recomputed from whatever
+   * is placed right now rather than tracked as a one-time correctness flag.
+   */
   placed: boolean
   /** Stacking order — bumped to the current top on pick-up so the piece being dragged/tapped is never hidden under others in the pile (2026-08 QA: "겹칠 수 있으나 클릭한 조각이 맨 위로"). */
   zIndex: number
@@ -53,6 +59,37 @@ interface PieceState {
 /** The piece's cells at its current (live, user-controlled) rotation — this is what per-cell rendering draws, so a piece always reads as its real polyomino silhouette instead of a solid bounding-box block. */
 function currentCells(piece: PieceState): CellCoord[] {
   return rotateCells(piece.spec.cells, piece.rotation)
+}
+
+/** `spec`'s cells at `rotation`, translated onto absolute board (row, col) coordinates. */
+function boardCellsAt(spec: PuzzlePieceSpec, rotation: 0 | 90 | 180 | 270, col: number, row: number): CellCoord[] {
+  return rotateCells(spec.cells, rotation).map(([r, c]): CellCoord => [row + r, col + c])
+}
+
+/**
+ * Board cells currently occupied by placed pieces. `excludeId` is passed
+ * when validating a drop/rotation so the piece being moved never blocks
+ * itself; omitted when just reading final board occupancy (the win check).
+ * A placed piece's board (col, row) is derived from its pixel position —
+ * always an exact cellPx multiple, since pieces only ever become `placed` by
+ * snapping to one (see handlePointerUp/rotatePiece).
+ */
+function occupiedCellKeys(pieces: PieceState[], cellPx: number, excludeId?: string): Set<string> {
+  const occupied = new Set<string>()
+  for (const p of pieces) {
+    if (!p.placed || p.spec.id === excludeId) continue
+    const col = p.x / cellPx
+    const row = p.y / cellPx
+    for (const [r, c] of currentCells(p)) occupied.add(`${row + r},${col + c}`)
+  }
+  return occupied
+}
+
+/** Whether `cells` (absolute board coordinates) all land inside `level`'s board and none collide with `occupied`. */
+function fitsOnBoard(cells: CellCoord[], level: PuzzleLevel, occupied: Set<string>): boolean {
+  return cells.every(
+    ([r, c]) => r >= 0 && c >= 0 && r < level.boardRows && c < level.boardCols && !occupied.has(`${r},${c}`),
+  )
 }
 
 interface FitPuzzleGameProps {
@@ -280,7 +317,15 @@ function useAvailableArenaSize(headerRef: RefObject<HTMLDivElement | null>) {
   return size
 }
 
-/** "퍼즐 끼우기" — new Spatial-stat game (spec §8). Pointer-based drag (works uniformly for mouse + touch via Pointer Events + setPointerCapture), tap-to-select + rotate button, target-zone (not pixel-perfect) snap detection with generous tolerance. */
+/**
+ * "퍼즐 끼우기" — Spatial-stat game (spec §8). Pointer-based drag (works
+ * uniformly for mouse + touch via Pointer Events + setPointerCapture),
+ * tap-to-select + rotate button, grid-cell (not pixel-perfect) snap
+ * detection with generous tolerance. Placement is occupancy-based: a piece
+ * may land on any empty, in-bounds board cell it fits — there is no single
+ * predetermined slot per piece, so a level can have multiple valid solutions
+ * (see levelRequiredCells/puzzle-levels.ts for how "solved" is judged).
+ */
 export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: FitPuzzleGameProps) {
   const stat = STATS.spatial
   const { play } = useSound()
@@ -297,7 +342,7 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
   const [roundMisplacements, setRoundMisplacements] = useState(0)
 
   const roundStartRef = useRef(0)
-  const draggingRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null)
+  const draggingRef = useRef<{ id: string; offsetX: number; offsetY: number; startX: number; startY: number } | null>(null)
   const arenaRef = useRef<HTMLDivElement>(null)
   const headerRef = useRef<HTMLDivElement>(null)
   const availableSize = useAvailableArenaSize(headerRef)
@@ -364,10 +409,22 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
     // eslint-disable-next-line react-hooks/exhaustive-deps -- finishRound reads latest pieces/round counters via closure recreated each render
   }, [stage, remainingMs, tutorialOpen])
 
-  // Auto-advance the instant every piece in the level is placed.
+  /**
+   * Auto-advance once the board's target silhouette is fully covered —
+   * occupancy-based, not "each piece sits on its own predetermined slot"
+   * (see levelRequiredCells/puzzle-levels.ts). `pieces.every(placed)` is
+   * checked first purely as a cheap short-circuit: since every level's
+   * required-cell count always equals the sum of its pieces' own cell
+   * counts (QA-verified, see PUZZLE_LEVELS's doc comment) and placement
+   * never allows overlaps, fully covering the required cells is only
+   * reachable once every piece is placed anyway.
+   */
   useEffect(() => {
     if (stage !== 'playing' || pieces.length === 0) return
-    if (pieces.every((p) => p.placed)) finishRound(true)
+    if (!pieces.every((p) => p.placed)) return
+    const required = levelRequiredCells(level)
+    const occupied = occupiedCellKeys(pieces, cellPx)
+    if (required.every(([r, c]) => occupied.has(`${r},${c}`))) finishRound(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally only re-checks when `pieces` changes
   }, [pieces])
 
@@ -381,9 +438,9 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
   const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>, id: string) => {
     if (tutorialOpen) return
     const piece = pieces.find((p) => p.spec.id === id)
-    if (!piece || piece.placed) return
+    if (!piece) return
     e.currentTarget.setPointerCapture(e.pointerId)
-    draggingRef.current = { id, offsetX: e.clientX - piece.x, offsetY: e.clientY - piece.y }
+    draggingRef.current = { id, offsetX: e.clientX - piece.x, offsetY: e.clientY - piece.y, startX: piece.x, startY: piece.y }
     setSelectedId(id)
     bringToFront(id)
   }
@@ -404,37 +461,37 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
     setPieces((prev) => {
       const piece = prev.find((p) => p.spec.id === id)
       if (!piece) return prev
-      const footprint = renderedFootprint(piece, cellPx)
-      const pieceCenter = { x: piece.x + footprint.w / 2, y: piece.y + footprint.h / 2 }
 
-      let bestTarget: { spec: PuzzlePieceSpec; distance: number } | null = null
-      for (const p of prev) {
-        const { width, height } = finalFootprint(p.spec)
-        const targetCenter = {
-          x: p.spec.targetCol * cellPx + (width * cellPx) / 2,
-          y: p.spec.targetRow * cellPx + (height * cellPx) / 2,
-        }
-        const distance = Math.hypot(pieceCenter.x - targetCenter.x, pieceCenter.y - targetCenter.y)
-        if (distance <= snapToleranceRef.current && (!bestTarget || distance < bestTarget.distance)) {
-          bestTarget = { spec: p.spec, distance }
-        }
+      // A plain tap/click (pointerdown+up with no real movement) is
+      // selection only — re-validating it would re-fire the placement
+      // sound/effects on a piece that never actually moved.
+      const moved = Math.hypot(piece.x - drag.startX, piece.y - drag.startY) > 1
+      if (!moved) return prev
+
+      const footprint = renderedFootprint(piece, cellPx)
+      const overBoard =
+        piece.x + footprint.w > 0 && piece.x < boardWidthPx && piece.y + footprint.h > 0 && piece.y < boardHeightPx
+      // Dropped away from the board entirely — no penalty, stays where
+      // released (mirrors the old "dropped far from any target" leniency).
+      if (!overBoard) {
+        return piece.placed ? prev.map((p) => (p.spec.id === id ? { ...p, placed: false } : p)) : prev
       }
 
-      if (!bestTarget) return prev // dropped in open space — no penalty, stays where released
+      const col = Math.round(piece.x / cellPx)
+      const row = Math.round(piece.y / cellPx)
+      const snappedX = col * cellPx
+      const snappedY = row * cellPx
+      const distance = Math.hypot(piece.x - snappedX, piece.y - snappedY)
+      // Resting over the board but not close enough to commit to a cell —
+      // same "no penalty, floats where released" leniency as above.
+      if (distance > snapToleranceRef.current) {
+        return piece.placed ? prev.map((p) => (p.spec.id === id ? { ...p, placed: false } : p)) : prev
+      }
 
-      const targetSpec = bestTarget.spec
-      const alreadyFilled = prev.some((p) => p.spec.id === targetSpec.id && p.placed)
-      // Shape-aware match (not a raw rotation===correctRotation or %180 check)
-      // — required once pieces can be genuinely asymmetric (L/T/S/Z): those
-      // look different at rotation+180, while symmetric pieces (lines, the
-      // 2x2 square) legitimately DO look identical at extra rotation values,
-      // so only comparing actual rotated cell sets is correct for both.
-      const rotationMatches = rotationMatchesTarget(targetSpec, piece.rotation)
-      const isRightTarget = targetSpec.id === piece.spec.id
+      const cells = boardCellsAt(piece.spec, piece.rotation, col, row)
+      const occupied = occupiedCellKeys(prev, cellPx, id)
 
-      if (isRightTarget && rotationMatches && !alreadyFilled) {
-        const snappedX = targetSpec.targetCol * cellPx
-        const snappedY = targetSpec.targetRow * cellPx
+      if (fitsOnBoard(cells, level, occupied)) {
         play('answer-correct')
         return prev.map((p) => (p.spec.id === id ? { ...p, placed: true, x: snappedX, y: snappedY } : p))
       }
@@ -442,18 +499,41 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
       play('wrong')
       setRoundMisplacements((n) => n + 1)
       // Bounce back to its own scattered tray slot (fixed once per level in layoutPieces).
-      return prev.map((p) => (p.spec.id === id ? { ...p, x: p.homeX, y: p.homeY } : p))
+      return prev.map((p) => (p.spec.id === id ? { ...p, placed: false, x: p.homeX, y: p.homeY } : p))
     })
   }
 
-  /** Rotates one specific piece 90° — used by both the tap-to-select rotate button (mobile-first, still the primary control) and PC's right-click shortcut (see the piece's onContextMenu below). Whichever input triggered it, the resulting rotation feeds the exact same placement judgment in handlePointerUp. */
+  /**
+   * Rotates one specific piece 90° — used by both the tap-to-select rotate
+   * button (mobile-first, still the primary control) and PC's right-click
+   * shortcut (see the piece's onContextMenu below). A piece still in hand
+   * rotates freely; a piece currently resting on the board rotates in place
+   * and is re-validated against its current cell — if the new orientation no
+   * longer fits (out of bounds/now overlaps a neighbor), it bounces back to
+   * its tray home exactly like an invalid drop (see handlePointerUp).
+   */
   const rotatePiece = (id: string) => {
     const piece = pieces.find((p) => p.spec.id === id)
-    if (!piece || piece.placed) return
+    if (!piece) return
     setRoundRotations((n) => n + 1)
-    setPieces((prev) =>
-      prev.map((p) => (p.spec.id === id ? { ...p, rotation: (((p.rotation + 90) % 360) as 0 | 90 | 180 | 270) } : p)),
-    )
+    const nextRotation = ((piece.rotation + 90) % 360) as 0 | 90 | 180 | 270
+    setPieces((prev) => {
+      if (!piece.placed) {
+        return prev.map((p) => (p.spec.id === id ? { ...p, rotation: nextRotation } : p))
+      }
+      const col = piece.x / cellPx
+      const row = piece.y / cellPx
+      const cells = boardCellsAt(piece.spec, nextRotation, col, row)
+      const occupied = occupiedCellKeys(prev, cellPx, id)
+      if (fitsOnBoard(cells, level, occupied)) {
+        return prev.map((p) => (p.spec.id === id ? { ...p, rotation: nextRotation } : p))
+      }
+      play('wrong')
+      setRoundMisplacements((n) => n + 1)
+      return prev.map((p) =>
+        p.spec.id === id ? { ...p, rotation: nextRotation, placed: false, x: p.homeX, y: p.homeY } : p,
+      )
+    })
   }
 
   const rotateSelected = () => {
@@ -543,8 +623,8 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
                   )}
                 </div>
 
-                {/* rotate button, anchored just above the selected (undropped) piece */}
-                {selectedPiece && !selectedPiece.placed && (
+                {/* rotate button, anchored just above the selected piece — available whether the piece is still in hand or already resting on the board (rotatePiece re-validates an on-board piece in place). */}
+                {selectedPiece && (
                   <button
                     type="button"
                     onClick={rotateSelected}
@@ -574,17 +654,19 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
                       onPointerUp={(e) => handlePointerUp(e, piece.spec.id)}
                       onContextMenu={(e) => handlePieceContextMenu(e, piece.spec.id)}
                       role="button"
-                      tabIndex={piece.placed ? -1 : 0}
-                      aria-label={`퍼즐 조각 ${piece.spec.id}${piece.placed ? ' (배치 완료)' : ''}`}
-                      className={cn('absolute touch-none', piece.placed ? 'cursor-default' : 'cursor-grab active:cursor-grabbing')}
+                      tabIndex={0}
+                      aria-label={`퍼즐 조각 ${piece.spec.id}${piece.placed ? ' (배치됨)' : ''}`}
+                      className="absolute touch-none cursor-grab active:cursor-grabbing"
                       style={{
                         width: w,
                         height: h,
                         left: piece.x,
                         top: piece.y,
-                        // Placed pieces settle to the back so an in-progress
-                        // drag/tap is never covered by an already-finished one.
-                        zIndex: piece.placed ? 1 : piece.zIndex,
+                        // bringToFront (called on every pick-up/rotate) always
+                        // gives the piece just interacted with the highest
+                        // zIndex seen so far, so a placed piece being picked
+                        // back up is never hidden behind another placed piece.
+                        zIndex: piece.zIndex,
                       }}
                     >
                       {currentCells(piece).map(([r, c]) => (
@@ -593,7 +675,7 @@ export function FitPuzzleGame({ index, mode, difficulty, onComplete, onBack }: F
                           className={cn(
                             'absolute rounded-lg toy-border transition-shadow',
                             piece.placed ? '' : 'toy-shadow',
-                            isSelected && !piece.placed && 'ring-2 ring-accent',
+                            isSelected && 'ring-2 ring-accent',
                           )}
                           style={{
                             width: cellPx - 4,

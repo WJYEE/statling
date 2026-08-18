@@ -1,11 +1,11 @@
 import type { GameDifficulty } from '@/lib/game/difficulty'
-import { cellsEqual, rotateCells, type CellCoord } from '@/lib/game/spatial-shapes'
+import { rotateCells, type CellCoord } from '@/lib/game/spatial-shapes'
 
 /**
  * 2026-08 QA 최종 보정: matches lib/game/spatial-shapes.ts's SpatialRotationAngle
  * union exactly (rather than declaring an incompatible equivalent here) so
- * rotateCells/cellsEqual — reused below — never need a cast between the two
- * games' "rotation" concepts.
+ * rotateCells — reused below — never needs a cast between the two games'
+ * "rotation" concepts.
  */
 export type PuzzleRotation = 0 | 90 | 180 | 270
 
@@ -25,10 +25,18 @@ export interface PuzzlePieceSpec {
   /** Bounding box of `cells` at rotation 0 — kept as plain fields (not re-derived on every read) since tray/drag layout math reads them often; always consistent with `cells` (see the dev-time assertion in generateSpatialSession's sibling below, PUZZLE_LEVELS itself is verified by a runtime script — see the QA report). */
   widthCells: number
   heightCells: number
-  /** Rotation the piece must be turned to before it matches its target silhouette. */
+  /**
+   * The rotation this piece is authored at within the level's target
+   * silhouette (see levelRequiredCells) — used only to derive that
+   * silhouette and the piece's own tray footprint. Gameplay does NOT require
+   * a piece to reach this exact rotation: placement is occupancy-based, so
+   * any rotation whose actual shape fits an open board cell is accepted.
+   */
   correctRotation: PuzzleRotation
   color: string
+  /** This piece's authored column within the level's target silhouette (see levelRequiredCells) — not a required drop position; any empty in-bounds cell is valid. */
   targetCol: number
+  /** This piece's authored row within the level's target silhouette (see levelRequiredCells) — not a required drop position; any empty in-bounds cell is valid. */
   targetRow: number
 }
 
@@ -42,33 +50,38 @@ export interface PuzzleLevel {
   timeLimitSeconds: number
 }
 
-/** The footprint (bounding box, in cells) a piece occupies once rotated to its correct orientation — used for target-slot sizing/snap-center math. */
-export function finalFootprint(piece: PuzzlePieceSpec): { width: number; height: number } {
-  const rotated = rotateCells(piece.cells, piece.correctRotation)
-  return {
-    width: Math.max(...rotated.map(([, c]) => c)) + 1,
-    height: Math.max(...rotated.map(([r]) => r)) + 1,
-  }
-}
-
 /** The piece's ACTUAL occupied cells (not just its bounding box) once rotated to correctRotation — this is what the target silhouette on the board is drawn from, so it reads as the real polyomino shape rather than a solid rectangle. */
 export function finalCells(piece: PuzzlePieceSpec): CellCoord[] {
   return rotateCells(piece.cells, piece.correctRotation)
 }
 
 /**
- * Whether `rotation` (the piece's current, user-controlled orientation)
- * produces the same actual shape as the target wants. Deliberately NOT a
- * raw `rotation === piece.correctRotation` check — a symmetric piece (a
- * straight line, a 2x2 square) looks identical at some rotation and
- * rotation+180 (or, for the square, at any 90° step), so it must count as
- * "fitting" the instant its silhouette matches, regardless of which of the
- * visually-equivalent rotation values the player happened to land on. Reuses
- * spatial-shapes.ts's own rotate+compare rather than re-deriving per-shape
- * symmetry rules by hand.
+ * The full set of board cells the level's pieces must end up covering for
+ * the stage to be solved — the union of every piece's own finalCells at its
+ * authored target position. This is no longer "piece X must go exactly
+ * here": placement is occupancy-based (see fit-puzzle-game.tsx), so any
+ * combination of pieces/rotations that ends up fully covering this same
+ * silhouette counts as solved, not just the one arrangement the level was
+ * authored with. Every level's authored target arrangement is verified
+ * (bounds/overlap-free) per the QA note on PUZZLE_LEVELS above, so this
+ * union's cell count always equals the sum of every piece's own cell count —
+ * i.e. covering it fully requires using every piece with no overlaps.
  */
-export function rotationMatchesTarget(piece: PuzzlePieceSpec, rotation: PuzzleRotation): boolean {
-  return cellsEqual(rotateCells(piece.cells, rotation), rotateCells(piece.cells, piece.correctRotation))
+export function levelRequiredCells(level: PuzzleLevel): CellCoord[] {
+  const seen = new Set<string>()
+  const cells: CellCoord[] = []
+  for (const piece of level.pieces) {
+    for (const [r, c] of finalCells(piece)) {
+      const row = piece.targetRow + r
+      const col = piece.targetCol + c
+      const key = `${row},${col}`
+      if (!seen.has(key)) {
+        seen.add(key)
+        cells.push([row, col])
+      }
+    }
+  }
+  return cells
 }
 
 /**
