@@ -448,6 +448,12 @@ export function GameFlow() {
   // Landing itself then shows the "Statling 만나러 가기" / hidden-autosave
   // returning-visitor state via isReturningLoggedOut below, since
   // hasLoggedInEver was already set to true by trackFirstLogin above.
+  // Also the one place BGM gets stopped on sign-out: AudioProvider mounts
+  // once at the app root (above this whole phase tree) specifically so BGM
+  // survives ordinary screen changes, so nothing else here would ever pause
+  // it — audioManager.pauseBgm() stops playback without touching the
+  // player's persisted enabled/disabled preference (see that method's own
+  // doc comment).
   useEffect(() => {
     if (user) {
       wasSignedInRef.current = true
@@ -455,6 +461,7 @@ export function GameFlow() {
     }
     if (wasSignedInRef.current && NAV_PHASES.includes(phase)) {
       wasSignedInRef.current = false
+      audioManager.pauseBgm()
       setPhase('landing')
     }
   }, [user, phase])

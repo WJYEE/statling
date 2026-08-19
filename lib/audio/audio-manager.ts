@@ -245,6 +245,24 @@ class AudioManager {
     return this.bgmSettings.enabled
   }
 
+  /**
+   * Pauses BGM in place — current track/position untouched, and crucially
+   * `bgmSettings.enabled` is neither changed nor persisted (unlike
+   * setBgmEnabled(false), which would write a real OFF back to storage).
+   * For a moment like sign-out, where playback must stop immediately but the
+   * player's own BGM preference must survive for their next session. Resets
+   * `bgmUnlocked` so the very next gesture (see AudioProvider's
+   * pointerdown/keydown listener) naturally resumes playback through the
+   * existing unlockBgm() retry path if the setting is still enabled — the
+   * same path a fresh page load already uses, so no separate "resume" call
+   * is needed anywhere.
+   */
+  pauseBgm(): void {
+    if (!this.bgmInitialized) return
+    this.bgmPlayer.pause()
+    this.bgmUnlocked = false
+  }
+
   setBgmEnabled(enabled: boolean): void {
     this.bgmSettings.enabled = enabled
     this.persistBgmSettings()
