@@ -387,7 +387,7 @@ export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: Re
 
           {stage === 'feedback' && falseStartFlash != null && (
             <div className="pointer-events-none absolute inset-x-0 bottom-full mb-3 flex justify-center">
-              <div className="animate-record-pop flex flex-col items-center gap-0.5 whitespace-nowrap">
+              <div className="animate-penalty-flash flex flex-col items-center gap-0.5 whitespace-nowrap">
                 <p className="font-display text-lg font-extrabold leading-tight text-destructive">
                   +{falseStartFlash}ms 페널티
                 </p>

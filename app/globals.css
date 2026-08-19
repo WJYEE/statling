@@ -221,6 +221,19 @@
   .animate-record-pop {
     animation: statling-record-pop 0.85s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
+  /* Reaction game's false-start "+200ms 페널티" flash — deliberately its own
+     animation, not a reuse of .animate-record-pop. That one only pops IN and
+     then holds at opacity:1/scale:1 until React unmounts it outright (see
+     reaction-game.tsx's scheduleAttempt, which clears falseStartFlash 900ms
+     after it's set); yanking a transform-promoted, anti-aliased text layer
+     out of the DOM with no fade first can leave a one-frame compositor
+     "ghost" at the glyph edges. This animation instead pops in, holds, then
+     fades+shrinks itself out — finishing at opacity:0 by 820ms, safely
+     before that 900ms unmount, so removal never has any live pixels left to
+     ghost. */
+  .animate-penalty-flash {
+    animation: statling-penalty-flash 0.82s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
   /* Radar chart (CompleteScreen) — a newly revealed axis briefly traces
      center-to-point, then fades, leaving just the polygon/dot/label that
      were already drawn underneath it. */
@@ -388,6 +401,7 @@
    record-comparison text itself already carries all the information. */
 @media (prefers-reduced-motion: reduce) {
   .animate-record-pop,
+  .animate-penalty-flash,
   .animate-radar-axis-fill,
   .animate-egg-subtle-shimmer,
   .animate-egg-reveal-shake,
@@ -530,6 +544,28 @@
   100% {
     transform: translateY(0) scale(1);
     opacity: 1;
+  }
+}
+
+/* Same pop-in as statling-record-pop (0%-45%), held fully visible, then a
+   fade+shrink exit baked into the same animation — see .animate-penalty-flash. */
+@keyframes statling-penalty-flash {
+  0% {
+    transform: translateY(4px) scale(0.9);
+    opacity: 0;
+  }
+  25% {
+    transform: translateY(-2px) scale(1.05);
+    opacity: 1;
+  }
+  45%,
+  80% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-4px) scale(0.96);
+    opacity: 0;
   }
 }
 
