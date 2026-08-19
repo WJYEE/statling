@@ -55,9 +55,14 @@ export function GameHud({ stat, gameName, mode, index, difficulty, objective, st
         <div className="flex items-center gap-3">
           <StatBadge stat={stat} size="md" />
           <div>
-            <p className="text-xs font-bold text-muted-foreground">
-              {stat.name} <span>({GAME_DIFFICULTY_DISPLAY_LABEL[difficulty]})</span>
-            </p>
+            {/* Difficulty is a Free Play concept only — Assessment (mode 'first')
+                always plays Normal with no tier choice, so showing "(Normal)" there
+                would just be noise. See lib/game/difficulty.ts's GameDifficulty doc. */}
+            {mode === 'free' && (
+              <p className="text-xs font-bold text-muted-foreground">
+                {stat.name} <span>({GAME_DIFFICULTY_DISPLAY_LABEL[difficulty]})</span>
+              </p>
+            )}
             <h1 className="font-display text-xl font-extrabold leading-none text-foreground">{gameName}</h1>
             <p className="mt-1 max-w-[14rem] text-pretty text-xs font-semibold text-primary">
               {objective}

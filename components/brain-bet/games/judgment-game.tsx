@@ -715,7 +715,10 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
         <div className="flex items-center gap-3">
           <StatBadge stat={stat} size="md" />
           <h1 className="font-display text-2xl font-extrabold leading-none text-foreground">
-            {stat.name} <span className="text-base font-bold text-muted-foreground">({GAME_DIFFICULTY_DISPLAY_LABEL[difficulty]})</span>
+            {stat.name}
+            {mode === 'free' && (
+              <span className="text-base font-bold text-muted-foreground"> ({GAME_DIFFICULTY_DISPLAY_LABEL[difficulty]})</span>
+            )}
           </h1>
         </div>
 
