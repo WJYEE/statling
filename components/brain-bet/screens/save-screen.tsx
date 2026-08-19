@@ -25,7 +25,7 @@ export function SaveScreen({ onContinue, onSkip }: SaveScreenProps) {
         저장해둘까요?
       </h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        로그인하면 어디서든 Statling을 이어서 만날 수 있어요.
+        로그인하면 다음에도 Statling을 이어서 만날 수 있어요.
       </p>
 
       <div className="mt-8 w-full">
