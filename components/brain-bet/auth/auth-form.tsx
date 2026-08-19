@@ -8,6 +8,25 @@ import { useAuth } from '@/lib/auth/auth-provider'
 import { trackEvent } from '@/lib/analytics/ga'
 import { cn } from '@/lib/utils'
 
+/**
+ * Deliberately stricter than the browser's native `type="email"` validation,
+ * which accepts a domain with no TLD at all (e.g. "aa@aaaa") — Supabase Auth
+ * rejects those server-side with `email_address_invalid`, so without this,
+ * the form looked like it accepted the address (no inline error, submit
+ * enabled) right up until the request round-trips and fails. Requires a
+ * local part, an "@", and a domain with at least one "." followed by a 2+
+ * character TLD — not full RFC 5322, just enough to catch the shape Supabase
+ * itself rejects. Doesn't (and can't) replicate every server-side rule
+ * Supabase applies (e.g. blocking reserved domains like example.com) — those
+ * still surface via the existing `error` state from the API response, same
+ * as before this change.
+ */
+const EMAIL_FORMAT_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+
+function isValidEmailFormat(value: string): boolean {
+  return EMAIL_FORMAT_PATTERN.test(value.trim())
+}
+
 interface AuthFormProps {
   /** Called after a successful sign-in, or a sign-up that didn't need email confirmation. */
   onAuthenticated?: () => void
@@ -53,6 +72,15 @@ export function AuthForm({ onAuthenticated, defaultMode = 'signup', className }:
   async function handlePasswordSubmit(event: FormEvent) {
     event.preventDefault()
     if (!email || !password || submitting) return
+
+    // Catches the "aa@aaaa"-shaped case before it ever reaches Supabase —
+    // same copy translateAuthError (lib/auth/supabase-auth-provider.tsx)
+    // already shows for Supabase's own `email_address_invalid`/format
+    // errors, so the message is identical whether caught here or by the API.
+    if (!isValidEmailFormat(email)) {
+      setError('이메일 형식이 올바르지 않아요.')
+      return
+    }
 
     setSubmitting('password')
     setError(null)
