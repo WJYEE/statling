@@ -5,6 +5,7 @@ import type {
   AttendanceRow,
   DailyMissionRow,
   DecoInventoryRow,
+  DecoPlacementItemRow,
   DexEntryRow,
   DialogueMemoryRow,
   LocalDataSnapshot,
@@ -14,29 +15,32 @@ import type {
   PlayerSkillRecordRow,
   RoomCareStateRow,
   RoomInventoryRow,
+  RoomItemRow,
   RoomStateRow,
+  UserNoteRow,
   XpTotalsRow,
 } from '@/lib/migration/snapshot-types'
 
 /**
- * Phase 2B-2 — writes a LocalDataSnapshot (Phase 2B-1's pure output) into
- * Phase 1 Supabase tables. NOT wired into login/GameFlow/orchestration —
- * callers decide when this runs. Never touches localStorage, never touches
- * `profiles.migrated_at`, never imports lib/auth/*.
+ * Phase 2B-2 / 2B-2.5 — writes a LocalDataSnapshot (Phase 2B-1's pure
+ * output) into Phase 1 Supabase tables. NOT wired into login/GameFlow/
+ * orchestration — callers decide when this runs. Never touches
+ * localStorage, never touches `profiles.migrated_at`, never imports
+ * lib/auth/*.
  *
- * Deliberately covers only the 15 tables that have a natural (non-surrogate)
- * conflict key or a single user_id PK — see NOT_WRITTEN_TABLES below for why
- * room_items/deco_placement_items/user_notes are excluded from this file
- * entirely, not just unimplemented.
+ * Covers all 18 non-profiles domains in the snapshot. 15 write directly via
+ * upsert (Groups A/B/C below); the remaining 3 — room_items,
+ * deco_placement_items, user_notes — have a surrogate `uuid` PK with no
+ * natural conflict key, so a client-side upsert/delete-then-insert can't be
+ * made atomic or concurrency-safe (see the Phase 2B-2 report). Those three
+ * go through the transactional `replace_room_items` /
+ * `replace_deco_placement_items` / `replace_user_notes` RPCs added in
+ * supabase/migrations/20260820000000_phase2b_replace_rpcs.sql (Group D
+ * below) instead of a raw table upsert — live-account-verified per the
+ * Phase 2B-2.5 report (self-replace, idempotent rerun, malformed-payload
+ * rollback, anon block, cross-user isolation, concurrent-call
+ * serialization all passed against the real project).
  */
-
-/** See the Phase 2B-2 report: client-side delete-then-insert cannot satisfy
- * atomicity (partial failure), accidental-deletion safety, or concurrent-tab
- * safety for a surrogate-uuid table with no natural conflict key. Writing a
- * function here that LOOKS idempotent but isn't would be worse than not
- * having one — these three need a transactional RPC (proposed, not applied,
- * in the report) before they can be written safely at all. */
-export const NOT_WRITTEN_TABLES = ['room_items', 'deco_placement_items', 'user_notes'] as const
 
 export class SnapshotUserMismatchError extends Error {
   constructor(table: string) {
@@ -243,14 +247,54 @@ export async function writeDexEntries(client: SupabaseClient, rows: DexEntryRow[
   return error ? failed('dex_entries', error) : ok('dex_entries', rows.length)
 }
 
+// ---------------------------------------------------------------------------
+// Group D — surrogate-uuid tables, written via the transactional replace_*
+// RPCs (supabase/migrations/20260820000000_phase2b_replace_rpcs.sql), not a
+// raw table upsert. Each RPC deletes-then-inserts the caller's own rows
+// inside one Postgres transaction and derives the owner strictly from
+// auth.uid() server-side — the client never sends user_id/instance_id/id,
+// so those columns are stripped before the call (the RPC ignores them even
+// if present, but omitting them keeps the payload honest about what's
+// actually used). A malformed row makes the whole call fail and roll back
+// (the pre-existing rows are left exactly as they were — see the Phase
+// 2B-2.5 report), which is exactly the atomicity Group A/B/C get for free
+// from Postgres's own single-statement upsert but these three could not get
+// from the client alone.
+// ---------------------------------------------------------------------------
+
+export async function writeRoomItemsRpc(client: SupabaseClient, rows: RoomItemRow[], expectedUserId: string): Promise<TableWriteResult> {
+  for (const row of rows) assertOwnRow(row.user_id, expectedUserId, 'room_items')
+  const items = rows.map(({ user_id: _user_id, instance_id: _instance_id, ...rest }) => rest)
+  const { error } = await client.rpc('replace_room_items', { items })
+  return error ? failed('room_items', error) : ok('room_items', rows.length)
+}
+
+export async function writeDecoPlacementItemsRpc(
+  client: SupabaseClient,
+  rows: DecoPlacementItemRow[],
+  expectedUserId: string,
+): Promise<TableWriteResult> {
+  for (const row of rows) assertOwnRow(row.user_id, expectedUserId, 'deco_placement_items')
+  const items = rows.map(({ user_id: _user_id, instance_id: _instance_id, ...rest }) => rest)
+  const { error } = await client.rpc('replace_deco_placement_items', { items })
+  return error ? failed('deco_placement_items', error) : ok('deco_placement_items', rows.length)
+}
+
+export async function writeUserNotesRpc(client: SupabaseClient, rows: UserNoteRow[], expectedUserId: string): Promise<TableWriteResult> {
+  for (const row of rows) assertOwnRow(row.user_id, expectedUserId, 'user_notes')
+  const notes = rows.map(({ user_id: _user_id, id: _id, ...rest }) => rest)
+  const { error } = await client.rpc('replace_user_notes', { notes })
+  return error ? failed('user_notes', error) : ok('user_notes', rows.length)
+}
+
 /**
- * Writes every table this file supports (15 of the snapshot's 18 domains —
- * see NOT_WRITTEN_TABLES for the 3 deliberately excluded ones). Does NOT
- * touch profiles.migrated_at — that belongs to the orchestrator (a later
- * phase), not this write layer. Runs every table write regardless of an
- * earlier one failing (each is independently idempotent, so a caller can
- * just re-run the whole snapshot on retry — see the Phase 2B-2 report for
- * why that's safe for every table written here).
+ * Writes every domain in the snapshot (all 18 non-profiles tables — Groups
+ * A/B/C via direct upsert, Group D via the transactional replace_* RPCs).
+ * Does NOT touch profiles.migrated_at — that belongs to the orchestrator (a
+ * later phase), not this write layer. Runs every table write regardless of
+ * an earlier one failing (each is independently idempotent/atomic, so a
+ * caller can just re-run the whole snapshot on retry — see the Phase 2B-2
+ * and 2B-2.5 reports for why that's safe for every table written here).
  */
 export async function writeLocalDataSnapshot(
   client: SupabaseClient,
@@ -275,6 +319,9 @@ export async function writeLocalDataSnapshot(
   results.push(await writeRoomInventory(client, snapshot.roomInventory, expectedUserId))
   results.push(await writeDecoInventory(client, snapshot.decoInventory, expectedUserId))
   results.push(await writeDexEntries(client, snapshot.dexEntries, expectedUserId))
+  results.push(await writeRoomItemsRpc(client, snapshot.roomItems, expectedUserId))
+  results.push(await writeDecoPlacementItemsRpc(client, snapshot.decoPlacementItems, expectedUserId))
+  results.push(await writeUserNotesRpc(client, snapshot.userNotes, expectedUserId))
 
   return { results, ok: results.every((r) => r.ok) }
 }
