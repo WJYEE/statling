@@ -2,17 +2,20 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { buildLocalDataSnapshot } from '@/lib/migration/build-local-snapshot'
 import { writeLocalDataSnapshot, type SnapshotWriteReport } from '@/lib/migration/write-local-snapshot'
 import { getOrCreateDeviceId } from '@/lib/room/room-storage'
+import { loadStoredPetProfile } from '@/lib/pets/pet-storage'
 
 /**
- * Phase 2B-3 — the one-time localStorage -> Supabase migration orchestrator.
- * NOT wired into login/GameFlow/any real user-facing flow — nothing in the
- * app currently imports this module, which is what actually satisfies
- * "must never auto-run for production users" (see the Phase 2B-3 report for
- * why a flag/env check alone wouldn't be enough). Only a QA-only
- * page/button is meant to call this. Never touches localStorage (only
- * buildLocalDataSnapshot/getOrCreateDeviceId, both already read-only with
- * respect to game data), never modifies Auth, never touches game/XP/
- * achievement read/write paths.
+ * Phase 2B-3/2B-4 — the one-time localStorage -> Supabase migration
+ * orchestrator. Wired into two real user-facing entry points, both via the
+ * shared lib/migration/trigger-background-migration.ts helper:
+ *   - lib/auth/supabase-auth-provider.tsx, on session restore and on every
+ *     SIGNED_IN event (the original Phase 2B-4 wiring).
+ *   - game-flow.tsx's NamingScreen onConfirm, which retries a run that
+ *     isLocalPetMigrationReady() deferred below (see its doc comment) once
+ *     the Statling actually has a name.
+ * Never touches localStorage (only buildLocalDataSnapshot/getOrCreateDeviceId/
+ * loadStoredPetProfile, all already read-only with respect to game data),
+ * never modifies Auth, never touches game/XP/achievement read/write paths.
  */
 
 export interface MigrationFailure {
@@ -23,8 +26,43 @@ export interface MigrationFailure {
 export type MigrationResult =
   | { status: 'not_authenticated' }
   | { status: 'already_migrated'; userId: string; migratedAt: string }
+  | { status: 'not_ready'; userId: string }
   | { status: 'migrated'; userId: string; legacyDeviceId: string; migratedAt: string; writeReport: SnapshotWriteReport }
   | { status: 'failed'; userId: string; failures: MigrationFailure[] }
+
+/**
+ * A pet that's confirmed but not yet named is mid-flow (Reveal confirms it
+ * -> SaveScreen offers signup -> NamingScreen sets the name — see
+ * game-flow.tsx). Migrating right now (e.g. a fresh signup on SaveScreen)
+ * would write a nameless pets row and then immediately set migrated_at,
+ * which permanently short-circuits every FUTURE call via the
+ * already_migrated check below — so the name the player types two screens
+ * later would never reach the server; nothing would ever call writePetRow
+ * again to offer it one. (guard_pet_identity_immutable() in
+ * supabase/migrations/20260819000000_phase1_schema_and_rls.sql would still
+ * happily accept that later name, since it only locks a NON-null
+ * statling_name — the actual blocker is migrated_at, not the DB trigger.)
+ *
+ * Deferring the ENTIRE migration (not just the pets row) keeps the
+ * invariant simple: the one run that succeeds is always a complete, final
+ * snapshot. See game-flow.tsx's NamingScreen onConfirm for the retry that
+ * fires once the name is actually saved locally.
+ *
+ * Returns true (ready) for the overwhelming majority of real logins: no
+ * local pet at all, a not-yet-confirmed pet (nothing name-sensitive is
+ * locked yet — and in practice every screen that can reach a login/signup
+ * form requires a confirmed pet already, see game-flow.tsx's phase guards),
+ * or a confirmed pet that already has its name (an existing localStorage
+ * user logging into/restoring an account for the first time). Only a
+ * confirmed-but-unnamed pet — the SaveScreen/NamingScreen gap itself —
+ * blocks a run.
+ */
+function isLocalPetMigrationReady(): boolean {
+  const pet = loadStoredPetProfile()
+  if (!pet) return true
+  if (!pet.confirmed) return true
+  return Boolean(pet.statlingName)
+}
 
 /**
  * Same-tab-only in-flight guard: if a second call comes in while one is
@@ -68,6 +106,10 @@ async function runLocalDataMigrationInner(client: SupabaseClient): Promise<Migra
   }
   if (profile?.migrated_at) {
     return { status: 'already_migrated', userId: user.id, migratedAt: profile.migrated_at as string }
+  }
+
+  if (!isLocalPetMigrationReady()) {
+    return { status: 'not_ready', userId: user.id }
   }
 
   const snapshot = buildLocalDataSnapshot(user.id)

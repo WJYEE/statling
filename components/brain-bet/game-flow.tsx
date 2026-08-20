@@ -86,6 +86,8 @@ import {
 } from '@/lib/game/player-skill-storage'
 import { addXp, loadXpState, saveXpState } from '@/lib/ranking/xp-ledger'
 import { useAuth } from '@/lib/auth/auth-provider'
+import { getSupabaseBrowserClient } from '@/lib/supabase/client'
+import { triggerBackgroundMigration } from '@/lib/migration/trigger-background-migration'
 import { trackDailyVisit, trackFirstLogin, trackGamePlayed } from '@/lib/missions/mission-tracker'
 import {
   isAchievementNotified,
@@ -1813,6 +1815,18 @@ export function GameFlow() {
             onConfirm={(name) => {
               setStatlingName(name)
               if (petRecord) saveStoredPetProfile({ ...petRecord, statlingName: name })
+              // If SIGNED_IN already fired earlier on SaveScreen (this pet
+              // was confirmed but not yet named), the migration triggered
+              // there deferred entirely (see isLocalPetMigrationReady in
+              // lib/migration/migration-orchestrator.ts) rather than upload
+              // a nameless pet and lock migrated_at before the name existed.
+              // Now that the name is actually saved above, retry once —
+              // a no-op (already_migrated) for every other case: a guest who
+              // isn't logged in, or an already-migrated existing user.
+              if (user) {
+                const supabase = getSupabaseBrowserClient()
+                if (supabase) triggerBackgroundMigration(supabase)
+              }
               // The one genuinely first-ever Home entry — every other
               // setPhase('room') call site (stored-profile restore on mount,
               // post-login restore, returnToRoom nav) is a revisit, not a

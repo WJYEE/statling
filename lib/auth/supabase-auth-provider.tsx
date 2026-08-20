@@ -1,10 +1,10 @@
 'use client'
 
 import { useEffect, useState, type ReactNode } from 'react'
-import type { Session, SupabaseClient } from '@supabase/supabase-js'
+import type { Session } from '@supabase/supabase-js'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { AuthContext, type AuthContextValue, type AuthUser } from '@/lib/auth/auth-context'
-import { runLocalDataMigration } from '@/lib/migration/migration-orchestrator'
+import { triggerBackgroundMigration } from '@/lib/migration/trigger-background-migration'
 
 const NOT_CONFIGURED_ERROR = '로그인 기능이 아직 준비되지 않았어요. 잠시 후 다시 시도해주세요.'
 
@@ -30,37 +30,6 @@ function toAuthUser(session: Session | null): AuthUser | null {
 }
 
 /**
- * Phase 2B-4 — fires the one-time localStorage -> Supabase migration
- * (lib/migration/migration-orchestrator.ts) in the background whenever a
- * real session appears. Deliberately fire-and-forget: never awaited by the
- * render path, so `user`/`loading` update on exactly the same timing as
- * before and no new loading/blocking UI is needed. runLocalDataMigration()
- * returns a `failed` result (not a thrown error) for anything short of an
- * unexpected bug — migrated_at is left untouched either way, localStorage
- * is never written to, and the next login/reload naturally retries — so a
- * failure here can never strand the user mid-flow or leave a dangling
- * unhandled rejection. Runs from exactly the two places `user` itself is
- * ever set (see the effect below), which already covers every login path
- * in the app (SaveScreen/LoginScreen/My Page all go through the same
- * AuthForm -> useAuth() -> this provider) without any of those screens or
- * GameFlow needing to know migration exists.
- */
-function triggerBackgroundMigration(supabase: SupabaseClient, session: Session | null): void {
-  if (!session?.user) return
-  runLocalDataMigration(supabase)
-    .then((result) => {
-      if (result.status === 'failed' && process.env.NODE_ENV !== 'production') {
-        console.warn('[migration] runLocalDataMigration failed (will retry on next login/reload):', result.failures)
-      }
-    })
-    .catch((err: unknown) => {
-      if (process.env.NODE_ENV !== 'production') {
-        console.warn('[migration] runLocalDataMigration threw unexpectedly:', err)
-      }
-    })
-}
-
-/**
  * Real, server-backed auth via Supabase — not currently mounted (see
  * lib/auth/auth-provider.tsx, which wires up LocalAuthProvider instead).
  * Swap it back in there once a Supabase project is configured
@@ -80,8 +49,9 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
       setUser(toAuthUser(data.session))
       setLoading(false)
       // Covers session-restore-on-reload (Case C) — retries a previously
-      // incomplete migration too, since a `failed` run never sets migrated_at.
-      triggerBackgroundMigration(supabase, data.session)
+      // incomplete/deferred migration too, since anything short of a full
+      // success ('failed' or 'not_ready') leaves migrated_at untouched.
+      if (data.session?.user) triggerBackgroundMigration(supabase)
     })
 
     const { data: listener } = supabase.auth.onAuthStateChange((event: string, session: Session | null) => {
@@ -90,8 +60,8 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
       // (LoginScreen/My Page) — Supabase fires the same event for either.
       // Deliberately NOT triggered on every event (TOKEN_REFRESHED etc. fire
       // periodically while already migrated_at and would just be wasted
-      // reads — see the Phase 2B-4 report's concurrency notes).
-      if (event === 'SIGNED_IN') triggerBackgroundMigration(supabase, session)
+      // reads).
+      if (event === 'SIGNED_IN' && session?.user) triggerBackgroundMigration(supabase)
     })
 
     return () => listener.subscription.unsubscribe()
