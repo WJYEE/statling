@@ -271,3 +271,43 @@ export interface LocalDataSnapshot {
   roomInventory: RoomInventoryRow[]
   dexEntries: DexEntryRow[]
 }
+
+/**
+ * Phase 2C-1 — the read-direction mirror of LocalDataSnapshot, produced by
+ * lib/migration/read-server-snapshot.ts#readServerDataSnapshot. Reuses the
+ * exact same *Row shapes Phase 2B already defined (the Phase 1 schema is a
+ * single shared contract for both write and read directions), so a
+ * round-trip (build -> write -> read -> restore) can never silently drift
+ * between the two directions' field lists.
+ *
+ * Unlike LocalDataSnapshot, every singleton-table field is nullable here:
+ * build-local-snapshot.ts always has SOMETHING to read (loadXpState() etc.
+ * never return null, they fall back to a default state), but a server row
+ * genuinely may not exist yet — a brand-new account, or one whose Phase 2B
+ * migration never ran/partially failed. null means exactly that: "no row",
+ * never coerced into a fabricated default here — see restore-local-snapshot.ts
+ * for how each domain's absence is handled on the write-into-localStorage side.
+ */
+export interface ServerDataSnapshot {
+  userId: string
+  /** When this snapshot was read — NOT a per-row timestamp, see individual row fields. */
+  readAt: string
+  pet: PetsRow | null
+  playerSkillRecords: PlayerSkillRecordRow[]
+  xpTotals: XpTotalsRow | null
+  achievements: AchievementRow[]
+  dailyMissions: DailyMissionRow[]
+  attendance: AttendanceRow | null
+  activityCounters: ActivityCountersRow | null
+  petCareState: PetCareStateRow | null
+  petMemory: PetMemoryRow | null
+  roomCareState: RoomCareStateRow | null
+  userNotes: UserNoteRow[]
+  dialogueMemory: DialogueMemoryRow | null
+  roomState: RoomStateRow | null
+  roomItems: RoomItemRow[]
+  decoPlacementItems: DecoPlacementItemRow[]
+  decoInventory: DecoInventoryRow[]
+  roomInventory: RoomInventoryRow[]
+  dexEntries: DexEntryRow[]
+}
