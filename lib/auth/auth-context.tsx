@@ -1,6 +1,8 @@
 'use client'
 
 import { createContext, useContext } from 'react'
+import type { ServerDataSnapshot } from '@/lib/migration/snapshot-types'
+import type { StoredPetProfile } from '@/lib/pets/pet-storage'
 
 /**
  * Minimal user shape shared by every auth backend this app can plug in —
@@ -21,6 +23,17 @@ export interface AuthResult {
 }
 
 /**
+ * Case C (lib/migration/restore-conflict.ts) frozen at the moment it was
+ * detected — a different (or unconfirmed) Statling already exists on this
+ * device while the server also has one for this account. Neither side is
+ * touched until useServerStatling()/keepLocalStatling() resolves it.
+ */
+export interface RestoreConflictInfo {
+  snapshot: ServerDataSnapshot
+  localPet: StoredPetProfile
+}
+
+/**
  * The one contract every auth provider implementation must satisfy —
  * see lib/auth/local-auth-provider.tsx (current default, localStorage-backed)
  * and lib/auth/supabase-auth-provider.tsx (Supabase-backed, ready to swap
@@ -38,6 +51,24 @@ export interface AuthContextValue {
   signInWithPassword: (email: string, password: string) => Promise<AuthResult>
   signUpWithPassword: (email: string, password: string) => Promise<AuthResult>
   signOut: () => Promise<void>
+  /**
+   * Phase 2C-2 — true once this session's server-restore check (if any —
+   * see lib/migration/session-sync.ts) has settled, one way or another
+   * (nothing to check, restored, in sync, delegated to upload, or even a
+   * read failure — every outcome eventually sets this, so it can never
+   * hang forever). game-flow.tsx gates its initial phase decision on this
+   * (see its bootReady) so it never reads localStorage before a pending
+   * restore has had a chance to write to it. Always true immediately for
+   * the localStorage-only backend and for a signed-out user — this never
+   * adds latency for a guest.
+   */
+  restoreReady: boolean
+  /** Non-null exactly while a Case C conflict is awaiting the user's choice. Always null on the localStorage-only backend. */
+  restoreConflict: RestoreConflictInfo | null
+  /** Case C resolution: adopt the server's Statling — overwrites this device's local state via restoreLocalDataFromSnapshot (with its own backup/rollback). No-op on the localStorage-only backend. */
+  useServerStatling: () => void
+  /** Case C resolution: keep this device's local Statling as-is; the server's conflicting data is left untouched. No-op on the localStorage-only backend. */
+  keepLocalStatling: () => void
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null)

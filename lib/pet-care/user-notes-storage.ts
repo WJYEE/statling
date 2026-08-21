@@ -44,9 +44,19 @@ export function loadUserNotes(): UserNote[] {
   }
 }
 
-function saveUserNotes(notes: UserNote[]): void {
+/**
+ * Bulk-set API — replaces this device's entire notes list with exactly
+ * `notes` (capped to the same MAX_USER_NOTES invariant saveUserNote already
+ * enforces, so a caller handing in more than that — e.g. restoring a server
+ * list — can never leave this device over the cap). Exported specifically
+ * so migration/restore code (lib/migration/restore-local-snapshot.ts) can
+ * restore a server-side list — including its real ids/createdAt — through
+ * a real save API instead of writing localStorage directly. `saveUserNote`
+ * above still owns single-note append; this owns "set the whole list."
+ */
+export function saveUserNotes(notes: UserNote[]): void {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(userNotesStorageKey(getOrCreateDeviceId()), JSON.stringify(notes))
+  window.localStorage.setItem(userNotesStorageKey(getOrCreateDeviceId()), JSON.stringify(notes.slice(-MAX_USER_NOTES)))
 }
 
 /** Appends one note (oldest dropped past MAX_USER_NOTES) and persists — returns the updated list so the caller never needs a separate reload. */

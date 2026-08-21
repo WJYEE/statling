@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useState, type ReactNode } from 'react'
-import type { Session } from '@supabase/supabase-js'
+import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
-import { AuthContext, type AuthContextValue, type AuthUser } from '@/lib/auth/auth-context'
-import { triggerBackgroundMigration } from '@/lib/migration/trigger-background-migration'
+import { AuthContext, type AuthContextValue, type AuthUser, type RestoreConflictInfo } from '@/lib/auth/auth-context'
+import { runSessionSync } from '@/lib/migration/session-sync'
+import { restoreLocalDataFromSnapshot } from '@/lib/migration/restore-local-snapshot'
 
 const NOT_CONFIGURED_ERROR = '로그인 기능이 아직 준비되지 않았어요. 잠시 후 다시 시도해주세요.'
 
@@ -29,29 +30,83 @@ function toAuthUser(session: Session | null): AuthUser | null {
   return { id: session.user.id, email: session.user.email ?? '' }
 }
 
+function devWarn(...args: unknown[]): void {
+  if (process.env.NODE_ENV !== 'production') console.warn(...args)
+}
+
 /**
- * Real, server-backed auth via Supabase — not currently mounted (see
- * lib/auth/auth-provider.tsx, which wires up LocalAuthProvider instead).
- * Swap it back in there once a Supabase project is configured
- * (NEXT_PUBLIC_SUPABASE_URL / ANON_KEY — see .env.local.example); no other
- * file needs to change since AuthForm/MyPageScreen/SaveScreen only ever
- * import useAuth/AuthProvider from lib/auth/auth-provider.tsx.
+ * Real, server-backed auth via Supabase (see lib/auth/auth-provider.tsx,
+ * the single swap point — currently active). No other file needs to change
+ * since AuthForm/MyPageScreen/SaveScreen/game-flow.tsx only ever import
+ * useAuth/AuthProvider from lib/auth/auth-provider.tsx.
  */
 export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
   const supabase = getSupabaseBrowserClient()
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(Boolean(supabase))
+  /**
+   * Phase 2C-2 — see auth-context.tsx's doc comment on AuthContextValue.
+   * Starts `true` (no supabase client / not yet checked = nothing to wait
+   * on) and only ever flips to `false` for the specific window where a real
+   * session's restore-from-server check is actually in flight.
+   */
+  const [restoreReady, setRestoreReady] = useState(true)
+  const [restoreConflict, setRestoreConflict] = useState<RestoreConflictInfo | null>(null)
 
   useEffect(() => {
     if (!supabase) return
 
+    /**
+     * The one place migration-vs-restore is decided for a real session (see
+     * lib/migration/session-sync.ts's own doc comment for the full ordering
+     * analysis). Called from both session-restore-on-reload and every
+     * SIGNED_IN — covers every real login/signup path in the app
+     * (LoginScreen/SaveScreen/My Page all share the same AuthForm ->
+     * useAuth() -> this provider).
+     */
+    async function syncSession(client: SupabaseClient) {
+      setRestoreConflict(null)
+      setRestoreReady(false)
+      try {
+        const result = await runSessionSync(client)
+        switch (result.status) {
+          case 'not_authenticated':
+          case 'migration_delegated':
+          case 'in_sync':
+            break
+          case 'read_failed':
+            // Failure policy: never clear the session, never touch
+            // localStorage — just stop blocking so the app proceeds with
+            // whatever local state already exists.
+            devWarn('[session-sync] server read failed (proceeding with local state as-is):', result.failures)
+            break
+          case 'restored':
+            if (!result.report.ok) {
+              devWarn('[session-sync] restore failed/rolled back (local state preserved):', result.report.results)
+            }
+            break
+          case 'conflict':
+            setRestoreConflict({ snapshot: result.snapshot, localPet: result.localPet })
+            break
+        }
+      } catch (err) {
+        // Defensive only — runSessionSync's own internals already catch
+        // everything they can; this just guarantees restoreReady is never
+        // left stuck on an unexpected throw (see "무한 loading 금지").
+        devWarn('[session-sync] runSessionSync threw unexpectedly (proceeding with local state as-is):', err)
+      } finally {
+        setRestoreReady(true)
+      }
+    }
+
     supabase.auth.getSession().then(({ data }: { data: { session: Session | null } }) => {
       setUser(toAuthUser(data.session))
       setLoading(false)
-      // Covers session-restore-on-reload (Case C) — retries a previously
-      // incomplete/deferred migration too, since anything short of a full
-      // success ('failed' or 'not_ready') leaves migrated_at untouched.
-      if (data.session?.user) triggerBackgroundMigration(supabase)
+      if (data.session?.user) {
+        syncSession(supabase)
+      } else {
+        setRestoreReady(true) // no session — nothing to check, never adds latency for a guest
+      }
     })
 
     const { data: listener } = supabase.auth.onAuthStateChange((event: string, session: Session | null) => {
@@ -59,9 +114,8 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
       // SIGNED_IN covers both a fresh signup (SaveScreen) and a real login
       // (LoginScreen/My Page) — Supabase fires the same event for either.
       // Deliberately NOT triggered on every event (TOKEN_REFRESHED etc. fire
-      // periodically while already migrated_at and would just be wasted
-      // reads).
-      if (event === 'SIGNED_IN' && session?.user) triggerBackgroundMigration(supabase)
+      // periodically and would just be wasted reads).
+      if (event === 'SIGNED_IN' && session?.user) syncSession(supabase)
     })
 
     return () => listener.subscription.unsubscribe()
@@ -71,6 +125,25 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
     user,
     loading,
     isConfigured: Boolean(supabase),
+    restoreReady,
+    restoreConflict,
+
+    useServerStatling() {
+      if (!restoreConflict) return
+      const report = restoreLocalDataFromSnapshot(restoreConflict.snapshot)
+      if (!report.ok) {
+        devWarn('[session-sync] Case C "use server" restore failed/rolled back (local state preserved):', report.results)
+      }
+      setRestoreConflict(null)
+    },
+
+    keepLocalStatling() {
+      // Local state is already untouched — this only dismisses the
+      // conflict. The server keeps its own (still-conflicting) data; see
+      // the Phase 2C-2 report for why re-uploading this device's choice
+      // isn't done here.
+      setRestoreConflict(null)
+    },
 
     async signInWithGoogle() {
       if (!supabase) return { error: NOT_CONFIGURED_ERROR }

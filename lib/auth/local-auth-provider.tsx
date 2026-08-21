@@ -48,6 +48,12 @@ export function LocalAuthProvider({ children }: { children: ReactNode }) {
     user,
     loading,
     isConfigured: true,
+    // No Supabase, so nothing to restore/upload — always trivially "ready",
+    // never a conflict. See auth-context.tsx's doc comments.
+    restoreReady: true,
+    restoreConflict: null,
+    useServerStatling() {},
+    keepLocalStatling() {},
 
     async signInWithGoogle(): Promise<AuthResult> {
       return { error: ERROR_MESSAGES.google }

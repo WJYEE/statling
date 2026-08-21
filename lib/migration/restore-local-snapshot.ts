@@ -51,6 +51,7 @@ import {
   type RoomInventoryState,
 } from '@/lib/room-inventory-storage'
 import { loadDex, saveDex, type DexRecord } from '@/lib/pets/dex-storage'
+import { loadUserNotes, saveUserNotes, type UserNote } from '@/lib/pet-care/user-notes-storage'
 
 /**
  * Phase 2C-1 — writes a ServerDataSnapshot (read-server-snapshot.ts's
@@ -72,7 +73,7 @@ import { loadDex, saveDex, type DexRecord } from '@/lib/pets/dex-storage'
  * throws, every domain already written in this run is restored to its
  * backed-up value (best-effort — see the catch block in
  * restoreLocalDataFromSnapshot) and the whole run reports rolledBack:true.
- * Verified against the actual save() implementations: none of the 17
+ * Verified against the actual save() implementations: none of the 18
  * restorable domains' save functions swallow a write failure (audited
  * below, module by module) — every one calls `window.localStorage.setItem`
  * with no surrounding try/catch, so a QuotaExceededError (the realistic
@@ -80,19 +81,15 @@ import { loadDex, saveDex, type DexRecord } from '@/lib/pets/dex-storage'
  * catch. (audio/BGM/SFX/local-auth DO swallow write failures, but none of
  * those are part of this restore's 18 domains.)
  *
- * KNOWN GAP — user_notes cannot be restored through a public API today:
- * lib/pet-care/user-notes-storage.ts only exports saveUserNote(text, now)
- * — a single-note APPEND that generates its own new id/timestamp — not a
- * bulk "replace the whole list with these exact rows" call. Calling it once
- * per server row would (a) assign fresh ids/timestamps instead of the
- * server's real id/created_at, (b) not be idempotent (running restore twice
- * would duplicate every note), and (c) interleave with whatever notes
- * already exist locally instead of cleanly restoring the server's list. Per
- * the task's explicit instruction, this is reported rather than worked
- * around with a raw localStorage write. userNotes is always returned as a
- * `skipped` result — see restoreUserNotesGap() below. Fixing this needs a
- * small new export (e.g. `saveUserNotes(notes: UserNote[])`) added to
- * user-notes-storage.ts in a follow-up, not invented here.
+ * user_notes (Phase 2C-2): lib/pet-care/user-notes-storage.ts previously
+ * only exported saveUserNote(text, now) — a single-note APPEND that mints
+ * its own new id/timestamp, unusable for a clean bulk restore (see the
+ * Phase 2C-1 report). That module now also exports saveUserNotes(notes),
+ * a real bulk-set that replaces the whole list — restoring through it
+ * preserves the server's actual id/created_at per note and is idempotent
+ * (re-running restore always converges to the same list, never duplicates).
+ * All 18 migration domains are restorable through a public API as of this
+ * change.
  */
 
 export interface RestoreDomainResult {
@@ -398,16 +395,8 @@ function dexFromServer(rows: ServerDataSnapshot['dexEntries']): DexRecord {
   return { metPetIds: rows.map((r) => r.character_id) }
 }
 
-function restoreUserNotesGap(snapshot: ServerDataSnapshot): RestoreDomainResult {
-  return {
-    domain: 'user_notes',
-    ok: true,
-    skipped: true,
-    reason:
-      snapshot.userNotes.length === 0
-        ? 'server has 0 notes — nothing to restore either way'
-        : `NOT restored: ${snapshot.userNotes.length} server note(s) exist, but lib/pet-care/user-notes-storage.ts has no bulk-restore-safe save API (only a single-note append that mints new ids/timestamps) — see this module's doc comment`,
-  }
+function userNotesFromServer(rows: ServerDataSnapshot['userNotes']): UserNote[] {
+  return rows.map((row) => ({ id: row.id, text: row.text, createdAt: row.created_at }))
 }
 
 // ---------------------------------------------------------------------------
@@ -531,6 +520,7 @@ function buildRestoreSteps(snapshot: ServerDataSnapshot, now: Date): RestoreStep
       () => saveDecoInventoryState(decoInventoryStateFromServer(snapshot.decoInventory)),
     ),
     makeStep('dex_entries', true, loadDex, saveDex, () => saveDex(dexFromServer(snapshot.dexEntries))),
+    makeStep('user_notes', true, loadUserNotes, saveUserNotes, () => saveUserNotes(userNotesFromServer(snapshot.userNotes))),
   ]
 }
 
@@ -562,8 +552,6 @@ export function restoreLocalDataFromSnapshot(snapshot: ServerDataSnapshot, now: 
       return { results, ok: false, rolledBack: true }
     }
   }
-
-  results.push(restoreUserNotesGap(snapshot))
 
   return { results, ok: results.every((r) => r.ok), rolledBack: false }
 }

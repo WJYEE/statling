@@ -1,7 +1,10 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { Loader2 } from 'lucide-react'
 import { Toast } from '@base-ui/react/toast'
+import { Logo } from '@/components/brain-bet/logo'
+import { RestoreConflictScreen } from '@/components/brain-bet/screens/restore-conflict-screen'
 import { ConfirmDialog } from '@/components/brain-bet/confirm-dialog'
 import { LandingScreen } from '@/components/brain-bet/screens/landing-screen'
 import { LoginScreen } from '@/components/brain-bet/screens/login-screen'
@@ -201,7 +204,21 @@ const emptyFinals = () =>
 const ACHIEVEMENT_TOAST_TIMEOUT_MS = 7000
 
 export function GameFlow() {
-  const { user, loading: authLoading } = useAuth()
+  const { user, loading: authLoading, restoreReady, restoreConflict, useServerStatling, keepLocalStatling } = useAuth()
+  /**
+   * Phase 2C-2 — true once it's safe to read localStorage and decide the
+   * initial/post-auth phase: auth has resolved, any server-restore check
+   * for this session has settled (see lib/migration/session-sync.ts), and
+   * there's no unresolved Case C conflict still asking the user to choose.
+   * Gates both the mount effect below (so it never fires against
+   * pre-restore localStorage) and the render return (so a loading state
+   * shows instead of a stale phase while this is false) — see those two
+   * spots for how each half is used. Always true almost immediately for a
+   * guest or the localStorage-only auth backend (restoreReady starts true
+   * for both), so this adds no perceptible delay outside a real
+   * authenticated restore/conflict check.
+   */
+  const bootReady = !authLoading && restoreReady && !restoreConflict
   const toastManager = Toast.useToastManager()
   const [phase, setPhase] = useState<Phase>('landing')
   const [flowMode, setFlowMode] = useState<'first' | 'free'>('first')
@@ -386,9 +403,9 @@ export function GameFlow() {
         }
       : real
 
-  // Restores whatever representative-pet state already exists on mount, so a
-  // reload never re-offers the Landing/Intro flow to someone who's already
-  // been through it:
+  // Restores whatever representative-pet state already exists, so a reload
+  // (or a fresh login — see bootReady's doc comment above) never re-offers
+  // the Landing/Intro flow to someone who's already been through it:
   // - CONFIRMED: skip Landing/Intro entirely and land straight in Room — the
   //   pet is permanent, so there is nothing left for Intro to decide.
   //   Without this, `phase` defaults to 'landing' on every fresh mount
@@ -398,20 +415,70 @@ export function GameFlow() {
   //   `refreshGrowthData`-preserved pet no matter what the new finals were.
   // - Not yet confirmed: bounce to Reveal instead (e.g. after a refresh
   //   before ever confirming) — unchanged from before.
+  //
+  // Gated on bootReady (Phase 2C-2) rather than running once on mount ([]):
+  // a Case A restore (lib/migration/session-sync.ts) can write a brand-new
+  // confirmed pet into localStorage asynchronously, shortly after this
+  // component first mounts — reading localStorage before that write lands
+  // would permanently miss it (this effect used to run exactly once, on
+  // mount). Depending on `bootReady` instead makes it re-run every time
+  // bootReady transitions to true — mount for a guest (near-instant), and
+  // again after any real login's restore/conflict-resolution settles (see
+  // handleLoginAuthenticated below, which no longer decides this itself).
+  //
+  // That re-fire surfaced a real bug during QA: signing up fresh on
+  // SaveScreen (phase already set to 'naming' by its onContinue) fires
+  // SIGNED_IN, which cycles bootReady false->true once session-sync settles
+  // — this effect then re-ran and, seeing `stored.confirmed === true`
+  // (Reveal already confirmed the pet), jumped straight to 'room' and
+  // skipped Naming entirely, even though statlingName was still unset. A
+  // confirmed-but-unnamed pet must route to 'naming', never 'room' — same
+  // distinction lib/migration/migration-orchestrator.ts#isLocalPetMigrationReady
+  // already makes for the same underlying reason (Naming hasn't run yet).
   useEffect(() => {
+    if (!bootReady) return
     const stored = loadStoredPetProfile()
     if (!stored) return
     if (stored.confirmed) {
       setFinals(stored.latestFinals)
       setPetRecord(stored)
-      if (stored.statlingName) setStatlingName(stored.statlingName)
-      setPhase('room')
+      if (stored.statlingName) {
+        setStatlingName(stored.statlingName)
+        setPhase('room')
+      } else {
+        setPhase('naming')
+      }
       return
     }
     setFinals(stored.latestFinals)
     setPetRecord(stored)
     setPhase('reveal')
-  }, [])
+  }, [bootReady])
+
+  /**
+   * Phase 2C-2 — Case E fallback: a user who just authenticated (fresh
+   * login/signup via LoginScreen, not a plain guest's initial mount) but has
+   * no local pet at all — either genuinely nothing to restore, or restore
+   * failed/rolled back with nothing local to fall back on either. Mirrors
+   * handleLoginAuthenticated's ORIGINAL fallback (start() when there's no
+   * stored pet), which had to be removed from that synchronous callback
+   * because it read localStorage before restore/conflict-resolution could
+   * settle — see that function's own doc comment. This effect does the same
+   * job, just correctly sequenced after bootReady.
+   *
+   * Deliberately gated on `user` (not just bootReady) so this never fires
+   * for a plain guest's initial mount — Landing's own "게임 시작하기" button
+   * already covers that path, and auto-starting Assessment out from under a
+   * first-time visitor who hasn't clicked anything yet would be a real
+   * regression, not a fix.
+   */
+  const hasAutoStartedAfterLoginRef = useRef(false)
+  useEffect(() => {
+    if (!bootReady || !user || hasAutoStartedAfterLoginRef.current) return
+    if (loadStoredPetProfile()) return // the other bootReady effect above already handles this device
+    hasAutoStartedAfterLoginRef.current = true
+    start()
+  }, [bootReady, user])
 
   // Offers "이어서 하기" on Landing only when a resumable, not-yet-stale
   // checkpoint exists (see lib/game/intro-progress-storage.ts#loadIntroProgress
@@ -792,25 +859,23 @@ export function GameFlow() {
   const goToLogin = () => setPhase('login')
 
   /**
-   * LoginScreen's onAuthenticated — login never touches local pet data
-   * (see lib/auth/local-auth-provider.tsx, entirely separate storage), so
-   * this just re-reads whatever was already on this device and routes
-   * accordingly: an existing confirmed Statling goes straight to Home,
-   * otherwise a fresh Intro run starts, same as a first-time visitor's
-   * "게임 시작하기" would. Mirrors the mount effect's own confirmed-branch
-   * logic above.
+   * LoginScreen's onAuthenticated. Deliberately a no-op (Phase 2C-2): a
+   * fresh SIGNED_IN this same login just triggered is, right now, deciding
+   * whether this account's server data should restore into this device's
+   * (possibly empty) localStorage — see lib/auth/supabase-auth-provider.tsx
+   * / lib/migration/session-sync.ts. Reading localStorage here, before that
+   * settles, was the exact race this phase fixes: on an empty device
+   * logging into an account with real server data, this used to call
+   * start() immediately (spawning a fresh Intro run — GA `assessment_start`
+   * included) only to have the restore land moments later and silently
+   * strand that run. bootReady's mount effect above already re-fires once
+   * the restore/conflict check settles and picks the correct phase (Room,
+   * Reveal, or nothing to do) from whatever localStorage ends up holding —
+   * this function has nothing left to decide. The bootReady gate (see its
+   * own doc comment) hides whatever `phase` reads during that window
+   * either way, so leaving `phase` untouched here is never visible.
    */
-  const handleLoginAuthenticated = () => {
-    const stored = loadStoredPetProfile()
-    if (stored?.confirmed) {
-      setFinals(stored.latestFinals)
-      setPetRecord(stored)
-      if (stored.statlingName) setStatlingName(stored.statlingName)
-      setPhase('room')
-      return
-    }
-    start()
-  }
+  const handleLoginAuthenticated = () => {}
 
   /** "다음" from any of the first 5 result screens. The 6th (last) result screen never calls this — it shows its own onMeetStatling CTA instead (see CompleteScreen's isLast branch and the 'complete' render below). */
   const goNextFirst = () => {
@@ -1681,6 +1746,14 @@ export function GameFlow() {
 
   return (
     <main className="min-h-dvh bg-background">
+      {restoreConflict ? (
+        <RestoreConflictScreen conflict={restoreConflict} onUseServer={useServerStatling} onKeepLocal={keepLocalStatling} />
+      ) : !bootReady ? (
+        <div className="flex min-h-dvh flex-col items-center justify-center gap-4 px-5">
+          <Logo size="sm" />
+          <Loader2 size={28} strokeWidth={2.4} className="animate-spin text-muted-foreground" aria-hidden="true" />
+        </div>
+      ) : (
       <div key={stepKey} className="animate-in fade-in slide-in-from-bottom-3 duration-300">
         {phase === 'landing' && (
           <LandingScreen
@@ -1911,6 +1984,7 @@ export function GameFlow() {
           />
         )}
       </div>
+      )}
 
       {NAV_PHASES.includes(phase) && <NavRail active={phase as NavTab} onSelect={handleNavSelect} />}
 
