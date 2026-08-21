@@ -71,7 +71,8 @@ export function buildPetRow(userId: string): PetsRow | null {
   }
 }
 
-function buildPlayerSkillRecordRows(userId: string): PlayerSkillRecordRow[] {
+/** Exported for lib/sync/sync-dispatcher.ts (Phase 2D-3) — same pure row mapping reused for a single-domain continuous-sync push, not just the one-time snapshot below. */
+export function buildPlayerSkillRecordRows(userId: string): PlayerSkillRecordRow[] {
   const state = loadPlayerSkillState()
   return Object.values(state.gameDifficultyBestRecords).map((record) => ({
     user_id: userId,
@@ -88,7 +89,8 @@ function buildPlayerSkillRecordRows(userId: string): PlayerSkillRecordRow[] {
   }))
 }
 
-function buildXpTotalsRow(userId: string, now: Date): XpTotalsRow {
+/** Exported for lib/sync/sync-dispatcher.ts (Phase 2D-3) — same pure row mapping reused for a single-domain continuous-sync push, not just the one-time snapshot below. */
+export function buildXpTotalsRow(userId: string, now: Date): XpTotalsRow {
   const state = loadXpState(now)
   return {
     user_id: userId,

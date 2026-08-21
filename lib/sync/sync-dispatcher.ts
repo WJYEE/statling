@@ -1,15 +1,28 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { getSyncReadyUserId } from '@/lib/sync/session-registry'
-import { buildPetRow, buildDexEntryRows, buildAchievementRows } from '@/lib/migration/build-local-snapshot'
-import { writePetRow, writeDexEntries, writeAchievements } from '@/lib/migration/write-local-snapshot'
+import {
+  buildPetRow,
+  buildDexEntryRows,
+  buildAchievementRows,
+  buildPlayerSkillRecordRows,
+  buildXpTotalsRow,
+} from '@/lib/migration/build-local-snapshot'
+import {
+  writePetRow,
+  writeDexEntries,
+  writeAchievements,
+  writePlayerSkillRecords,
+  writeXpTotalsRow,
+} from '@/lib/migration/write-local-snapshot'
 
 /**
  * Phase 2D-2 — the one place any orchestration choke point (mission-tracker.ts,
  * game-flow.tsx's pet-storage call sites, dex-storage call sites) asks for a
  * domain's CURRENT localStorage state to be pushed to Supabase in the
- * background. Pilot scope: only the 3 domains below are supported — every
- * other domain is Phase 2D-3+ (see the Phase 2D-1 roadmap).
+ * background. Phase 2D-3 added player_skill_records/xp_totals (game-flow.tsx's
+ * recordSkillCompletion choke point) — every other domain is still 2D-4+ (see
+ * the Phase 2D-1 roadmap).
  *
  * Deliberately reuses Phase 2B's own row-mapping (build-local-snapshot.ts)
  * and per-table write helpers (write-local-snapshot.ts) verbatim — no new
@@ -20,7 +33,7 @@ import { writePetRow, writeDexEntries, writeAchievements } from '@/lib/migration
  * retry queue is needed (see the Phase 2D-1 report's offline/retry section).
  */
 
-export type SyncDomain = 'pets' | 'dex_entries' | 'achievements'
+export type SyncDomain = 'pets' | 'dex_entries' | 'achievements' | 'player_skill_records' | 'xp_totals'
 
 function devWarn(...args: unknown[]): void {
   if (process.env.NODE_ENV !== 'production') console.warn(...args)
@@ -44,6 +57,18 @@ async function pushDomain(domain: SyncDomain, client: SupabaseClient, userId: st
       const rows = buildAchievementRows(userId)
       const result = await writeAchievements(client, rows, userId)
       if (!result.ok) devWarn('[sync-dispatcher] achievements sync failed (local state unaffected):', result.error)
+      return
+    }
+    case 'player_skill_records': {
+      const rows = buildPlayerSkillRecordRows(userId)
+      const result = await writePlayerSkillRecords(client, rows, userId)
+      if (!result.ok) devWarn('[sync-dispatcher] player_skill_records sync failed (local state unaffected):', result.error)
+      return
+    }
+    case 'xp_totals': {
+      const row = buildXpTotalsRow(userId, new Date())
+      const result = await writeXpTotalsRow(client, row, userId)
+      if (!result.ok) devWarn('[sync-dispatcher] xp_totals sync failed (local state unaffected):', result.error)
       return
     }
   }

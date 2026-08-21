@@ -728,13 +728,35 @@ export function GameFlow() {
       raw,
       metrics,
     })
-    if (applied) savePlayerSkillState(state)
+    if (applied) {
+      savePlayerSkillState(state)
+      // Phase 2D-3 — pushes the FULL current gameDifficultyBestRecords
+      // collection (not just this one game/difficulty), matching Phase 2B's
+      // own whole-state write shape (see write-local-snapshot.ts's
+      // writePlayerSkillRecords — one upsert call for the whole array, not
+      // one request per record). Fires even when this particular tier's
+      // score wasn't a personal best (state.updatedAt still advances, see
+      // recordMiniGameCompletion) — local already wrote, so syncing keeps
+      // server converged with it; a no-op for the guest/not-ready cases via
+      // scheduleSync's own gate. Never awaited — must not delay the result
+      // screen on network latency.
+      scheduleSync('player_skill_records')
+    }
     // Ranking XP — same choke point, so every valid completion (Intro or Free
     // Play, any of the 12 on*Complete handlers) earns XP exactly once, in
     // lockstep with the skill record it's paired with above. See
     // lib/ranking/xp-ledger.ts for why this is a separate ledger from both
     // gameDifficultyBestRecords above and pet-care's intimacyExp.
-    if (applied) saveXpState(addXp(loadXpState(), gameScore))
+    if (applied) {
+      saveXpState(addXp(loadXpState(), gameScore))
+      // Phase 2D-3 scope is game-completion XP only, per this phase's task.
+      // lib/missions/mission-tracker.ts's claimAchievementReward and
+      // claimDailyMissionReward also call saveXpState(addXp(...)) for reward
+      // XP, but neither calls scheduleSync('xp_totals') (verified — see the
+      // completion report) — that XP is NOT yet continuously synced. Left
+      // alone deliberately; connecting those is out of this phase's scope.
+      scheduleSync('xp_totals')
+    }
     // Missions/achievements — same choke point, see lib/missions/mission-tracker.ts.
     if (applied) trackGamePlayed({ isFreePlay: flowMode === 'free', isPersonalBest })
     // Free Play energy cost — Initial Assessment (flowMode 'first') never
