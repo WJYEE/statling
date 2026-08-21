@@ -30,7 +30,7 @@ import { loadAchievementState, saveAchievementState } from '@/lib/missions/achie
 import { publishAchievementUnlocked } from '@/lib/missions/achievement-notifications'
 import { grantRoomReward, loadRoomInventoryState, saveRoomInventoryState } from '@/lib/room-inventory-storage'
 import { trackEvent } from '@/lib/analytics/ga'
-import { scheduleSync } from '@/lib/sync/sync-dispatcher'
+import { scheduleSync, flushSync } from '@/lib/sync/sync-dispatcher'
 
 /**
  * Every tracked gameplay event's single entry point — the ONLY file
@@ -187,6 +187,13 @@ export function claimAchievementReward(tierId: string): ClaimAchievementResult {
   if (state.claimedTierIds.includes(tierId)) return { claimed: false }
 
   saveXpState(addXp(loadXpState(), tier.rewardXp))
+  // Phase 2D-4 — closes the gap noted in the Phase 2D-3 report: this write
+  // was never followed by a sync of its own, so a reward claim's XP only
+  // ever reached the server as a side effect of the NEXT game completion
+  // (game-flow.tsx's recordSkillCompletion). xp_totals was already a
+  // continuous-sync domain since Phase 2D-3 (0-debounce, immediate) — this
+  // is just the missing trigger for it, not a new domain.
+  scheduleSync('xp_totals')
 
   if (tier.roomReward) {
     saveRoomInventoryState(grantRoomReward(loadRoomInventoryState(), tier.roomReward))
@@ -221,6 +228,9 @@ export function trackDailyVisit(now: Date = new Date()): void {
   if (next !== attendance) {
     saveAttendanceState(next)
     saveDailyMissionState(recordDailyProgress(loadDailyMissionState(), 'daily-attendance', now, 1))
+    // Phase 2D-4 — attendance itself is NOT a continuous-sync domain this
+    // phase (out of the six requested), only the daily_missions bump above is.
+    scheduleSync('daily_missions')
   }
   evaluateSyncAchievements()
 }
@@ -228,21 +238,25 @@ export function trackDailyVisit(now: Date = new Date()): void {
 /** Auth choke point — call whenever useAuth()'s `user` becomes non-null. Idempotent (see recordFirstLogin). */
 export function trackFirstLogin(): void {
   saveActivityCounters(recordFirstLoginCounter(loadActivityCounters()))
+  scheduleSync('activity_counters')
   evaluateSyncAchievements()
 }
 
 /** game-flow.tsx#recordSkillCompletion's choke point — call once per *valid* mini-game completion (Intro or Free Play). */
 export function trackGamePlayed(opts: { isFreePlay: boolean; isPersonalBest: boolean }, now: Date = new Date()): void {
   saveActivityCounters(recordGamePlayedCounter(loadActivityCounters(), opts))
+  scheduleSync('activity_counters')
   let daily: DailyMissionState = recordDailyProgress(loadDailyMissionState(), 'daily-play-game', now, 1)
   if (opts.isFreePlay) daily = recordDailyProgress(daily, 'daily-free-play', now, 1)
   saveDailyMissionState(daily)
+  scheduleSync('daily_missions')
   evaluateSyncAchievements()
 }
 
 /** hooks/use-pet-care.ts's choke point — call once per pet-care action press (performAction's 5 cases + answerTalk's 'talk'). */
 export function trackCareInteraction(actionId: CareActionId, now: Date = new Date()): void {
   saveActivityCounters(recordCareInteractionCounter(loadActivityCounters(), actionId))
+  scheduleSync('activity_counters')
   let daily: DailyMissionState = recordDailyProgress(loadDailyMissionState(), 'daily-interact-3', now, 1)
   if (actionId === 'feed' || actionId === 'shower' || actionId === 'play') {
     daily = recordDailyProgress(daily, 'daily-care-action', now, 1)
@@ -251,24 +265,28 @@ export function trackCareInteraction(actionId: CareActionId, now: Date = new Dat
     daily = recordDailyProgress(daily, 'daily-talk', now, 1)
   }
   saveDailyMissionState(daily)
+  scheduleSync('daily_missions')
   evaluateSyncAchievements()
 }
 
 /** my-page-screen.tsx's share-link-copy choke point. */
 export function trackShare(): void {
   saveActivityCounters(recordShareCounter(loadActivityCounters()))
+  scheduleSync('activity_counters')
   evaluateSyncAchievements()
 }
 
 /** theme-screen.tsx's "방 저장" choke point. */
 export function trackRoomDecorSaved(): void {
   saveActivityCounters(recordRoomDecorSavedCounter(loadActivityCounters()))
+  scheduleSync('activity_counters')
   evaluateSyncAchievements()
 }
 
 /** statling-screen.tsx's "꾸미기 저장" choke point. */
 export function trackStatlingDecorSaved(): void {
   saveActivityCounters(recordStatlingDecorSavedCounter(loadActivityCounters()))
+  scheduleSync('activity_counters')
   evaluateSyncAchievements()
 }
 
@@ -281,6 +299,21 @@ export function claimDailyMissionReward(missionId: string, target: number, rewar
   const state = loadDailyMissionState()
   const result = claimDailyMission(state, missionId, target, now)
   saveDailyMissionState(result.state)
-  if (result.claimed) saveXpState(addXp(loadXpState(), rewardXp))
+  if (result.claimed) {
+    saveXpState(addXp(loadXpState(), rewardXp))
+    // Phase 2D-4 — same XP-trigger gap claimAchievementReward had: xp_totals
+    // has been continuous-sync (0-debounce) since Phase 2D-3, but nothing
+    // here ever asked it to push this reward.
+    scheduleSync('xp_totals')
+    // A claim is a deliberate, important user action — flush any pending
+    // daily_missions debounce window right now instead of waiting out its
+    // usual 5s window, so `claimed_at`/progress reach the server promptly.
+    flushSync('daily_missions')
+  } else {
+    // Not claimed doesn't mean "nothing changed" — result.state can still
+    // differ from state via a stale-day rollover (see ensureToday in
+    // daily-mission-storage.ts) — still a real write, just not urgent.
+    scheduleSync('daily_missions')
+  }
   return { claimed: result.claimed }
 }

@@ -11,6 +11,7 @@ import {
 import { loadDialogueMemory, recordAnsweredQuestionId, recordDialogueAnswer } from '@/lib/pet-care/dialogue-memory-storage'
 import { saveUserNote } from '@/lib/pet-care/user-notes-storage'
 import { RECENT_QUESTION_HISTORY_SIZE, TALK_FOLLOWUP_TRANSITION_MS } from '@/lib/config/talk.config'
+import { scheduleSync } from '@/lib/sync/sync-dispatcher'
 import type { CharacterStateKey } from '@/lib/character-state-assets'
 import type { StatId } from '@/lib/brain-bet'
 
@@ -72,6 +73,11 @@ export function usePetTalk({ onOpen, onAnswered, onIntermediateReaction, topStat
   function openQuestion() {
     const question = pickRandomQuestion(recentQuestionIds)
     setRecentQuestionIds(recordAnsweredQuestionId(question.id, RECENT_QUESTION_HISTORY_SIZE))
+    // Phase 2D-4 — recordAnsweredQuestionId above is a real DialogueMemory
+    // write (the recent-question window), not just "a talk screen opened",
+    // so this is a legitimate sync point — merely viewing the 대화 button
+    // with no question chosen never reaches this line at all.
+    scheduleSync('dialogue_memory')
     setActiveQuestion(question)
     onOpen(question)
   }
@@ -92,7 +98,10 @@ export function usePetTalk({ onOpen, onAnswered, onIntermediateReaction, topStat
   }
 
   function chooseAnswer(choice: TalkChoice) {
-    if (choice.memory) recordDialogueAnswer(choice.memory.key, choice.memory.value)
+    if (choice.memory) {
+      recordDialogueAnswer(choice.memory.key, choice.memory.value)
+      scheduleSync('dialogue_memory')
+    }
     const responseText = resolveResponseText(choice)
 
     if (choice.next) {

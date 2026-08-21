@@ -42,6 +42,7 @@ import type { CareActionId, CareStatId, Mood, PetAnimation, PetCareState, RoomCa
 import { useSound } from '@/hooks/use-sound'
 import { trackCareInteraction } from '@/lib/missions/mission-tracker'
 import { trackEvent } from '@/lib/analytics/ga'
+import { scheduleSync } from '@/lib/sync/sync-dispatcher'
 
 const ACTION_IDS: CareActionId[] = ['feed', 'shower', 'clean', 'play', 'pet', 'talk']
 
@@ -140,6 +141,11 @@ export function usePetCare() {
   useEffect(() => {
     savePetCareState(petStateRef.current)
     saveRoomCareState(roomStateRef.current)
+    // Phase 2D-4 — local save always comes first (see the two lines just
+    // above); this is a background push, never awaited, so it can never
+    // delay the mount-time decay from taking effect on screen.
+    scheduleSync('pet_care_state')
+    scheduleSync('room_care_state')
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount only
   }, [])
 
@@ -152,11 +158,19 @@ export function usePetCare() {
       setPetState((prev) => {
         const next = applyPetDecay(prev, now)
         savePetCareState(next)
+        // Phase 2D-4 — pet_care_state's own 8s debounce window absorbs this
+        // tick without pushing on every single one (see sync-dispatcher.ts's
+        // DEBOUNCE_MS doc comment for why 8s specifically).
+        scheduleSync('pet_care_state')
         return next
       })
       setRoomState((prev) => {
         const next = applyRoomDecay(prev, now)
         saveRoomCareState(next)
+        // Independent domain/debounce window from pet_care_state above even
+        // though both change on the same tick (see the Phase 2D-4 report's
+        // multi-domain analysis) — a burst on one never blocks the other.
+        scheduleSync('room_care_state')
         return next
       })
     }, LIVE_TICK_INTERVAL_MS)
@@ -179,6 +193,11 @@ export function usePetCare() {
           stats: { ...prev.stats, energy: clampStat(prev.stats.energy + AUTO_SLEEP_ENERGY_PER_TICK) },
         }
         savePetCareState(next)
+        // Phase 2D-4 — this tick fires every 10s (AUTO_SLEEP_TICK_MS), the
+        // tightest recurring driver behind pet_care_state's 8s debounce
+        // window (see DEBOUNCE_MS's doc comment) — sustained auto-sleep
+        // still converges to roughly one push per tick, not one per call.
+        scheduleSync('pet_care_state')
         return next
       })
     }, AUTO_SLEEP_TICK_MS)
@@ -266,9 +285,14 @@ export function usePetCare() {
 
     setPetState(finalPetState)
     savePetCareState(finalPetState)
+    // Phase 2D-4 — local state/UI above are already fully applied; this is
+    // a background push only, never awaited, so it can't delay the care
+    // animation/speech below.
+    scheduleSync('pet_care_state')
     if (room) {
       setRoomState(room)
       saveRoomCareState(room)
+      scheduleSync('room_care_state')
     }
 
     showFloatingDeltas(result.deltas)
@@ -401,6 +425,7 @@ export function usePetCare() {
     const nextState: PetCareState = { ...petStateRef.current, giftReadyLevel: null }
     setPetState(nextState)
     savePetCareState(nextState)
+    scheduleSync('pet_care_state')
   }
 
   /**
@@ -417,6 +442,7 @@ export function usePetCare() {
     const nextState: PetCareState = { ...petStateRef.current, giftReadyLevel: level }
     setPetState(nextState)
     savePetCareState(nextState)
+    scheduleSync('pet_care_state')
   }
 
   /**
@@ -460,6 +486,7 @@ export function usePetCare() {
 
     setPetState(finalPetState)
     savePetCareState(finalPetState)
+    scheduleSync('pet_care_state')
     showFloatingDeltas(result.deltas)
   }
 

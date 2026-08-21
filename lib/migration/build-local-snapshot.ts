@@ -120,7 +120,8 @@ export function buildAchievementRows(userId: string): AchievementRow[] {
   }))
 }
 
-function buildDailyMissionRows(userId: string, now: Date): DailyMissionRow[] {
+/** Exported for lib/sync/sync-dispatcher.ts (Phase 2D-4) — same pure row mapping reused for a single-domain continuous-sync push, not just the one-time snapshot below. */
+export function buildDailyMissionRows(userId: string, now: Date): DailyMissionRow[] {
   // loadDailyMissionState() does NOT roll a stale day over by itself — only
   // recordDailyProgress/claimDailyMission call ensureToday. Reusing the same
   // exported reducer here guarantees a snapshot built before today's first
@@ -148,7 +149,8 @@ function buildAttendanceRow(userId: string): AttendanceRow {
   }
 }
 
-function buildActivityCountersRow(userId: string): ActivityCountersRow {
+/** Exported for lib/sync/sync-dispatcher.ts (Phase 2D-4) — same pure row mapping reused for a single-domain continuous-sync push, not just the one-time snapshot below. */
+export function buildActivityCountersRow(userId: string): ActivityCountersRow {
   const c = loadActivityCounters()
   return {
     user_id: userId,
@@ -170,7 +172,8 @@ function buildActivityCountersRow(userId: string): ActivityCountersRow {
   }
 }
 
-function buildPetCareStateRow(userId: string): PetCareStateRow {
+/** Exported for lib/sync/sync-dispatcher.ts (Phase 2D-4) — same pure row mapping reused for a single-domain continuous-sync push, not just the one-time snapshot below. */
+export function buildPetCareStateRow(userId: string): PetCareStateRow {
   const s = loadPetCareState()
   return {
     user_id: userId,
@@ -189,7 +192,8 @@ function buildPetCareStateRow(userId: string): PetCareStateRow {
   }
 }
 
-function buildRoomCareStateRow(userId: string): RoomCareStateRow {
+/** Exported for lib/sync/sync-dispatcher.ts (Phase 2D-4) — same pure row mapping reused for a single-domain continuous-sync push, not just the one-time snapshot below. */
+export function buildRoomCareStateRow(userId: string): RoomCareStateRow {
   const s = loadRoomCareState()
   return { user_id: userId, cleanliness: s.cleanliness, last_cleaned_at: s.lastCleanedAt }
 }
@@ -200,7 +204,8 @@ function buildUserNoteRows(userId: string): UserNoteRow[] {
   return loadUserNotes().map((note) => ({ id: note.id, user_id: userId, text: note.text, created_at: note.createdAt }))
 }
 
-function buildDialogueMemoryRow(userId: string): DialogueMemoryRow {
+/** Exported for lib/sync/sync-dispatcher.ts (Phase 2D-4) — same pure row mapping reused for a single-domain continuous-sync push, not just the one-time snapshot below. */
+export function buildDialogueMemoryRow(userId: string): DialogueMemoryRow {
   const m = loadDialogueMemory()
   return {
     user_id: userId,
@@ -209,7 +214,8 @@ function buildDialogueMemoryRow(userId: string): DialogueMemoryRow {
   }
 }
 
-function buildPetMemoryRow(userId: string, now: Date): PetMemoryRow {
+/** Exported for lib/sync/sync-dispatcher.ts (Phase 2D-4) — same pure row mapping reused for a single-domain continuous-sync push, not just the one-time snapshot below. */
+export function buildPetMemoryRow(userId: string, now: Date): PetMemoryRow {
   const m = loadPetMemory(now)
   return {
     user_id: userId,

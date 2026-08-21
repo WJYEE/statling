@@ -20,6 +20,7 @@ import { energyDeltaFor, resolveGameReaction } from '@/lib/pet-care/game-reactio
 import { loadPetMemory, savePetMemory } from '@/lib/pet-care/pet-memory-storage'
 import { computeVisitContext, updateVisitMemory, type VisitContext } from '@/lib/pet-care/visit-context'
 import type { CareActionId, CareStatId, PetAnimation } from '@/lib/pet-care/types'
+import { scheduleSync } from '@/lib/sync/sync-dispatcher'
 
 export interface GameReactionView {
   active: boolean
@@ -67,6 +68,7 @@ export function usePetMemory(applyEffect: (deltas: Partial<Record<CareStatId, nu
   // Persist the mount-time visit update right away.
   useEffect(() => {
     savePetMemory(memoryRef.current)
+    scheduleSync('pet_memory')
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount only
   }, [])
 
@@ -80,6 +82,7 @@ export function usePetMemory(applyEffect: (deltas: Partial<Record<CareStatId, nu
     setMemory((prev) => {
       const next = consumePendingGameReaction(prev, new Date())
       savePetMemory(next)
+      scheduleSync('pet_memory')
       return next
     })
 
@@ -109,6 +112,7 @@ export function usePetMemory(applyEffect: (deltas: Partial<Record<CareStatId, nu
     setMemory((prev) => {
       const next = recordCareActionInMemory(prev, action, new Date())
       savePetMemory(next)
+      scheduleSync('pet_memory')
       return next
     })
   }
@@ -117,6 +121,7 @@ export function usePetMemory(applyEffect: (deltas: Partial<Record<CareStatId, nu
     setMemory((prev) => {
       const next = recordInitiatedDialogue(prev, id, kind, new Date())
       savePetMemory(next)
+      scheduleSync('pet_memory')
       return next
     })
   }
@@ -125,6 +130,7 @@ export function usePetMemory(applyEffect: (deltas: Partial<Record<CareStatId, nu
     setMemory((prev) => {
       const next = recordMemoryCommentShown(prev, new Date())
       savePetMemory(next)
+      scheduleSync('pet_memory')
       return next
     })
   }
@@ -137,6 +143,7 @@ export function usePetMemory(applyEffect: (deltas: Partial<Record<CareStatId, nu
     if (already >= cap) {
       setMemory(current)
       savePetMemory(current)
+      scheduleSync('pet_memory')
       return false
     }
 
@@ -153,6 +160,7 @@ export function usePetMemory(applyEffect: (deltas: Partial<Record<CareStatId, nu
     }
     setMemory(next)
     savePetMemory(next)
+    scheduleSync('pet_memory')
     return true
   }
 

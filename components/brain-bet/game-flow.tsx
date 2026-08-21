@@ -770,6 +770,11 @@ export function GameFlow() {
       const decayedPetState = applyPetDecay(loadPetCareState(), now)
       const { petState } = buildDirectEffect(decayedPetState, { energy: -FREE_PLAY_ENERGY_COST }, 0, now)
       savePetCareState(petState)
+      // Phase 2D-4 — same debounced pet_care_state push used by every other
+      // write to this storage (hooks/use-pet-care.ts); RoomScreen isn't
+      // mounted during gameplay, so this is the choke point when the write
+      // happens here instead.
+      scheduleSync('pet_care_state')
     }
   }
 
@@ -1016,7 +1021,10 @@ export function GameFlow() {
 
     setStatStatus((map) => applyGameResult('reaction', map, result))
     setLastResult(result)
-    if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+    if (result.isValidAttempt && !isRetry) {
+      savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+      scheduleSync('pet_memory')
+    }
     if (result.isValidAttempt && !isRetry) recordSkillCompletion('reaction', gameScore, result.raw, { medianReactionMs: rawSummary.medianReactionMs, consistency: rawSummary.consistency }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reaction', activeGameKey, gameScore, isRetry)
     if (result.isValidAttempt) emitCompletionEvent('reaction', gameScore, isRetry)
@@ -1067,7 +1075,10 @@ export function GameFlow() {
 
     setStatStatus((map) => applyGameResult('memory', map, result))
     setLastResult(result)
-    if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+    if (result.isValidAttempt && !isRetry) {
+      savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+      scheduleSync('pet_memory')
+    }
     if (result.isValidAttempt && !isRetry) recordSkillCompletion('memory', gameScore, result.raw, { weightedAccuracy: rawSummary.weightedAccuracy, averageAdjustedResponseTimeMs: rawSummary.averageAdjustedResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('memory', activeGameKey, gameScore, isRetry)
     if (result.isValidAttempt) emitCompletionEvent('memory', gameScore, isRetry)
@@ -1118,7 +1129,10 @@ export function GameFlow() {
 
     setStatStatus((map) => applyGameResult('focus', map, result))
     setLastResult(result)
-    if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+    if (result.isValidAttempt && !isRetry) {
+      savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+      scheduleSync('pet_memory')
+    }
     if (result.isValidAttempt && !isRetry) recordSkillCompletion('focus', gameScore, result.raw, { weightedAccuracy: rawSummary.weightedAccuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('focus', activeGameKey, gameScore, isRetry)
     if (result.isValidAttempt) emitCompletionEvent('focus', gameScore, isRetry)
@@ -1169,7 +1183,10 @@ export function GameFlow() {
 
     setStatStatus((map) => applyGameResult('judgment', map, result))
     setLastResult(result)
-    if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+    if (result.isValidAttempt && !isRetry) {
+      savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+      scheduleSync('pet_memory')
+    }
     if (result.isValidAttempt && !isRetry)
       recordSkillCompletion(
         'judgment',
@@ -1227,7 +1244,10 @@ export function GameFlow() {
 
     setStatStatus((map) => applyGameResult('spatial', map, result))
     setLastResult(result)
-    if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+    if (result.isValidAttempt && !isRetry) {
+      savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+      scheduleSync('pet_memory')
+    }
     if (result.isValidAttempt && !isRetry) recordSkillCompletion('spatial', gameScore, result.raw, { difficultyWeightedAccuracy: rawSummary.difficultyWeightedAccuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('spatial', activeGameKey, gameScore, isRetry)
     // Snapshot every shape this attempt showed (reference + all 4 options,
@@ -1291,7 +1311,10 @@ export function GameFlow() {
 
     setStatStatus((map) => applyGameResult('reasoning', map, result))
     setLastResult(result)
-    if (result.isValidAttempt && !isRetry) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+    if (result.isValidAttempt && !isRetry) {
+      savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+      scheduleSync('pet_memory')
+    }
     if (result.isValidAttempt && !isRetry) recordSkillCompletion('reasoning', gameScore, result.raw, { difficultyWeightedAccuracy: rawSummary.difficultyWeightedAccuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reasoning', activeGameKey, gameScore, isRetry)
     if (result.isValidAttempt) emitCompletionEvent('reasoning', gameScore, isRetry)
@@ -1347,7 +1370,10 @@ export function GameFlow() {
 
     setStatStatus((map) => applyGameResult('memory', map, result))
     setLastResult(result)
-    if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+    if (result.isValidAttempt) {
+      savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+      scheduleSync('pet_memory')
+    }
     if (result.isValidAttempt) recordSkillCompletion('memory', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('memory', activeGameKey, gameScore, false)
     if (result.isValidAttempt) emitCompletionEvent('memory', gameScore, false)
@@ -1390,7 +1416,10 @@ export function GameFlow() {
 
     setStatStatus((map) => applyGameResult('focus', map, result))
     setLastResult(result)
-    if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+    if (result.isValidAttempt) {
+      savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+      scheduleSync('pet_memory')
+    }
     if (result.isValidAttempt) recordSkillCompletion('focus', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageReactionTimeMs: rawSummary.averageReactionTimeMs, switchAccuracy: rawSummary.switchAccuracy }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('focus', activeGameKey, gameScore, false)
     if (result.isValidAttempt) emitCompletionEvent('focus', gameScore, false)
@@ -1436,7 +1465,10 @@ export function GameFlow() {
 
     setStatStatus((map) => applyGameResult('reaction', map, result))
     setLastResult(result)
-    if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+    if (result.isValidAttempt) {
+      savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+      scheduleSync('pet_memory')
+    }
     if (result.isValidAttempt)
       recordSkillCompletion(
         'reaction',
@@ -1491,7 +1523,10 @@ export function GameFlow() {
 
     setStatStatus((map) => applyGameResult('judgment', map, result))
     setLastResult(result)
-    if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+    if (result.isValidAttempt) {
+      savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+      scheduleSync('pet_memory')
+    }
     if (result.isValidAttempt) recordSkillCompletion('judgment', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('judgment', activeGameKey, gameScore, false)
     if (result.isValidAttempt) emitCompletionEvent('judgment', gameScore, false)
@@ -1534,7 +1569,10 @@ export function GameFlow() {
 
     setStatStatus((map) => applyGameResult('spatial', map, result))
     setLastResult(result)
-    if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+    if (result.isValidAttempt) {
+      savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+      scheduleSync('pet_memory')
+    }
     if (result.isValidAttempt) recordSkillCompletion('spatial', gameScore, result.raw, { totalCompletionMs: rawSummary.totalCompletionMs, misplacements: rawSummary.misplacements }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('spatial', activeGameKey, gameScore, false)
     if (result.isValidAttempt) emitCompletionEvent('spatial', gameScore, false)
@@ -1577,7 +1615,10 @@ export function GameFlow() {
 
     setStatStatus((map) => applyGameResult('reasoning', map, result))
     setLastResult(result)
-    if (result.isValidAttempt) savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+    if (result.isValidAttempt) {
+      savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
+      scheduleSync('pet_memory')
+    }
     if (result.isValidAttempt) recordSkillCompletion('reasoning', gameScore, result.raw, { accuracy: rawSummary.accuracy, averageResponseTimeMs: rawSummary.averageResponseTimeMs }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reasoning', activeGameKey, gameScore, false)
     if (result.isValidAttempt) emitCompletionEvent('reasoning', gameScore, false)
