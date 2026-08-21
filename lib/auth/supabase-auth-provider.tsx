@@ -6,6 +6,7 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { AuthContext, type AuthContextValue, type AuthUser, type RestoreConflictInfo } from '@/lib/auth/auth-context'
 import { runSessionSync } from '@/lib/migration/session-sync'
 import { restoreLocalDataFromSnapshot } from '@/lib/migration/restore-local-snapshot'
+import { registerSyncSession, markSyncReady, clearSyncSession } from '@/lib/sync/session-registry'
 
 const NOT_CONFIGURED_ERROR = '로그인 기능이 아직 준비되지 않았어요. 잠시 후 다시 시도해주세요.'
 
@@ -64,13 +65,28 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
      * (LoginScreen/SaveScreen/My Page all share the same AuthForm ->
      * useAuth() -> this provider).
      */
-    async function syncSession(client: SupabaseClient) {
+    /**
+     * Phase 2D-2 — also the one place lib/sync/session-registry.ts's state
+     * transitions: registered (known but not ready) the instant a session is
+     * confirmed, marked ready only once THIS call's session-sync work has
+     * fully settled — with one exception (Case C conflict): registerSyncSession
+     * runs at the top, but markSyncReady is deliberately withheld here and
+     * fires later from useServerStatling()/keepLocalStatling() instead, so
+     * continuous sync never starts while a Statling identity conflict is
+     * still unresolved (same "don't touch state before the user chooses"
+     * rule Phase 2C-2 already applies to the conflict itself).
+     */
+    async function syncSession(client: SupabaseClient, userId: string) {
       setRestoreConflict(null)
       setRestoreReady(false)
+      registerSyncSession(userId)
+      let awaitingConflictResolution = false
       try {
         const result = await runSessionSync(client)
         switch (result.status) {
           case 'not_authenticated':
+            clearSyncSession()
+            break
           case 'migration_delegated':
           case 'in_sync':
             break
@@ -86,6 +102,7 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
             }
             break
           case 'conflict':
+            awaitingConflictResolution = true
             setRestoreConflict({ snapshot: result.snapshot, localPet: result.localPet })
             break
         }
@@ -96,6 +113,7 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
         devWarn('[session-sync] runSessionSync threw unexpectedly (proceeding with local state as-is):', err)
       } finally {
         setRestoreReady(true)
+        if (!awaitingConflictResolution) markSyncReady(userId)
       }
     }
 
@@ -103,9 +121,10 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
       setUser(toAuthUser(data.session))
       setLoading(false)
       if (data.session?.user) {
-        syncSession(supabase)
+        syncSession(supabase, data.session.user.id)
       } else {
         setRestoreReady(true) // no session — nothing to check, never adds latency for a guest
+        clearSyncSession()
       }
     })
 
@@ -115,7 +134,12 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
       // (LoginScreen/My Page) — Supabase fires the same event for either.
       // Deliberately NOT triggered on every event (TOKEN_REFRESHED etc. fire
       // periodically and would just be wasted reads).
-      if (event === 'SIGNED_IN' && session?.user) syncSession(supabase)
+      if (event === 'SIGNED_IN' && session?.user) syncSession(supabase, session.user.id)
+      // Covers SIGNED_OUT and any other transition to no-session — belt and
+      // braces alongside signOut()'s own immediate clearSyncSession() call
+      // below (this event fires asynchronously, so signOut() clearing first
+      // is what actually guarantees "즉시 clear").
+      if (!session) clearSyncSession()
     })
 
     return () => listener.subscription.unsubscribe()
@@ -135,6 +159,10 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
         devWarn('[session-sync] Case C "use server" restore failed/rolled back (local state preserved):', report.results)
       }
       setRestoreConflict(null)
+      // Phase 2D-2 — the conflict is now resolved one way or another, so
+      // continuous sync may safely start (see syncSession's doc comment for
+      // why it was withheld while a conflict was pending).
+      if (user) markSyncReady(user.id)
     },
 
     keepLocalStatling() {
@@ -143,6 +171,7 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
       // the Phase 2C-2 report for why re-uploading this device's choice
       // isn't done here.
       setRestoreConflict(null)
+      if (user) markSyncReady(user.id)
     },
 
     async signInWithGoogle() {
@@ -173,6 +202,11 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
 
     async signOut() {
       if (!supabase) return
+      // Cleared synchronously here (not just via the onAuthStateChange
+      // SIGNED_OUT listener above, which fires asynchronously) so continuous
+      // sync stops immediately — see the Phase 2D-2 task's "logout 시 즉시
+      // clear" requirement.
+      clearSyncSession()
       await supabase.auth.signOut()
     },
   }

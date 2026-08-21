@@ -30,6 +30,7 @@ import { loadAchievementState, saveAchievementState } from '@/lib/missions/achie
 import { publishAchievementUnlocked } from '@/lib/missions/achievement-notifications'
 import { grantRoomReward, loadRoomInventoryState, saveRoomInventoryState } from '@/lib/room-inventory-storage'
 import { trackEvent } from '@/lib/analytics/ga'
+import { scheduleSync } from '@/lib/sync/sync-dispatcher'
 
 /**
  * Every tracked gameplay event's single entry point — the ONLY file
@@ -146,6 +147,11 @@ export function applyNewlyUnlockedAchievements(progressList: AchievementTierProg
     claimedTierIds: state.claimedTierIds,
     updatedAt: new Date().toISOString(),
   })
+  // newlyUnlocked is already the "did anything actually change" signal —
+  // evaluateSyncAchievements() runs on every track* call, but this branch
+  // (and therefore this sync push) only executes when a tier's condition
+  // was ACTUALLY just met, never on a no-op re-evaluation.
+  scheduleSync('achievements')
 
   for (const p of newlyUnlocked) {
     trackEvent('achievement_unlock', { achievement_id: p.tierId, achievement_type: p.category })
@@ -192,6 +198,7 @@ export function claimAchievementReward(tierId: string): ClaimAchievementResult {
     claimedTierIds: [...state.claimedTierIds, tierId],
     updatedAt: new Date().toISOString(),
   })
+  scheduleSync('achievements')
 
   audioManager.play('achievement')
 

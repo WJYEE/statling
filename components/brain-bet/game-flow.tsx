@@ -51,7 +51,8 @@ import { clearPetCareState } from '@/lib/pet-care/pet-care-storage'
 import { clearUserNotes } from '@/lib/pet-care/user-notes-storage'
 import { clearDialogueMemory } from '@/lib/pet-care/dialogue-memory-storage'
 import { beginPetAssignment, confirmPet, refreshGrowthData, resolveCurrentPetProfile } from '@/lib/pets/pet-flow'
-import { addMetPet, markAllPetsMet } from '@/lib/pets/dex-storage'
+import { addMetPet, hasMetPet, markAllPetsMet } from '@/lib/pets/dex-storage'
+import { scheduleSync } from '@/lib/sync/sync-dispatcher'
 import {
   clearStoredPetProfile,
   loadStoredPetProfile,
@@ -1641,6 +1642,7 @@ export function GameFlow() {
 
     saveStoredPetProfile(next)
     setPetRecord(next)
+    scheduleSync('pets')
     trackEvent('egg_hatch_start', {
       top_ability: getTopStat(effectiveFinals),
       second_ability: getSecondStat(effectiveFinals),
@@ -1733,7 +1735,13 @@ export function GameFlow() {
       const updated = confirmPet(petRecord)
       saveStoredPetProfile(updated)
       setPetRecord(updated)
+      scheduleSync('pets')
+      // Only a genuinely new dex entry needs a sync push — hasMetPet is
+      // checked BEFORE addMetPet so a repeat confirm of an already-met
+      // character (e.g. replay) never fires a redundant dex_entries write.
+      const isNewDexEntry = !hasMetPet(updated.petId)
       addMetPet(updated.petId) // becoming your representative pet always registers it in the dex — see lib/pets/dex-storage.ts
+      if (isNewDexEntry) scheduleSync('dex_entries')
     }
     setPhase('save')
   }
@@ -1887,7 +1895,10 @@ export function GameFlow() {
             petProfile={applyTesterOverride(displayedPetProfile)}
             onConfirm={(name) => {
               setStatlingName(name)
-              if (petRecord) saveStoredPetProfile({ ...petRecord, statlingName: name })
+              if (petRecord) {
+                saveStoredPetProfile({ ...petRecord, statlingName: name })
+                scheduleSync('pets')
+              }
               // If SIGNED_IN already fired earlier on SaveScreen (this pet
               // was confirmed but not yet named), the migration triggered
               // there deferred entirely (see isLocalPetMigrationReady in

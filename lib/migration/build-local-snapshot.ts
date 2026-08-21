@@ -52,7 +52,8 @@ import type {
  * inline below at the exact line that makes the tradeoff.
  */
 
-function buildPetRow(userId: string): PetsRow | null {
+/** Exported for lib/sync/sync-dispatcher.ts (Phase 2D-2) — same pure row mapping reused for a single-domain continuous-sync push, not just the one-time snapshot below. */
+export function buildPetRow(userId: string): PetsRow | null {
   const profile = loadStoredPetProfile()
   if (!profile) return null
   return {
@@ -98,7 +99,8 @@ function buildXpTotalsRow(userId: string, now: Date): XpTotalsRow {
   }
 }
 
-function buildAchievementRows(userId: string): AchievementRow[] {
+/** Exported for lib/sync/sync-dispatcher.ts (Phase 2D-2) — same pure row mapping reused for a single-domain continuous-sync push, not just the one-time snapshot below. */
+export function buildAchievementRows(userId: string): AchievementRow[] {
   const state = loadAchievementState()
   // unlockedTierIds/claimedTierIds are two flat id arrays with no per-tier
   // timestamp anywhere in localStorage — state.updatedAt (one value for the
@@ -288,7 +290,8 @@ function buildRoomInventoryRows(userId: string): RoomInventoryRow[] {
   return s.unlockedIds.map((assetId) => ({ user_id: userId, asset_id: assetId, unlocked_at: s.updatedAt }))
 }
 
-function buildDexEntryRows(userId: string, now: Date): DexEntryRow[] {
+/** Exported for lib/sync/sync-dispatcher.ts (Phase 2D-2) — same pure row mapping reused for a single-domain continuous-sync push, not just the one-time snapshot below. */
+export function buildDexEntryRows(userId: string, now: Date): DexEntryRow[] {
   const dex = loadDex()
   // DexRecord has no timestamp field at all — every entry is stamped at
   // snapshot build time, not the real "met" moment (never recorded locally).

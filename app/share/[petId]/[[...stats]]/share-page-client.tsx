@@ -12,6 +12,7 @@ import { STATS, type StatId } from '@/lib/brain-bet'
 import { getPetProfileById } from '@/lib/pets/pet-profile'
 import { getStatCompatibility } from '@/lib/pets/compatibility'
 import { addMetPet, hasMetPet } from '@/lib/pets/dex-storage'
+import { scheduleSync } from '@/lib/sync/sync-dispatcher'
 import { buildDifferentRhythmCards, buildGoodMatchCards } from '@/lib/stats/stat-compatibility-copy'
 
 interface SharePageClientProps {
@@ -53,7 +54,11 @@ export function SharePageClient({ petId, topStat, secondaryStat }: SharePageClie
   const differentRhythmCards = compatibility ? buildDifferentRhythmCards(compatibility.differentRhythms) : []
 
   function handleRecord() {
+    // Only reachable when !recorded (see the CTA render below), i.e. this is
+    // always a genuinely new dex entry for this visitor's device — a no-op
+    // for a guest visitor (see lib/sync/session-registry.ts).
     addMetPet(petId)
+    scheduleSync('dex_entries')
     setRecorded(true)
   }
 

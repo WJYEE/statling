@@ -24,6 +24,32 @@ export type RestoreSituation =
   | { case: 'E'; action: 'skip'; reason: string }
 
 /**
+ * Phase 2D-2 Follow-up — confirmedAt is compared by INSTANT, not by raw
+ * string, because the two sides are never byte-identical even when they
+ * name the exact same moment: the local value is a JS `.toISOString()`
+ * string ("...695Z"), the server value is Postgres's timestamptz text
+ * representation as returned by PostgREST ("...695+00:00"). A strict `===`
+ * (the original bug) treated every real same-device remount as a false
+ * Case C conflict. `null`/`undefined` on both sides is still treated as
+ * equal (an unconfirmed-but-otherwise-matching pair never reaches here in
+ * practice, since both `confirmed` flags are already checked above — this
+ * just preserves the original function's behavior for that edge). Anything
+ * that fails to parse as a valid date is deliberately treated as NOT equal
+ * rather than falling back to a permissive default — an unparseable
+ * timestamp must never be able to make two different pets look identical.
+ */
+function sameInstant(a: string | null | undefined, b: string | null | undefined): boolean {
+  const left = a ?? null
+  const right = b ?? null
+  if (left === null && right === null) return true
+  if (left === null || right === null) return false
+  const leftMs = Date.parse(left)
+  const rightMs = Date.parse(right)
+  if (Number.isNaN(leftMs) || Number.isNaN(rightMs)) return false
+  return leftMs === rightMs
+}
+
+/**
  * Identity fingerprint that never changes once a pet is confirmed (enforced
  * server-side by guard_pet_identity_immutable() — see
  * supabase/migrations/20260819000000_phase1_schema_and_rls.sql) and is
@@ -40,7 +66,7 @@ function isSameConfirmedPet(local: StoredPetProfile, server: NonNullable<ServerD
     local.petId === server.character_id &&
     local.topStat === server.top_stat &&
     local.secondStat === server.second_stat &&
-    (local.confirmedAt ?? null) === (server.confirmed_at ?? null)
+    sameInstant(local.confirmedAt, server.confirmed_at)
   )
 }
 
