@@ -22,7 +22,13 @@ interface LandingScreenProps {
    * has an account.
    */
   isReturningLoggedOut?: boolean;
-  /** Routes to the login/signup screen — only wired up when isReturningLoggedOut is true. */
+  /**
+   * Routes to the login/signup screen. Used by isReturningLoggedOut's own
+   * primary CTA above, and — regardless of isReturningLoggedOut — by the
+   * small "이미 계정이 있으신가요?" link in the default (first-time visitor)
+   * branch below, so a completely fresh device still has a way to sign into
+   * an existing account instead of only ever being offered a new Intro run.
+   */
   onGoToLogin?: () => void;
 }
 
@@ -147,6 +153,34 @@ export function LandingScreen({
           </button>
         ) : (
           <>
+            {/*
+              Phase 2C-2 Follow-up — the one login entry point a completely
+              fresh device (no local pet, hasLoggedInEver never set) had no
+              way to reach at all: this branch's only CTA used to be "게임
+              시작하기", with no path to LoginScreen short of first hatching a
+              pet. Always rendered here regardless of hasLoggedInEver (unlike
+              the isReturningLoggedOut branch's own login CTA above) — reuses
+              the exact same onGoToLogin -> phase 'login' -> LoginScreen ->
+              AuthForm -> useAuth() path every other login entry point
+              already goes through, so SupabaseAuthProvider's session-sync /
+              Phase 2C restore flow runs completely unchanged. Deliberately
+              styled as a quiet text link (see save-screen.tsx's "나중에
+              하기" for the same convention) so it never competes with the
+              primary "게임 시작하기" CTA below.
+            */}
+            <button
+              type="button"
+              data-sfx-skip
+              onClick={() => {
+                play("ui-click-soft");
+                onGoToLogin?.();
+              }}
+              className="text-sm font-bold text-muted-foreground underline-offset-4 hover:underline"
+            >
+              이미 계정이 있으신가요?{" "}
+              <span className="text-primary">로그인하기</span>
+            </button>
+
             <button
               type="button"
               data-sfx-skip
