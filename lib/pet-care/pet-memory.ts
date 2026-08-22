@@ -1,4 +1,9 @@
 import {
+  CARE_MEMORY_MIN_ACTION_COUNT,
+  CARE_MEMORY_MIN_ACTION_RATIO,
+  GAME_NAME_MEMORY_MIN_COUNT,
+  GAME_NAME_MEMORY_MIN_RATIO,
+  GROWTH_CALLBACK_MIN_DAYS_TOGETHER,
   MEMORY_COMMENT_MIN_STAT_COUNT,
   MEMORY_COMMENT_MIN_STAT_RATIO,
   RECENT_CARE_ACTION_HISTORY_SIZE,
@@ -9,7 +14,7 @@ import { PENDING_GAME_REACTION_MAX_AGE_MS } from '@/lib/config/game-reactions.co
 import { LOVE_CONSISTENT_PLAY_COUNT_THRESHOLD } from '@/lib/config/character-state.config'
 import { normalizedScoreFor } from '@/lib/pet-care/game-reactions'
 import { pushRecentId } from '@/lib/pet-care/dialogue'
-import { toLocalDateKey } from '@/lib/pet-care/visit-context'
+import { daysSince, toLocalDateKey } from '@/lib/pet-care/visit-context'
 import type { CareActionId, PendingGameReaction } from '@/lib/pet-care/types'
 import type { StatId } from '@/lib/brain-bet'
 import type { GameResult } from '@/lib/game/types'
@@ -187,6 +192,70 @@ export function shouldShowMemoryComment(memory: PetMemory, now: Date): StatId | 
   const count = memory.recentGameStats.filter((s) => s === stat).length
   const ratio = count / memory.recentGameStats.length
   return count >= MEMORY_COMMENT_MIN_STAT_COUNT && ratio >= MEMORY_COMMENT_MIN_STAT_RATIO ? stat : null
+}
+
+/**
+ * Phase 3D-3 — "care memory" gate (spec §2-3, §12): the player's single most
+ * frequent recent care action must show up at least CARE_MEMORY_MIN_ACTION_COUNT
+ * times among `recentCareActions` AND make up at least CARE_MEMORY_MIN_ACTION_RATIO
+ * of them — same shape as shouldShowMemoryComment, just over care actions
+ * instead of game stats — and shares `lastMemoryCommentDate` with
+ * shouldShowMemoryComment/shouldShowGameNameMemory/shouldShowGrowthCallback so
+ * all four "behavioral/growth memory" callbacks pull from ONE combined daily
+ * budget (spec §12's own "game memory가 한 번 나왔다면 care memory는 다음 날
+ * 후보" example). Returns the action to comment on, or null.
+ */
+export function shouldShowCareMemory(memory: PetMemory, now: Date): CareActionId | null {
+  if (memory.lastMemoryCommentDate === toLocalDateKey(now)) return null
+  if (memory.recentCareActions.length === 0) return null
+
+  const action = memory.favoriteCareAction
+  if (!action) return null
+
+  const count = memory.recentCareActions.filter((a) => a === action).length
+  const ratio = count / memory.recentCareActions.length
+  return count >= CARE_MEMORY_MIN_ACTION_COUNT && ratio >= CARE_MEMORY_MIN_ACTION_RATIO ? action : null
+}
+
+/**
+ * Phase 3D-3 — "자주 플레이한 특정 게임" gate (spec §4A), over `recentGameIds`
+ * (the actual game/variant id, e.g. "memory-classic" — distinct from
+ * `recentGameStats`'s stat-level tracking that shouldShowMemoryComment already
+ * uses). Same count/ratio shape and the same shared `lastMemoryCommentDate`
+ * daily budget as shouldShowCareMemory above. Returns the game id to comment
+ * on (still internal — the caller maps it to a display name), or null.
+ */
+export function shouldShowGameNameMemory(memory: PetMemory, now: Date): string | null {
+  if (memory.lastMemoryCommentDate === toLocalDateKey(now)) return null
+  if (memory.recentGameIds.length === 0) return null
+
+  const counts: Record<string, number> = {}
+  for (const id of memory.recentGameIds) counts[id] = (counts[id] ?? 0) + 1
+  const gameId = mostFrequentEntry(counts)
+  if (!gameId) return null
+
+  const count = counts[gameId]
+  const ratio = count / memory.recentGameIds.length
+  return count >= GAME_NAME_MEMORY_MIN_COUNT && ratio >= GAME_NAME_MEMORY_MIN_RATIO ? gameId : null
+}
+
+/**
+ * Phase 3D-2 — "growthCallback" gate (spec: "하루 최대 1회, 새 저장 필드
+ * 없이"). Deliberately reuses `lastMemoryCommentDate` — the exact same date
+ * gate `shouldShowMemoryComment` already uses — so the two share ONE
+ * combined daily budget (at most one memory-style ambient comment per day,
+ * whichever of the two the ambient loop tries first and finds eligible; see
+ * hooks/use-pet-initiated-dialogue.ts) instead of adding a second stored
+ * field just to track a second, independent "shown today" flag. Only
+ * requires `daysSince(firstMetAt) >= GROWTH_CALLBACK_MIN_DAYS_TOGETHER` so
+ * it never fires for a pet met earlier today — no other condition, and no
+ * concrete day-count is ever put in the dialogue text itself (the bank's
+ * lines are all qualitative, see initiated-dialogue.ts's growthCallback
+ * pool doc comment).
+ */
+export function shouldShowGrowthCallback(memory: PetMemory, now: Date): boolean {
+  if (memory.lastMemoryCommentDate === toLocalDateKey(now)) return false
+  return daysSince(memory.firstMetAt, now) >= GROWTH_CALLBACK_MIN_DAYS_TOGETHER
 }
 
 export function resetAutonomyBonusIfNewDay(memory: PetMemory, now: Date): PetMemory {

@@ -70,7 +70,7 @@ export function usePetTalk({ onOpen, onAnswered, onIntermediateReaction, topStat
     [],
   )
 
-  function openQuestion() {
+  function openRootQuestion() {
     const question = pickRandomQuestion(recentQuestionIds)
     setRecentQuestionIds(recordAnsweredQuestionId(question.id, RECENT_QUESTION_HISTORY_SIZE))
     // Phase 2D-4 — recordAnsweredQuestionId above is a real DialogueMemory
@@ -80,6 +80,30 @@ export function usePetTalk({ onOpen, onAnswered, onIntermediateReaction, topStat
     scheduleSync('dialogue_memory')
     setActiveQuestion(question)
     onOpen(question)
+  }
+
+  /**
+   * Phase 3D-3 — `openingLine`, when given (room-screen.tsx#pickTalkOpeningMemoryLine,
+   * gated by TALK_OPENING_MEMORY_CHANCE), shows a short memory callback first
+   * via the SAME isTransitioning + onIntermediateReaction + TALK_FOLLOWUP_TRANSITION_MS
+   * beat chooseAnswer's `next` branch already uses, before the real question
+   * opens — so `talk.isActive` (and everything that already keys off it:
+   * autonomy suppression, the care-action buttons' disabled state) stays true
+   * through the gap for free, with no new state anywhere. Omitted (the
+   * default, and every pre-3D-3 call site), this is byte-for-byte the old
+   * openQuestion().
+   */
+  function openQuestion(openingLine?: { text: string }) {
+    if (openingLine) {
+      setIsTransitioning(true)
+      onIntermediateReaction(openingLine.text)
+      transitionTimeoutRef.current = window.setTimeout(() => {
+        setIsTransitioning(false)
+        openRootQuestion()
+      }, TALK_FOLLOWUP_TRANSITION_MS)
+      return
+    }
+    openRootQuestion()
   }
 
   /** Backing out without answering costs nothing — no cooldown, no exp — and cancels any pending follow-up transition too. */

@@ -315,8 +315,20 @@ export const TALK_QUESTIONS: TalkQuestion[] = [
     category: 'preference',
     text: '구름 많은 날이 좋아, 맑은 날이 좋아?',
     choices: [
-      { id: 'cloudy', label: '구름 많은 날', response: '포근한 느낌이 좋다는 거지? 나도 그런 날 좋아해.', expression: 'idle' },
-      { id: 'sunny', label: '맑은 날', response: '햇살 받으면서 걷는 것도 기분 좋지!', expression: 'happy' },
+      {
+        id: 'cloudy',
+        label: '구름 많은 날',
+        response: '포근한 느낌이 좋다는 거지? 나도 그런 날 좋아해.',
+        expression: 'idle',
+        memory: { key: 'preferredWeather', value: '구름 많은 날' },
+      },
+      {
+        id: 'sunny',
+        label: '맑은 날',
+        response: '햇살 받으면서 걷는 것도 기분 좋지!',
+        expression: 'happy',
+        memory: { key: 'preferredWeather', value: '맑은 날' },
+      },
       { id: 'either-weather', label: '아무 날이나 좋아', response: '어떤 날씨든 너랑 있으면 좋을 것 같아.', expression: 'love' },
     ],
   },
@@ -325,7 +337,13 @@ export const TALK_QUESTIONS: TalkQuestion[] = [
     category: 'preference',
     text: '집에 있는 게 좋아, 밖에 나가는 게 좋아?',
     choices: [
-      { id: 'stay-home', label: '집이 좋아', response: '집순이/집돌이구나, 나도 집이 제일 편해.', expression: 'idle' },
+      {
+        id: 'stay-home',
+        label: '집이 좋아',
+        response: '집순이/집돌이구나, 나도 집이 제일 편해.',
+        expression: 'idle',
+        memory: { key: 'activityPreference', value: '집' },
+      },
       {
         id: 'go-out',
         label: '밖에 나가는 게 좋아',
@@ -335,6 +353,7 @@ export const TALK_QUESTIONS: TalkQuestion[] = [
           reaction: '활동적인 편이구나! 나도 몸 쓰는 건 자신 있어.',
           spatial: '활동적인 편이구나! 나가면 이것저것 둘러보는 것도 재밌겠다.',
         },
+        memory: { key: 'activityPreference', value: '밖' },
         next: {
           id: 'pref-activity-where',
           category: 'preference',
@@ -733,6 +752,7 @@ export const TALK_QUESTIONS: TalkQuestion[] = [
         label: '밥',
         response: '든든하게 오래 버틸 수 있는 선택이네!',
         expression: 'happy',
+        memory: { key: 'foodForeverChoice', value: '밥' },
         next: {
           id: 'light-one-food-forever-follow',
           category: 'light',
@@ -742,7 +762,13 @@ export const TALK_QUESTIONS: TalkQuestion[] = [
           ],
         },
       },
-      { id: 'food-forever-sweet', label: '디저트', response: '평생 달콤하게 사는 것도 나쁘지 않겠다!', expression: 'happy' },
+      {
+        id: 'food-forever-sweet',
+        label: '디저트',
+        response: '평생 달콤하게 사는 것도 나쁘지 않겠다!',
+        expression: 'happy',
+        memory: { key: 'foodForeverChoice', value: '디저트' },
+      },
       { id: 'food-forever-cant', label: '못 정하겠어', response: '그 고민, 완전 이해돼.', expression: 'thinking' },
     ],
   },

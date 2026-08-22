@@ -1,15 +1,25 @@
 import { STATS, type StatId } from '@/lib/brain-bet'
 import { PET_REACTION_THRESHOLDS } from '@/lib/config/pet-care.config'
+import { getGameDisplayName } from '@/lib/game/game-registry'
 import { pickFromPool, type PickableLine } from '@/lib/pet-care/dialogue'
 import type { DialogueMemory, DialogueMemoryKey } from '@/lib/pet-care/dialogue-memory-storage'
+import type { RelationshipStage } from '@/lib/pet-care/relationship-stage'
+import type { CareActionId } from '@/lib/room'
 import type { CareStatId, SecondaryTag } from '@/lib/pet-care/types'
-import type { EntryEventType } from '@/lib/pet-care/visit-context'
+import type { AbsenceTier, EntryEventType, MilestoneDay } from '@/lib/pet-care/visit-context'
 
 export type InitiatedDialogueCategory =
   | 'welcome'
-  | 'longAbsence'
+  | 'longAbsenceShort'
+  | 'longAbsenceMid'
+  | 'longAbsenceLong'
   | 'dailyGreeting'
   | 'regularRevisit'
+  | 'milestoneDay3'
+  | 'milestoneDay7'
+  | 'milestoneDay30'
+  | 'growthCallback'
+  | 'gameNameMemory'
   | 'hungryRequest'
   | 'playRequest'
   | 'attentionRequest'
@@ -21,13 +31,16 @@ export type InitiatedDialogueCategory =
 
 export interface InitiatedDialogueLine extends PickableLine {
   text: string
+  /** Phase 3D-2 — optional relationship-stage tag (see lib/pet-care/relationship-stage.ts). A line with no `stage` is usable at every stage; see pickDailyGreetingText for how a category mixes stage-tagged + stage-agnostic lines. */
+  stage?: RelationshipStage
 }
 
 /**
- * 11 categories, 5+ lines each. `longAbsence` in particular is held to the
- * spec's "never guilt-trip" rule — no "왜 이제 왔어" / "나를 버렸어" phrasing,
- * ever, even implicitly via a sad tone. Low-stat "request" categories stay
- * warm regardless of how low the stat actually is.
+ * 18 categories, 5+ lines each (see the file's own Phase 3D-2 additions
+ * below for the newer, smaller ones). `longAbsence*`/`milestoneDay*` are all
+ * held to the spec's "never guilt-trip" rule — no "왜 이제 왔어" / "나를
+ * 버렸어" phrasing, ever, even implicitly via a sad tone. Low-stat "request"
+ * categories stay warm regardless of how low the stat actually is.
  */
 export const INITIATED_DIALOGUE_BANK: Record<InitiatedDialogueCategory, InitiatedDialogueLine[]> = {
   welcome: [
@@ -37,12 +50,33 @@ export const INITIATED_DIALOGUE_BANK: Record<InitiatedDialogueCategory, Initiate
     { id: 'welcome-4', text: '앞으로 잘 지내보자.' },
     { id: 'welcome-5', text: '네가 와줘서 기뻐.' },
   ],
-  longAbsence: [
-    { id: 'long-absence-1', text: '오랜만이야! 다시 와서 반가워.' },
-    { id: 'long-absence-2', text: '조금 기다렸지만 괜찮아.' },
-    { id: 'long-absence-3', text: '보고 싶었어!' },
-    { id: 'long-absence-4', text: '다시 만나니까 좋다.' },
-    { id: 'long-absence-5', text: '오늘은 뭐 하고 놀까?' },
+  /**
+   * Phase 3D-2 — `longAbsence` split into 3 tiers by how long it's actually
+   * been (see lib/pet-care/visit-context.ts#computeAbsenceTier), instead of
+   * one flat pool for "anything >= 24h". Same non-guilt-trip rule at every
+   * tier, including the 7+ day one — "정말 오랜만이다" reads as warmth, not
+   * a complaint, on purpose.
+   */
+  longAbsenceShort: [
+    { id: 'long-absence-short-1', text: '오늘도 와줬네!' },
+    { id: 'long-absence-short-2', text: '보고 싶었어! 다시 보니까 좋다.' },
+    { id: 'long-absence-short-3', text: '다시 만나서 반가워.' },
+    { id: 'long-absence-short-4', text: '오늘은 뭐 하고 놀까?' },
+    { id: 'long-absence-short-5', text: '어서 와, 보고 싶었어!' },
+  ],
+  longAbsenceMid: [
+    { id: 'long-absence-mid-1', text: '오랜만이야! 잘 지냈어?' },
+    { id: 'long-absence-mid-2', text: '며칠 못 봤네. 다시 만나서 반가워.' },
+    { id: 'long-absence-mid-3', text: '그동안 잘 지냈어? 다시 보니까 좋다.' },
+    { id: 'long-absence-mid-4', text: '오랜만에 보니까 더 반가운 것 같아.' },
+    { id: 'long-absence-mid-5', text: '다시 만나니까 좋다. 오늘은 뭐 하고 놀까?' },
+  ],
+  longAbsenceLong: [
+    { id: 'long-absence-long-1', text: '정말 오랜만이다! 보고 싶었어.' },
+    { id: 'long-absence-long-2', text: '다시 만나서 정말 반가워.' },
+    { id: 'long-absence-long-3', text: '이렇게 다시 만나니까 진짜 좋다.' },
+    { id: 'long-absence-long-4', text: '보고 싶었어! 오늘 하루 어땠어?' },
+    { id: 'long-absence-long-5', text: '다시 와줘서 고마워. 오늘은 뭐 하고 놀까?' },
   ],
   dailyGreeting: [
     { id: 'daily-1', text: '오늘도 와줬네!' },
@@ -50,6 +84,58 @@ export const INITIATED_DIALOGUE_BANK: Record<InitiatedDialogueCategory, Initiate
     { id: 'daily-3', text: '오늘은 어떤 하루일까?' },
     { id: 'daily-4', text: '만나서 반가워, 오늘도!' },
     { id: 'daily-5', text: '오늘 기분이 좋아 보여.' },
+    // Phase 3D-2 — stage-tagged variants (see pickDailyGreetingText):
+    // combined with the 5 stage-agnostic lines above, never replacing them,
+    // so every stage's pool only ever grows, never loses a line.
+    { id: 'daily-stage1-1', text: '오늘도 같이 놀아볼까?', stage: 1 },
+    { id: 'daily-stage1-2', text: '오늘은 뭐 하고 지낼까?', stage: 1 },
+    { id: 'daily-stage2-1', text: '오늘도 왔네! 뭐 하고 놀까?', stage: 2 },
+    { id: 'daily-stage2-2', text: '오늘도 만나서 좋다!', stage: 2 },
+    { id: 'daily-stage3-1', text: '역시 오늘도 와줬네. 같이 뭐 할까?', stage: 3 },
+    { id: 'daily-stage3-2', text: '오늘도 변함없이 반가워.', stage: 3 },
+    { id: 'daily-stage4-1', text: '오늘도 만나니까 좋다. 우리 뭐부터 할까?', stage: 4 },
+    { id: 'daily-stage4-2', text: '매일 이렇게 만나서 참 좋아.', stage: 4 },
+  ],
+  /** Phase 3D-2 — "함께한 기간" exact-day milestones (see visit-context.ts#getMilestoneDay for why exact-match, not >=, needs no new stored flag). Shown instead of dailyGreeting on the one calendar day each lands on. */
+  milestoneDay3: [
+    { id: 'milestone-3-1', text: '우리 만난 지도 며칠 됐네.' },
+    { id: 'milestone-3-2', text: '어느새 며칠째 같이 지내고 있네.' },
+    { id: 'milestone-3-3', text: '요 며칠 계속 만나니까 좋다.' },
+  ],
+  milestoneDay7: [
+    { id: 'milestone-7-1', text: '우리 벌써 일주일이나 함께했네!' },
+    { id: 'milestone-7-2', text: '만난 지 일주일이나 됐어. 시간 진짜 빠르다.' },
+    { id: 'milestone-7-3', text: '일주일 동안 함께여서 좋았어.' },
+  ],
+  milestoneDay30: [
+    { id: 'milestone-30-1', text: '우리 만난 지도 벌써 한 달이야.' },
+    { id: 'milestone-30-2', text: '한 달이나 함께했다니, 시간 정말 빠르다.' },
+    { id: 'milestone-30-3', text: '벌써 한 달째 같이 지내고 있네. 신기하다.' },
+  ],
+  /**
+   * Phase 3D-2 — general "we're growing closer" ambient comment, gated
+   * alongside memoryComment (see pet-memory.ts#shouldShowGrowthCallback,
+   * shares lastMemoryCommentDate). Deliberately no concrete numbers here —
+   * only qualitative phrasing, per the spec's "가짜 구체 숫자 만들지 마세요".
+   */
+  growthCallback: [
+    { id: 'growth-1', text: '처음 만났을 때보다 우리 꽤 친해진 것 같아.' },
+    { id: 'growth-2', text: '요즘 자주 만나서 좋아.' },
+    { id: 'growth-3', text: '우리 벌써 꽤 오래 함께했네.' },
+    { id: 'growth-4', text: '너랑 있는 시간이 점점 더 편안해지는 것 같아.' },
+    { id: 'growth-5', text: '우리, 알아갈수록 더 좋아지는 사이인 것 같아.' },
+  ],
+  /**
+   * Phase 3D-3 — "요즘 특정 게임을 자주 하네" (spec §4A), keyed off
+   * `recentGameIds` (the actual game/variant id ring buffer, distinct from
+   * `memoryComment`'s stat-level `recentGameStats`) via
+   * pet-memory.ts#shouldShowGameNameMemory. `{game}` is filled with
+   * getGameDisplayName(gameId) — never the raw internal id (spec §5).
+   */
+  gameNameMemory: [
+    { id: 'game-name-memory-1', text: '요즘 {game} 게임을 자주 하는 것 같아!' },
+    { id: 'game-name-memory-2', text: '{game}, 요즘 자주 하네!' },
+    { id: 'game-name-memory-3', text: '요즘 {game}에 푹 빠진 것 같아.' },
   ],
   regularRevisit: [
     { id: 'revisit-1', text: '또 왔구나!' },
@@ -174,6 +260,78 @@ const MEMORY_REFERENCE_LINES: Record<DialogueMemoryKey, Record<string, string>> 
     '외국어': '전에 외국어 공부한다고 했었지? 오늘도 조금 했어?',
     '그냥 이것저것': '전에 이것저것 공부한다고 했었지? 재밌는 거 찾았어?',
   },
+  // Phase 3D-3 — answer-memory coverage expansion (spec §6-7).
+  preferredWeather: {
+    '구름 많은 날': '전에 구름 많은 날이 좋다고 했었지? 오늘 하늘은 어때?',
+    '맑은 날': '전에 맑은 날이 좋다고 했었지? 오늘 날씨 좋았으면 좋겠다.',
+  },
+  activityPreference: {
+    '집': '전에 집에 있는 게 좋다고 했었지? 오늘도 편하게 쉬었어?',
+    '밖': '전에 밖에 나가는 걸 좋아한다고 했었지? 오늘도 어디 다녀왔어?',
+  },
+  foodForeverChoice: {
+    '밥': '전에 평생 밥만 먹어도 괜찮다고 했었지? 오늘 밥은 챙겨 먹었어?',
+    '디저트': '전에 디저트라면 평생도 괜찮다고 했었지? 오늘 달콤한 거 먹었어?',
+  },
+}
+
+/**
+ * Phase 3D-3 — "care memory" callback (spec §2-3): per-`CareActionId` line
+ * pools, picked only when pet-memory.ts#shouldShowCareMemory confirms real
+ * evidence (favoriteCareAction + a frequent-enough recentCareActions share).
+ * Deliberately qualitative ("요즘"/"자주"), never a concrete count, per spec
+ * §3's "구체적인 횟수를 굳이 노출하지 않습니다". One stage-tagged bonus line
+ * on `play` shows how lightly relationship-stage tone can be folded in here
+ * (spec §14) — every other action stays untagged, no need for 4 variants each.
+ */
+const CARE_MEMORY_LINES: Record<CareActionId, InitiatedDialogueLine[]> = {
+  feed: [
+    { id: 'care-memory-feed-1', text: '넌 먹을 걸 잘 챙겨주는 것 같아!' },
+    { id: 'care-memory-feed-2', text: '요즘 밥을 자주 챙겨줘서 든든해.' },
+  ],
+  shower: [
+    { id: 'care-memory-shower-1', text: '요즘 나 엄청 깔끔하지?' },
+    { id: 'care-memory-shower-2', text: '자주 씻겨줘서 상쾌한 기분이야.' },
+  ],
+  clean: [
+    { id: 'care-memory-clean-1', text: '요즘 방이 자주 깨끗한 것 같아.' },
+    { id: 'care-memory-clean-2', text: '방 정리를 자주 해줘서 기분 좋아.' },
+  ],
+  play: [
+    { id: 'care-memory-play-1', text: '요즘 같이 노는 일이 많아진 것 같아.' },
+    { id: 'care-memory-play-2', text: '요즘 자주 놀아줘서 심심할 틈이 없어.' },
+    { id: 'care-memory-play-stage4', text: '역시 우리 같이 노는 시간이 제일 재밌어.', stage: 4 },
+  ],
+  pet: [
+    { id: 'care-memory-pet-1', text: '요즘 나 자주 쓰다듬어주네. 좋아!' },
+    { id: 'care-memory-pet-2', text: '요즘 스킨십이 부쩍 늘어난 것 같아.' },
+  ],
+  talk: [
+    { id: 'care-memory-talk-1', text: '우리 요즘 이야기 많이 한다!' },
+    { id: 'care-memory-talk-2', text: '요즘 너랑 대화하는 시간이 늘어난 것 같아.' },
+  ],
+}
+
+/** Shared by pickDailyGreetingText/pickCareMemoryText: prefer lines tagged for the current stage, mixed with every stage-agnostic line, falling back to the full pool if nothing matches (defensive only). */
+function filterByStage<T extends InitiatedDialogueLine>(pool: T[], stage: RelationshipStage): T[] {
+  const candidates = pool.filter((line) => line.stage === undefined || line.stage === stage)
+  return candidates.length > 0 ? candidates : pool
+}
+
+/** `action` must come from pet-memory.ts#shouldShowCareMemory — this function only ever decides WHICH line to show for an already-confirmed action. */
+export function pickCareMemoryText(
+  action: CareActionId,
+  stage: RelationshipStage,
+  intimacyLevel: number,
+  recentIds: string[],
+): { id: string; text: string } {
+  return pickFromPool(filterByStage(CARE_MEMORY_LINES[action], stage), intimacyLevel, recentIds)
+}
+
+/** `gameId` must come from pet-memory.ts#shouldShowGameNameMemory. `{game}` is filled with the registry's Korean display name — never the raw id (spec §5). */
+export function pickGameNameMemoryText(gameId: string, intimacyLevel: number, recentIds: string[]): { id: string; text: string } {
+  const line = pickInitiatedDialogue('gameNameMemory', intimacyLevel, recentIds)
+  return { id: line.id, text: line.text.replace('{game}', getGameDisplayName(gameId)) }
 }
 
 /**
@@ -230,18 +388,57 @@ export function pickStateRequestCategory(
  * todayFirstVisit > pendingGameReaction > regularRevisit. `pendingGameReaction`
  * maps to no category here — that flow is owned by usePetMemory's own
  * gameReaction speech channel instead, so the two never speak at once.
+ *
+ * Phase 3D-2: `absenceTier` (only meaningful — and only ever non-null — when
+ * `event === 'longAbsenceReturn'`) picks which of the 3 longAbsence* pools to
+ * use; every other event's mapping, and the priority order itself, is
+ * unchanged from before this Phase.
  */
-export function entryEventToDialogueCategory(event: EntryEventType): InitiatedDialogueCategory | null {
+export function entryEventToDialogueCategory(
+  event: EntryEventType,
+  absenceTier: AbsenceTier | null,
+): InitiatedDialogueCategory | null {
   switch (event) {
     case 'firstMeeting':
       return 'welcome'
     case 'longAbsenceReturn':
-      return 'longAbsence'
+      if (absenceTier === 'mid') return 'longAbsenceMid'
+      if (absenceTier === 'long') return 'longAbsenceLong'
+      return 'longAbsenceShort'
     case 'todayFirstVisit':
       return 'dailyGreeting'
     case 'regularRevisit':
       return 'regularRevisit'
     case 'pendingGameReaction':
       return null
+  }
+}
+
+/**
+ * Phase 3D-2 — dailyGreeting's stage-aware pick: prefers lines tagged for
+ * the pet's CURRENT relationship stage, mixed with every stage-agnostic
+ * line (no `stage` field) in the same pool, so the tone leans toward the
+ * right stage without ever shrinking the pool or losing the pre-3D-2 lines.
+ * Falls back to the full category if, somehow, nothing matches (defensive
+ * only — every stage always has both its own tagged lines and the 5
+ * stage-agnostic ones).
+ */
+export function pickDailyGreetingText(
+  stage: RelationshipStage,
+  intimacyLevel: number,
+  recentIds: string[],
+): InitiatedDialogueLine {
+  return pickFromPool(filterByStage(INITIATED_DIALOGUE_BANK.dailyGreeting, stage), intimacyLevel, recentIds)
+}
+
+/** Which milestoneDay* category corresponds to a given exact-day milestone (see visit-context.ts#getMilestoneDay). */
+export function milestoneDialogueCategory(day: MilestoneDay): InitiatedDialogueCategory {
+  switch (day) {
+    case 3:
+      return 'milestoneDay3'
+    case 7:
+      return 'milestoneDay7'
+    case 30:
+      return 'milestoneDay30'
   }
 }

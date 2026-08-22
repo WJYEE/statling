@@ -30,7 +30,17 @@ export const PET_AUTONOMY_CONFIG = {
   significantEventTailMs: 1_800,
   initiatedDialogueCooldownMs: 90_000,
   requestDialogueCooldownMs: 300_000,
+  /**
+   * Phase 3D-2 — three sub-tiers of "long absence" (>= longAbsenceHours),
+   * so the returning greeting's tone can scale with how long it's actually
+   * been instead of one flat pool for "anything >= 24h". Boundaries: short
+   * [24h, 72h) ~ 1-3 days, mid [72h, 168h) ~ 3-7 days, long [168h, ∞) ~ 7+
+   * days — see lib/pet-care/visit-context.ts#computeAbsenceTier, the only
+   * place that reads these.
+   */
   longAbsenceHours: 24,
+  midAbsenceHours: 72,
+  farAbsenceHours: 168,
   welcomeDelayMinMs: 700,
   welcomeDelayMaxMs: 1500,
 }

@@ -5,6 +5,7 @@ import { ATTENTION_THRESHOLD } from '@/lib/config/pet-care.config'
 import { BowlIcon, BubbleIcon, HeartIcon, type RoomIconProps } from '@/components/brain-bet/room-icons'
 import type { CareStatId } from '@/lib/pet-care/types'
 import { formatLevelLabel, MAX_LEVEL } from '@/lib/pet-care/leveling'
+import { computeRelationshipStage, RELATIONSHIP_STAGE_LABEL } from '@/lib/pet-care/relationship-stage'
 import { cn } from '@/lib/utils'
 
 const STAT_ICON: Record<CareStatId, (props: RoomIconProps) => React.ReactElement> = {
@@ -47,14 +48,22 @@ interface PetCareHudProps {
   intimacyExp: number
   expToNext: number
   floatingDeltas: FloatingDelta[]
+  /** Phase 3D-2 — local calendar days since PetMemory.firstMetAt (see lib/pet-care/visit-context.ts#daysSince). Optional/best-effort: when omitted, the Lv. chip renders exactly as it did before this Phase, with no stage label. */
+  daysTogether?: number
 }
 
-export function PetCareHud({ stats, intimacyLevel, intimacyExp, expToNext, floatingDeltas }: PetCareHudProps) {
+/** Phase 3D-2 — "Lv.18 · 익숙한 친구": a small, optional relationship-stage label next to the level this HUD chip already showed. Presentation-only — computeRelationshipStage never changes intimacyLevel/intimacyExp themselves. */
+export function PetCareHud({ stats, intimacyLevel, intimacyExp, expToNext, floatingDeltas, daysTogether }: PetCareHudProps) {
   const isMaxLevel = intimacyLevel >= MAX_LEVEL
+  const stageLabel =
+    daysTogether !== undefined ? RELATIONSHIP_STAGE_LABEL[computeRelationshipStage(intimacyLevel, daysTogether)] : null
   return (
     <div className="mt-2 space-y-1.5 sm:mt-3 sm:space-y-2">
       <div className="flex items-center gap-2 rounded-xl bg-secondary/60 px-2.5 py-1 toy-border sm:px-3 sm:py-1.5">
-        <span className="font-display text-xs font-extrabold text-secondary-foreground">{formatLevelLabel(intimacyLevel)}</span>
+        <span className="font-display text-xs font-extrabold text-secondary-foreground">
+          {formatLevelLabel(intimacyLevel)}
+          {stageLabel && <span className="font-bold text-muted-foreground"> · {stageLabel}</span>}
+        </span>
         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-card">
           <div
             role="progressbar"

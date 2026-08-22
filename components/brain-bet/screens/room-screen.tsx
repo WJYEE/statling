@@ -28,12 +28,16 @@ import { CARE_ACTIONS } from '@/lib/room'
 import { ROOM_ASSETS } from '@/lib/room-assets'
 import { loadSavedRoomState } from '@/lib/room/room-storage'
 import { MOOD_LABEL, SECONDARY_TAG_LABEL } from '@/lib/pet-care/mood'
-import { isConsistentPlayer } from '@/lib/pet-care/pet-memory'
+import { isConsistentPlayer, shouldShowCareMemory, shouldShowGameNameMemory } from '@/lib/pet-care/pet-memory'
 import { computeInteractionMode } from '@/lib/pet-care/interaction-mode'
+import { pickCareMemoryText, pickGameNameMemoryText, pickMemoryReferenceLine } from '@/lib/pet-care/initiated-dialogue'
+import { loadDialogueMemory } from '@/lib/pet-care/dialogue-memory-storage'
+import { computeRelationshipStage } from '@/lib/pet-care/relationship-stage'
+import { daysSince } from '@/lib/pet-care/visit-context'
 import type { PetAnimation } from '@/lib/pet-care/types'
 import { RECONNECT_ANGRY_HOLD_MS } from '@/lib/config/character-state.config'
 import { PET_AUTONOMY_CONFIG } from '@/lib/config/pet-autonomy.config'
-import { TALK_EXPRESSION_HOLD_MS } from '@/lib/config/talk.config'
+import { TALK_EXPRESSION_HOLD_MS, TALK_OPENING_MEMORY_CHANCE } from '@/lib/config/talk.config'
 import { formatLevelLabel } from '@/lib/pet-care/leveling'
 import { LEVEL_GIFT_LEVELS, type SupportedDecoAsset } from '@/lib/deco-supported-assets'
 
@@ -416,6 +420,40 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
 
   const secondaryLabel = care.secondaryTags[0] ? SECONDARY_TAG_LABEL[care.secondaryTags[0]] : null
 
+  /**
+   * Phase 3D-3 (spec §15) — occasionally opens 대화 with a short memory
+   * callback instead of jumping straight to the selectable question, so a
+   * Talk session itself can feel like it remembers something too, not just
+   * the ambient/entry-greeting channel. Tries answer memory first (the
+   * "remembers what we talked about" flavor fits a conversation opener best),
+   * then falls back to care/game behavioral memory — sharing the exact same
+   * eligibility gates (shouldShowCareMemory/shouldShowGameNameMemory) and
+   * `lastMemoryCommentDate` daily budget the ambient loop uses, so a memory
+   * spent here is one the ambient loop won't also spend later that day (spec
+   * §12). Returns null (the common case) whenever nothing is actually
+   * eligible — openQuestion() then behaves exactly as it always has.
+   */
+  function pickTalkOpeningMemoryLine(): { id: string; text: string; isBehavioral: boolean } | null {
+    const referenceLine = pickMemoryReferenceLine(loadDialogueMemory())
+    if (referenceLine) return { ...referenceLine, isBehavioral: false }
+
+    const now = new Date()
+    const gameId = shouldShowGameNameMemory(memory.memory, now)
+    if (gameId) {
+      const line = pickGameNameMemoryText(gameId, care.petState.intimacyLevel, memory.memory.recentInitiatedDialogueIds)
+      return { ...line, isBehavioral: true }
+    }
+
+    const careAction = shouldShowCareMemory(memory.memory, now)
+    if (careAction) {
+      const stage = computeRelationshipStage(care.petState.intimacyLevel, daysSince(memory.memory.firstMetAt, now))
+      const line = pickCareMemoryText(careAction, stage, care.petState.intimacyLevel, memory.memory.recentInitiatedDialogueIds)
+      return { ...line, isBehavioral: true }
+    }
+
+    return null
+  }
+
   function handleCareAction(actionId: (typeof CARE_ACTIONS)[number]['id']) {
     // Fired at button-press for every action, including 'talk' — matches
     // the other 5 actions' "실행" (executed) semantics. 'talk' specifically
@@ -427,7 +465,12 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
     // (see hooks/use-pet-talk.ts); the actual stats/cooldown/exp effect only
     // applies once the player answers (handleTalkAnswered above).
     if (actionId === 'talk') {
-      talk.openQuestion()
+      const openingLine = Math.random() < TALK_OPENING_MEMORY_CHANCE ? pickTalkOpeningMemoryLine() : null
+      if (openingLine) {
+        memory.onInitiatedDialogueShown(openingLine.id, 'general')
+        if (openingLine.isBehavioral) memory.onMemoryCommentShown()
+      }
+      talk.openQuestion(openingLine ?? undefined)
       return
     }
     care.performAction(actionId)
@@ -614,6 +657,7 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
         intimacyExp={care.petState.intimacyExp}
         expToNext={care.expToNext}
         floatingDeltas={care.floatingDeltas}
+        daysTogether={daysSince(memory.memory.firstMetAt, new Date())}
       />
 
       {/* care actions — compact icon buttons, 3x2 on mobile / one row on desktop */}

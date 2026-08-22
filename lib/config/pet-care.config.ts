@@ -150,3 +150,14 @@ export const RECENT_GAME_HISTORY_SIZE = 10
 /** "최근 게임 기억 대사" conditions — see lib/pet-care/pet-memory.ts#shouldShowMemoryComment. */
 export const MEMORY_COMMENT_MIN_STAT_COUNT = 3
 export const MEMORY_COMMENT_MIN_STAT_RATIO = 0.4
+
+/** Phase 3D-2 — minimum days together before a growthCallback line ("처음 만났을 때보다...") is eligible at all, so it never fires for a pet met earlier today. See lib/pet-care/pet-memory.ts#shouldShowGrowthCallback. Deliberately matches MILESTONE_DAYS's smallest tier (visit-context.ts) rather than introducing a second unrelated threshold. */
+export const GROWTH_CALLBACK_MIN_DAYS_TOGETHER = 3
+
+/** Phase 3D-3 — "care memory" callback conditions, same shape as MEMORY_COMMENT_MIN_STAT_COUNT/RATIO above but over `recentCareActions`. See lib/pet-care/pet-memory.ts#shouldShowCareMemory. */
+export const CARE_MEMORY_MIN_ACTION_COUNT = 3
+export const CARE_MEMORY_MIN_ACTION_RATIO = 0.4
+
+/** Phase 3D-3 — "자주 플레이한 특정 게임" callback conditions, same shape as MEMORY_COMMENT_MIN_STAT_COUNT/RATIO but over `recentGameIds` (specific game/variant, not just its stat). See lib/pet-care/pet-memory.ts#shouldShowGameNameMemory. */
+export const GAME_NAME_MEMORY_MIN_COUNT = 3
+export const GAME_NAME_MEMORY_MIN_RATIO = 0.4

@@ -32,3 +32,13 @@ export const USER_NOTE_MAX_LENGTH = 60
 
 /** Odds that a given ambient chatter tick (hooks/use-pet-initiated-dialogue.ts) echoes a saved user note instead of its normal idle line, whenever at least one note exists — "가끔". */
 export const USER_NOTE_ECHO_CHANCE = 0.3
+
+/**
+ * Phase 3D-3 — odds that pressing 대화 opens with a short memory callback
+ * (answer/care/game memory) before the selectable question, whenever a real
+ * memory source is actually available (see room-screen.tsx#pickTalkOpeningMemoryLine)
+ * — spec §15's "Memory callback이 매번 Talk를 가로막아서는 안 됩니다", so this
+ * stays well under 1.0 even before the "source actually exists" check narrows
+ * it further in practice.
+ */
+export const TALK_OPENING_MEMORY_CHANCE = 0.3

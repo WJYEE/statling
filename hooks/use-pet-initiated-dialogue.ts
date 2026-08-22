@@ -5,6 +5,10 @@ import { PET_AUTONOMY_CONFIG } from '@/lib/config/pet-autonomy.config'
 import { DIALOGUE_MEMORY_REFERENCE_CHANCE, USER_NOTE_ECHO_CHANCE } from '@/lib/config/talk.config'
 import {
   entryEventToDialogueCategory,
+  milestoneDialogueCategory,
+  pickCareMemoryText,
+  pickDailyGreetingText,
+  pickGameNameMemoryText,
   pickInitiatedDialogue,
   pickMemoryCommentText,
   pickMemoryReferenceLine,
@@ -12,9 +16,16 @@ import {
   type InitiatedDialogueCategory,
 } from '@/lib/pet-care/initiated-dialogue'
 import { loadDialogueMemory } from '@/lib/pet-care/dialogue-memory-storage'
-import { shouldShowMemoryComment, type PetMemory } from '@/lib/pet-care/pet-memory'
+import { computeRelationshipStage } from '@/lib/pet-care/relationship-stage'
+import {
+  shouldShowCareMemory,
+  shouldShowGameNameMemory,
+  shouldShowGrowthCallback,
+  shouldShowMemoryComment,
+  type PetMemory,
+} from '@/lib/pet-care/pet-memory'
 import { loadUserNotes } from '@/lib/pet-care/user-notes-storage'
-import { computeEntryEvent, toLocalDateKey, type VisitContext } from '@/lib/pet-care/visit-context'
+import { computeEntryEvent, daysSince, getMilestoneDay, toLocalDateKey, type VisitContext } from '@/lib/pet-care/visit-context'
 import type { CareStatId, SecondaryTag } from '@/lib/pet-care/types'
 
 /** How often the ambient loop re-checks whether a state-request/general line is due — an internal poll rate, not a user-facing cooldown itself (those are PET_AUTONOMY_CONFIG's cooldown fields). */
@@ -106,13 +117,34 @@ export function usePetInitiatedDialogue(input: UsePetInitiatedDialogueInput) {
     if (alreadyGreetedToday) return
 
     const event = computeEntryEvent(input.visitContext, input.hasPendingGameReaction)
-    const category = entryEventToDialogueCategory(event)
+    let category = entryEventToDialogueCategory(event, input.visitContext.absenceTier)
     if (!category) return // pendingGameReaction: no entry line, the game-reaction channel speaks instead
+
+    // Phase 3D-2 — "함께한 기간" milestone override: only ever considered on
+    // a plain "오늘 첫 방문" day, never preempting firstMeeting (day 0, no
+    // milestone can match anyway) or longAbsenceReturn (a returning-from-
+    // absence greeting stays the priority on the rare day both would apply
+    // — see visit-context.ts#getMilestoneDay's own doc comment for why an
+    // exact day-match needs no new stored flag at all).
+    if (event === 'todayFirstVisit') {
+      const milestoneDay = getMilestoneDay(daysSince(memoryRef.current.firstMetAt, new Date()))
+      if (milestoneDay) category = milestoneDialogueCategory(milestoneDay)
+    }
 
     const { welcomeDelayMinMs, welcomeDelayMaxMs } = PET_AUTONOMY_CONFIG
     const delay = welcomeDelayMinMs + Math.random() * (welcomeDelayMaxMs - welcomeDelayMinMs)
     schedule(() => {
-      const line = pickInitiatedDialogue(category, intimacyLevelRef.current, memoryRef.current.recentInitiatedDialogueIds)
+      // Phase 3D-2 — dailyGreeting alone gets a relationship-stage-aware
+      // pick (see pickDailyGreetingText's own doc comment); every other
+      // category is unchanged from before this Phase.
+      const line =
+        category === 'dailyGreeting'
+          ? pickDailyGreetingText(
+              computeRelationshipStage(intimacyLevelRef.current, daysSince(memoryRef.current.firstMetAt, new Date())),
+              intimacyLevelRef.current,
+              memoryRef.current.recentInitiatedDialogueIds,
+            )
+          : pickInitiatedDialogue(category, intimacyLevelRef.current, memoryRef.current.recentInitiatedDialogueIds)
       showSpeech(line.text, ENTRY_GREETING_HOLD_MS)
       onDialogueShownRef.current(line.id, 'welcome')
     }, delay)
@@ -157,9 +189,48 @@ export function usePetInitiatedDialogue(input: UsePetInitiatedDialogueInput) {
         }
       }
 
+      // Phase 3D-3 — "behavioral memory" tier (spec §10): game, then care,
+      // both sharing memoryComment's own daily budget/gate (see
+      // pet-memory.ts#shouldShowCareMemory/#shouldShowGameNameMemory's doc
+      // comments) via the same onMemoryCommentShownRef callback — so at most
+      // ONE of {game-name, stat-level game, care, growth} fires per day,
+      // whichever this priority order finds eligible first.
+      const gameNameId = shouldShowGameNameMemory(mem, new Date())
+      if (gameNameId) {
+        const line = pickGameNameMemoryText(gameNameId, intimacyLevelRef.current, mem.recentInitiatedDialogueIds)
+        showSpeech(line.text, AMBIENT_HOLD_MS)
+        onDialogueShownRef.current(line.id, 'general')
+        onMemoryCommentShownRef.current()
+        return
+      }
+
       const memoryStat = shouldShowMemoryComment(mem, new Date())
       if (memoryStat) {
         const line = pickMemoryCommentText(memoryStat, intimacyLevelRef.current, mem.recentInitiatedDialogueIds)
+        showSpeech(line.text, AMBIENT_HOLD_MS)
+        onDialogueShownRef.current(line.id, 'general')
+        onMemoryCommentShownRef.current()
+        return
+      }
+
+      const careAction = shouldShowCareMemory(mem, new Date())
+      if (careAction) {
+        const stage = computeRelationshipStage(intimacyLevelRef.current, daysSince(mem.firstMetAt, new Date()))
+        const line = pickCareMemoryText(careAction, stage, intimacyLevelRef.current, mem.recentInitiatedDialogueIds)
+        showSpeech(line.text, AMBIENT_HOLD_MS)
+        onDialogueShownRef.current(line.id, 'general')
+        onMemoryCommentShownRef.current()
+        return
+      }
+
+      // Phase 3D-2 — growth callback ("처음 만났을 때보다 우리 꽤 친해진 것
+      // 같아"): shares memoryComment's own daily budget/gate on purpose (see
+      // pet-memory.ts#shouldShowGrowthCallback's doc comment) — reusing the
+      // same onMemoryCommentShownRef callback here is what makes that a
+      // single combined "one memory-style comment per day" budget rather
+      // than a second independent stored flag.
+      if (shouldShowGrowthCallback(mem, new Date())) {
+        const line = pickInitiatedDialogue('growthCallback', intimacyLevelRef.current, mem.recentInitiatedDialogueIds)
         showSpeech(line.text, AMBIENT_HOLD_MS)
         onDialogueShownRef.current(line.id, 'general')
         onMemoryCommentShownRef.current()

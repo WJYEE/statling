@@ -17,6 +17,11 @@ export type DialogueMemoryKey =
   | 'restStyle'
   | 'travelPreference'
   | 'studyType'
+  // Phase 3D-3 — answer-memory coverage expansion (spec §6-7): only clearly
+  // "취향/선호" style fixed-choice answers, same as the 8 keys above.
+  | 'preferredWeather'
+  | 'activityPreference'
+  | 'foodForeverChoice'
 
 export interface DialogueMemory {
   version: 1
