@@ -200,6 +200,7 @@ export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: Re
         trialIndex: nextTrialIndexRef.current,
         delayMs: pendingDelayRef.current,
         reactionMs: null,
+        reactionMsRaw: null,
         isFalseStart: true,
         createdAt: new Date().toISOString(),
       }
@@ -224,7 +225,12 @@ export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: Re
     if (stage === 'target') {
       const penaltyMs = falseStartsThisAttemptRef.current * REACTION_FALSE_START_PENALTY_MS
       falseStartsThisAttemptRef.current = 0
-      const reactionMs = Math.round(performance.now() - targetShownAtRef.current) + penaltyMs
+      // reactionMsRaw keeps performance.now()'s genuine sub-ms precision for
+      // ranking storage only (see ReactionTrial.reactionMsRaw doc comment) —
+      // reactionMs (rounded) stays the value scoring/feedback/UI use, exactly
+      // as before this Follow-up.
+      const reactionMsRaw = performance.now() - targetShownAtRef.current + penaltyMs
+      const reactionMs = Math.round(reactionMsRaw)
       setLastReactionMs(reactionMs)
 
       if (round === 'practice') {
@@ -254,6 +260,7 @@ export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: Re
         trialIndex: nextTrialIndexRef.current,
         delayMs: pendingDelayRef.current,
         reactionMs,
+        reactionMsRaw,
         isFalseStart: false,
         createdAt: new Date().toISOString(),
       }

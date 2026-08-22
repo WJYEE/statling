@@ -59,6 +59,8 @@ export interface ReactionTrial {
   trialIndex: number
   delayMs: number
   reactionMs: number | null
+  /** Same measurement as `reactionMs` before the per-trial Math.round() — kept only so summarizeReactionTrials can derive a sub-ms-precise medianReactionMsRaw for ranking storage; never used for scoring or any in-game display. */
+  reactionMsRaw: number | null
   isFalseStart: boolean
   createdAt: string
 }
@@ -71,6 +73,8 @@ export interface ReactionRawSummary {
   bestReactionMs: number
   /** Standard deviation of valid reaction times — internal tie-breaker only, never shown to the user. */
   consistency: number
+  /** Unrounded median of reactionMsRaw — Phase 3B-7 Follow-up 2: exists solely to give the ranking record (metrics.medianReactionMs, the Game Ranking primary sort key) genuine sub-ms precision, without changing medianReactionMs itself or anything derived from it (scoring, in-game feedback, CompleteScreen display). */
+  medianReactionMsRaw: number
 }
 
 export interface ReactionGameResult extends BaseGameResult {

@@ -1037,7 +1037,12 @@ export function GameFlow() {
       savePetMemory(recordGameCompletion(loadPetMemory(), result, new Date()))
       scheduleSync('pet_memory')
     }
-    if (result.isValidAttempt && !isRetry) recordSkillCompletion('reaction', gameScore, result.raw, { medianReactionMs: rawSummary.medianReactionMs, consistency: rawSummary.consistency }, isPersonalBest)
+    // metrics.medianReactionMs (the Game Ranking primary sort key, read
+    // as-is by get_game_leaderboard_top/get_my_game_rank) uses the raw,
+    // sub-ms-precise medianReactionMsRaw here — rawSummary.medianReactionMs
+    // itself (rounded) stays untouched everywhere else (scoring, in-game
+    // feedback, CompleteScreen's formatReactionRawRecord). Phase 3B-7 Follow-up 2.
+    if (result.isValidAttempt && !isRetry) recordSkillCompletion('reaction', gameScore, result.raw, { medianReactionMs: rawSummary.medianReactionMsRaw, consistency: rawSummary.consistency }, isPersonalBest)
     if (result.isValidAttempt && flowMode === 'first') recordIntroCheckpoint('reaction', activeGameKey, gameScore, isRetry)
     if (result.isValidAttempt) emitCompletionEvent('reaction', gameScore, isRetry)
     setFinals((f) => ({ ...f, reaction: isPersonalBest ? gameScore : (prevBest?.normalizedScore ?? 0) }))

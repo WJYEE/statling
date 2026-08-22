@@ -35,10 +35,23 @@ export function summarizeReactionTrials(trials: ReactionTrial[]): ReactionRawSum
   const validTimes = trials
     .filter((t) => !t.isFalseStart && t.reactionMs != null)
     .map((t) => t.reactionMs as number)
+  // Raw (unrounded) counterpart of validTimes, same trials/order — see
+  // ReactionTrial.reactionMsRaw. Used only to derive medianReactionMsRaw.
+  const validTimesRaw = trials
+    .filter((t) => !t.isFalseStart && t.reactionMsRaw != null)
+    .map((t) => t.reactionMsRaw as number)
   const falseStarts = trials.filter((t) => t.isFalseStart).length
 
   if (validTimes.length === 0) {
-    return { validTrials: 0, falseStarts, averageReactionMs: 0, medianReactionMs: 0, bestReactionMs: 0, consistency: 0 }
+    return {
+      validTrials: 0,
+      falseStarts,
+      averageReactionMs: 0,
+      medianReactionMs: 0,
+      bestReactionMs: 0,
+      consistency: 0,
+      medianReactionMsRaw: 0,
+    }
   }
 
   return {
@@ -48,6 +61,7 @@ export function summarizeReactionTrials(trials: ReactionTrial[]): ReactionRawSum
     medianReactionMs: Math.round(median(validTimes)),
     bestReactionMs: Math.min(...validTimes),
     consistency: Math.round(standardDeviation(validTimes)),
+    medianReactionMsRaw: median(validTimesRaw),
   }
 }
 

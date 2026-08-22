@@ -50,9 +50,43 @@ export interface GameRankingMetricsByDifficulty {
   extreme?: GameRankingMetricConfig
 }
 
-const ms = (value: number) => `${Math.round(value)}ms`
+// ms-based metrics used by GAME_RANKING_METRICS below. Most (consistency,
+// averageResponseTimeMs and its per-game variants) are still Math.round()'d
+// to a whole millisecond at their source before ever being saved (Phase
+// 3B-7 Follow-up investigated this and found no rounding to undo there —
+// they're auxiliary/tiebreak-display values only, never the RPC's actual
+// ORDER BY key). reaction-classic's medianReactionMs is the one exception
+// (Phase 3B-7 Follow-up 2): it's the real ranking primary sort key, and
+// components/brain-bet/game-flow.tsx now stores
+// ReactionRawSummary.medianReactionMsRaw (see lib/scoring/reaction.ts) under
+// this same JSON key — a genuine, unrounded performance.now()-derived
+// value — so this formatter shows 1 decimal only when the value actually
+// has one, same "no fake .0" rule as percentFraction below. Still-integer
+// values (every other ms metric, plus pre-existing whole-number reaction
+// records saved before this Follow-up) round-trip through
+// Number.isInteger unchanged, e.g. "285ms" never becomes "285.0ms".
+const ms = (value: number) => {
+  const rounded1 = Math.round(value * 10) / 10
+  return `${Number.isInteger(rounded1) ? rounded1 : rounded1.toFixed(1)}ms`
+}
 const seconds = (value: number) => `${(value / 1000).toFixed(1)}초`
-const percentFraction = (value: number) => `${Math.round(value * 100)}%`
+/**
+ * Phase 3B-7 Follow-up — accuracy/weightedAccuracy/overallAccuracy/
+ * difficultyWeightedAccuracy/switchAccuracy are all raw, UNrounded fractions
+ * at their source (e.g. lib/scoring/memory.ts's `weightedSum / weightSum`,
+ * lib/scoring/reasoning.ts's `earnedWeight / totalWeight`) — genuinely
+ * capable of sub-percent precision two different users' records can differ
+ * by. Shows 1 decimal only when the rounded-to-1-decimal value actually has
+ * one (checked on the ALREADY-ROUNDED value, not the raw fraction, so
+ * float noise near a whole percent — e.g. 0.999999999 — still displays as
+ * a clean "100%" instead of "100.0%"). A game whose accuracy always lands
+ * on a whole percent (e.g. always out of exactly 4 or 5 questions) will
+ * simply never show a decimal in practice — never a fake, manufactured one.
+ */
+const percentFraction = (value: number) => {
+  const rounded1 = Math.round(value * 1000) / 10
+  return `${Number.isInteger(rounded1) ? rounded1 : rounded1.toFixed(1)}%`
+}
 const countUnit = (unit: string) => (value: number) => `${Math.round(value)}${unit}`
 
 /** Keyed by lib/game/game-registry.ts's GamePoolEntry.key — one entry per registered game, every stat's pool covered. */

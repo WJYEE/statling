@@ -625,6 +625,9 @@ function ByGameRankingPanel() {
         <p className="mt-2 text-center text-[11px] text-muted-foreground">
           이 게임의 실제 기록 기준으로 순위가 매겨져요. 최대 100명까지 표시돼요.
         </p>
+        <p className="text-center text-[11px] text-muted-foreground">
+          동일한 기록은 먼저 달성한 순서대로 순위가 결정돼요.
+        </p>
       </div>
     )
   }
