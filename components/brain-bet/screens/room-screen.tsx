@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, Crosshair, Sparkles } from 'lucide-react'
 import { Toast } from '@base-ui/react/toast'
 import { trackEvent } from '@/lib/analytics/ga'
+import { trackProductEvent } from '@/lib/analytics/analytics'
 import { CareActionButton } from '@/components/brain-bet/care-action-button'
 import { GiftQaMenu } from '@/components/brain-bet/gift-qa-menu'
 import { GiftRewardPopup } from '@/components/brain-bet/gift-reward-popup'
@@ -347,6 +348,7 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
     })
     playCharacterVoice(petProfile?.id)
     trackEvent('level_up', { previous_level: care.levelUpEvent.previousLevel, new_level: care.levelUpEvent.level })
+    trackProductEvent('level_up', { level: care.levelUpEvent.level })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire only when a new levelUpEvent object appears
   }, [care.levelUpEvent])
 

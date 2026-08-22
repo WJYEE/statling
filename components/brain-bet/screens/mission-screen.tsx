@@ -15,6 +15,7 @@ import { ACHIEVEMENT_CATEGORY_LABELS, type AchievementCategory } from '@/lib/mis
 import type { AchievementTierProgress } from '@/lib/missions/achievement-evaluator'
 import { ROOM_ASSETS } from '@/lib/room-assets'
 import { trackEvent } from '@/lib/analytics/ga'
+import { trackProductEvent } from '@/lib/analytics/analytics'
 
 /** A tier's status relative to the player's own AchievementState — see lib/missions/achievement-storage.ts. Purely a display concept, never persisted itself (derived fresh from unlockedTierIds/claimedTierIds + the live `completed` each render). */
 type AchievementTierStatus = 'in_progress' | 'completed_unclaimed' | 'claimed'
@@ -134,6 +135,7 @@ function DailyMissionPanel() {
         reward_type: 'xp',
         reward_amount: mission.rewardXp,
       })
+      trackProductEvent('daily_mission_claimed', { mission_id: mission.id, reward_type: 'xp', xp_reward: mission.rewardXp })
     }
   }
 
@@ -220,6 +222,11 @@ function AchievementPanel({ statlingName, userId }: { statlingName: string; user
       reward_type: result.roomReward ? 'xp_and_room_item' : 'xp',
       reward_amount: result.rewardXp ?? 0,
       ...(result.roomReward ? { room_reward_id: result.roomReward } : {}),
+    })
+    trackProductEvent('achievement_claimed', {
+      achievement_id: item.tierId,
+      reward_type: result.roomReward ? 'xp_and_room_item' : 'xp',
+      xp_reward: result.rewardXp ?? 0,
     })
   }
 

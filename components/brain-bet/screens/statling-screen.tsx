@@ -29,6 +29,8 @@ import type { PetProfile } from '@/lib/pets/pet-profile'
 import { cn } from '@/lib/utils'
 import { trackStatlingDecorSaved } from '@/lib/missions/mission-tracker'
 import { trackEvent } from '@/lib/analytics/ga'
+import { trackProductEvent } from '@/lib/analytics/analytics'
+import { scheduleSync } from '@/lib/sync/sync-dispatcher'
 
 interface StatlingScreenProps {
   statlingName: string
@@ -192,6 +194,11 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
       setDraftDeco(deepCloneDecoPlacementState(persisted))
       trackStatlingDecorSaved()
       trackEvent('customization_save', { customization_type: 'statling', item_count: persisted.items.length })
+      trackProductEvent('decoration_saved', { item_count: persisted.items.length })
+      // Phase 2D-5 — local save above is already complete and the UI already
+      // reflects it; a background push only, never awaited, reusing the
+      // existing replace_deco_placement_items RPC (see sync-dispatcher.ts).
+      scheduleSync('deco_placement_items')
       toastManager.add({ title: '꾸미기가 저장되었어요.', type: 'success' })
     } catch {
       toastManager.add({ title: '저장하지 못했어요. 다시 시도해주세요.', type: 'error' })

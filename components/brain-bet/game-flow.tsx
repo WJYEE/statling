@@ -79,6 +79,7 @@ import { NUMBER_PATTERN_GAME_VERSION } from '@/lib/config/number-pattern.config'
 import { detectDevice } from '@/lib/game/device'
 import { generateSessionId } from '@/lib/game/id'
 import { trackEvent, RELEASE_STAGE } from '@/lib/analytics/ga'
+import { trackProductEvent } from '@/lib/analytics/analytics'
 import type { GameDifficulty } from '@/lib/game/difficulty'
 import {
   computeCurrentStats,
@@ -445,6 +446,7 @@ export function GameFlow() {
       setPetRecord(stored)
       if (stored.statlingName) {
         setStatlingName(stored.statlingName)
+        trackProductEvent('home_entered', { entry_type: 'returning' })
         setPhase('room')
       } else {
         setPhase('naming')
@@ -478,7 +480,7 @@ export function GameFlow() {
     if (!bootReady || !user || hasAutoStartedAfterLoginRef.current) return
     if (loadStoredPetProfile()) return // the other bootReady effect above already handles this device
     hasAutoStartedAfterLoginRef.current = true
-    start()
+    start('post_login_auto')
   }, [bootReady, user])
 
   // Offers "이어서 하기" on Landing only when a resumable, not-yet-stale
@@ -695,6 +697,7 @@ export function GameFlow() {
       game_index: PLAY_ORDER.indexOf(statId) + 1,
       attempt: 1,
     })
+    trackProductEvent('game_started', { game_id: gameKey, difficulty: 'normal', mode: 'assessment' })
   }
 
   /**
@@ -832,11 +835,19 @@ export function GameFlow() {
         xp_earned: Math.max(0, Math.round(gameScore)),
       })
     }
+    trackProductEvent('game_completed', {
+      game_id: activeGameKey,
+      difficulty: activeDifficulty,
+      mode: flowMode === 'first' ? 'assessment' : 'free_play',
+      normalized_score: gameScore,
+      completion_result: isRetry ? 'retry' : 'first_attempt',
+    })
   }
 
-  /** Fresh Intro run — first-ever visit, or "처음부터 다시 하기" from Landing (restartIntro). Always starts a brand-new checkpoint (see startNewIntroProgress). */
-  const start = () => {
+  /** Fresh Intro run — first-ever visit, or "처음부터 다시 하기" from Landing (restartIntro). Always starts a brand-new checkpoint (see startNewIntroProgress). entrySource identifies which of this function's 3 real call sites triggered the run, purely for assessment_started's PostHog property — no effect on behavior. */
+  const start = (entrySource: 'landing' | 'restart' | 'post_login_auto') => {
     trackEvent('assessment_start', { release_stage: RELEASE_STAGE })
+    trackProductEvent('assessment_started', { entry_source: entrySource, auth_state: user ? 'member' : 'guest' })
     setIndex(0)
     enterStatGame(PLAY_ORDER[0])
     setFlowMode('first')
@@ -880,7 +891,7 @@ export function GameFlow() {
   /** "처음부터 다시 하기" — only wipes the Intro checkpoint (see start()); never touches pet/room/care data. Gated behind confirmingRestartIntro so a stray tap can't silently discard progress. */
   const restartIntro = () => {
     clearIntroProgress()
-    start()
+    start('restart')
   }
 
   /** Landing's "Statling 만나러 가기" CTA (see isReturningLoggedOut) — routes to the login/signup screen instead of starting the game directly. */
@@ -940,6 +951,7 @@ export function GameFlow() {
       previous_score: lastResult?.gameScore ?? 0,
     })
     trackEvent('mini_game_start', { ability: activeStatId, game_name: activeGameKey, game_index: gameIndex, attempt: 2 })
+    trackProductEvent('game_started', { game_id: activeGameKey, difficulty: 'normal', mode: 'assessment' })
     setRetryAvailable(false)
     isRetryAttemptRef.current = true
     currentAttemptIdRef.current = generateSessionId() // a genuinely new attempt, even though it replays the same game
@@ -1640,6 +1652,7 @@ export function GameFlow() {
     setActiveDifficulty(difficulty)
     currentAttemptIdRef.current = generateSessionId() // new round starting — see the ref's own doc comment
     trackEvent('free_play_start', { game_name: gameKey, ability: activeStatId, difficulty })
+    trackProductEvent('game_started', { game_id: gameKey, difficulty, mode: 'free_play' })
     setPhase('game')
   }
 
@@ -1828,7 +1841,7 @@ export function GameFlow() {
       <div key={stepKey} className="animate-in fade-in slide-in-from-bottom-3 duration-300">
         {phase === 'landing' && (
           <LandingScreen
-            onStart={start}
+            onStart={() => start('landing')}
             resumeCount={introResume?.completedGames.length ?? 0}
             onResume={resumeIntro}
             onRestart={() => setConfirmingRestartIntro(true)}
@@ -1913,6 +1926,15 @@ export function GameFlow() {
               // isLast branch), which is this flow's final result page now
               // that MY STATUS no longer appears in it.
               trackEvent('assessment_complete', { top_ability: topStat, second_ability: secondaryStat })
+              const introProgressAtCompletion = loadIntroProgress()
+              trackProductEvent('assessment_completed', {
+                completed_games: TOTAL_GAMES,
+                duration_ms: introProgressAtCompletion
+                  ? Date.now() - Date.parse(introProgressAtCompletion.startedAt)
+                  : null,
+                top_stat: topStat,
+                second_stat: secondaryStat,
+              })
               clearIntroProgress()
               handleMeetStatling()
             }}
@@ -1958,6 +1980,9 @@ export function GameFlow() {
             petProfile={applyTesterOverride(displayedPetProfile)}
             onConfirm={(name) => {
               setStatlingName(name)
+              // Length only — never the name string itself (see the Phase
+              // 3A-2 report's privacy section).
+              trackProductEvent('naming_completed', { name_length: name.length })
               if (petRecord) {
                 saveStoredPetProfile({ ...petRecord, statlingName: name })
                 scheduleSync('pets')
@@ -1978,7 +2003,10 @@ export function GameFlow() {
               // setPhase('room') call site (stored-profile restore on mount,
               // post-login restore, returnToRoom nav) is a revisit, not a
               // first arrival, so home_enter must fire only here.
-              if (displayedPetProfile) trackEvent('home_enter', { statling_type: displayedPetProfile.id })
+              if (displayedPetProfile) {
+                trackEvent('home_enter', { statling_type: displayedPetProfile.id })
+                trackProductEvent('home_entered', { entry_type: 'first_time' })
+              }
               setPhase('room')
             }}
           />

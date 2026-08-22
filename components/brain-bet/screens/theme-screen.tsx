@@ -21,6 +21,8 @@ import { deepCloneRoomState, roomStatesEqual, type RoomItem, type RoomState } fr
 import { cn } from '@/lib/utils'
 import { trackRoomDecorSaved } from '@/lib/missions/mission-tracker'
 import { trackEvent } from '@/lib/analytics/ga'
+import { trackProductEvent } from '@/lib/analytics/analytics'
+import { scheduleSync } from '@/lib/sync/sync-dispatcher'
 
 /** `ROOM_ASSETS[id]`'s position among locked ("achievement"-sourced) items in the Room grid — the SAME order their Achievement tiers are declared in achievements.config.ts, so a harder/later achievement's reward always sorts after an easier/earlier one's. Computed once at module load. */
 const ROOM_REWARD_ACHIEVEMENT_ORDER: Map<string, number> = (() => {
@@ -245,6 +247,14 @@ export function ThemeScreen({ topStat, petProfile, onDirtyChange }: ThemeScreenP
       setDraftState(deepCloneRoomState(persisted))
       trackRoomDecorSaved()
       trackEvent('customization_save', { customization_type: 'room', item_count: persisted.items.length })
+      trackProductEvent('room_saved', { item_count: persisted.items.length })
+      // Phase 2D-5 — local save above is already complete and the UI already
+      // reflects it; these are background pushes only, never awaited, so a
+      // slow/failed network call can't block or roll back this save. Two
+      // independent domains (room_state's own upsert, room_items' replace_room_items
+      // RPC) — one failing never affects the other, see sync-dispatcher.ts.
+      scheduleSync('room_state')
+      scheduleSync('room_items')
       toastManager.add({ title: '방이 저장되었어요.', type: 'success' })
     } catch {
       toastManager.add({ title: '저장하지 못했어요. 다시 시도해주세요.', type: 'error' })

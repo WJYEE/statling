@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { Toast } from '@base-ui/react/toast'
 import { trackEvent, type ShareContext } from '@/lib/analytics/ga'
+import { trackProductEvent } from '@/lib/analytics/analytics'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { AuthForm } from '@/components/brain-bet/auth/auth-form'
 import { ConfirmDialog } from '@/components/brain-bet/confirm-dialog'
@@ -100,6 +101,7 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
     if (!petProfile || busyAction) return
     setBusyAction('share')
     trackEvent('share_click', { action_type: 'web_share', share_context: SHARE_CONTEXT })
+    trackProductEvent('share_started', { channel: 'web_share', share_context: SHARE_CONTEXT })
     try {
       const content = {
         title: buildFriendInviteTitle(),
@@ -124,11 +126,13 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
         case 'shared':
           toastManager.add({ title: '공유했어요!', type: 'success' })
           trackEvent('share_success', { action_type: 'web_share', share_context: SHARE_CONTEXT })
+          trackProductEvent('share_completed', { channel: 'web_share', share_context: SHARE_CONTEXT })
           trackShare()
           break
         case 'copied':
           toastManager.add({ title: '공유 내용이 복사되었어요.', type: 'success' })
           trackEvent('share_success', { action_type: 'web_share', share_context: SHARE_CONTEXT })
+          trackProductEvent('share_completed', { channel: 'web_share', share_context: SHARE_CONTEXT })
           trackShare()
           break
         case 'cancelled':
@@ -150,6 +154,7 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
     if (!petProfile || busyAction || !shareCardRef.current) return
     setBusyAction('save')
     trackEvent('share_click', { action_type: 'png', share_context: SHARE_CONTEXT })
+    trackProductEvent('share_started', { channel: 'png', share_context: SHARE_CONTEXT })
     try {
       const blob = await createShareImage(shareCardRef.current)
       if (!blob) {
@@ -163,10 +168,12 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
         case 'shared':
           toastManager.add({ title: '공유 시트에서 사진 앱에 저장할 수 있어요.', type: 'success' })
           trackEvent('share_success', { action_type: 'png', share_context: SHARE_CONTEXT })
+          trackProductEvent('share_completed', { channel: 'png', share_context: SHARE_CONTEXT })
           break
         case 'downloaded':
           toastManager.add({ title: '이미지가 저장되었어요.', type: 'success' })
           trackEvent('share_success', { action_type: 'png', share_context: SHARE_CONTEXT })
+          trackProductEvent('share_completed', { channel: 'png', share_context: SHARE_CONTEXT })
           break
         case 'cancelled':
           break // user backed out of the native share sheet — not an error

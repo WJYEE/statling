@@ -42,6 +42,7 @@ import type { CareActionId, CareStatId, Mood, PetAnimation, PetCareState, RoomCa
 import { useSound } from '@/hooks/use-sound'
 import { trackCareInteraction } from '@/lib/missions/mission-tracker'
 import { trackEvent } from '@/lib/analytics/ga'
+import { trackProductEvent } from '@/lib/analytics/analytics'
 import { scheduleSync } from '@/lib/sync/sync-dispatcher'
 
 const ACTION_IDS: CareActionId[] = ['feed', 'shower', 'clean', 'play', 'pet', 'talk']
@@ -265,6 +266,17 @@ export function usePetCare() {
   }
 
   function finalizeAction(result: ActionResult, actionId: CareActionId, room?: RoomCareState) {
+    // 'idle' is the exact sentinel blockedByCooldown() (lib/pet-care/actions.ts)
+    // returns for every one of the 6 actions when the action was blocked —
+    // every genuine completion returns its own specific animation instead
+    // (eat/wash/shake/play/pet/...), so this is a reliable "did the action
+    // actually happen" signal, not a forced inference. Fires here (the
+    // result-applying choke point), never at the room-screen.tsx button
+    // handler, so a cooldown-blocked tap is never recorded as a completion.
+    if (result.animation !== 'idle') {
+      trackProductEvent('care_action_completed', { action: actionId })
+    }
+
     const beforeLevel = petStateRef.current.intimacyLevel
     let finalPetState = result.petState
 
@@ -415,7 +427,15 @@ export function usePetCare() {
     const level = petStateRef.current.giftReadyLevel
     if (level === null) return null
     const reward = getLevelGiftDecoAsset(level)
-    if (reward) saveDecoInventoryState(grantDecoReward(loadDecoInventoryState(), reward.id))
+    if (reward) {
+      const before = loadDecoInventoryState()
+      const after = grantDecoReward(before, reward.id)
+      saveDecoInventoryState(after)
+      // Phase 2D-5 — grantDecoReward returns the SAME reference when
+      // reward.id was already unlocked (idempotent) — only sync when a real
+      // new item was actually granted, never on a same-item re-check.
+      if (after !== before) scheduleSync('deco_inventory')
+    }
     return reward ?? null
   }
 

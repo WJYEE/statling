@@ -30,6 +30,7 @@ import { loadAchievementState, saveAchievementState } from '@/lib/missions/achie
 import { publishAchievementUnlocked } from '@/lib/missions/achievement-notifications'
 import { grantRoomReward, loadRoomInventoryState, saveRoomInventoryState } from '@/lib/room-inventory-storage'
 import { trackEvent } from '@/lib/analytics/ga'
+import { trackProductEvent } from '@/lib/analytics/analytics'
 import { scheduleSync, flushSync } from '@/lib/sync/sync-dispatcher'
 
 /**
@@ -155,6 +156,7 @@ export function applyNewlyUnlockedAchievements(progressList: AchievementTierProg
 
   for (const p of newlyUnlocked) {
     trackEvent('achievement_unlock', { achievement_id: p.tierId, achievement_type: p.category })
+    trackProductEvent('achievement_unlocked', { achievement_id: p.tierId, achievement_type: p.category })
   }
   publishAchievementUnlocked(newlyUnlocked)
   return newlyUnlocked

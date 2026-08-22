@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Toast } from '@base-ui/react/toast'
 import { ArrowRight, Download, Loader2, Share2 } from 'lucide-react'
 import { trackEvent, type ShareContext } from '@/lib/analytics/ga'
+import { trackProductEvent } from '@/lib/analytics/analytics'
 import { CharacterTraits } from '@/components/brain-bet/result/character-traits'
 import { CompatibleEnvironment } from '@/components/brain-bet/result/compatible-environment'
 import { StatDistribution } from '@/components/brain-bet/result/stat-distribution'
@@ -61,6 +62,7 @@ export function RevealScreen({
   // not a first-time-only funnel step like home_enter.
   useEffect(() => {
     trackEvent('statling_reveal', { statling_type: petProfile.id, top_ability: topStat, second_ability: secondaryStat })
+    trackProductEvent('statling_revealed', { character_id: petProfile.id, top_stat: topStat, second_stat: secondaryStat })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per mount only
   }, [])
 
@@ -68,6 +70,7 @@ export function RevealScreen({
     if (busyAction) return // prevent double-clicks while an action is in flight
     setBusyAction('share')
     trackEvent('share_click', { action_type: 'web_share', share_context: SHARE_CONTEXT })
+    trackProductEvent('share_started', { channel: 'web_share', share_context: SHARE_CONTEXT })
     try {
       const content = {
         title: buildShareTitle(),
@@ -87,10 +90,12 @@ export function RevealScreen({
         case 'shared':
           toastManager.add({ title: '공유했어요!', type: 'success' })
           trackEvent('share_success', { action_type: 'web_share', share_context: SHARE_CONTEXT })
+          trackProductEvent('share_completed', { channel: 'web_share', share_context: SHARE_CONTEXT })
           break
         case 'copied':
           toastManager.add({ title: '공유 내용이 복사되었어요.', type: 'success' })
           trackEvent('share_success', { action_type: 'web_share', share_context: SHARE_CONTEXT })
+          trackProductEvent('share_completed', { channel: 'web_share', share_context: SHARE_CONTEXT })
           break
         case 'cancelled':
           break // user backed out of the share sheet — not an error
@@ -111,6 +116,7 @@ export function RevealScreen({
     if (busyAction || !shareCardRef.current) return
     setBusyAction('save')
     trackEvent('share_click', { action_type: 'png', share_context: SHARE_CONTEXT })
+    trackProductEvent('share_started', { channel: 'png', share_context: SHARE_CONTEXT })
     try {
       const blob = await createShareImage(shareCardRef.current)
       if (!blob) {
@@ -124,10 +130,12 @@ export function RevealScreen({
         case 'shared':
           toastManager.add({ title: '공유 시트에서 사진 앱에 저장할 수 있어요.', type: 'success' })
           trackEvent('share_success', { action_type: 'png', share_context: SHARE_CONTEXT })
+          trackProductEvent('share_completed', { channel: 'png', share_context: SHARE_CONTEXT })
           break
         case 'downloaded':
           toastManager.add({ title: '이미지가 저장되었어요.', type: 'success' })
           trackEvent('share_success', { action_type: 'png', share_context: SHARE_CONTEXT })
+          trackProductEvent('share_completed', { channel: 'png', share_context: SHARE_CONTEXT })
           break
         case 'cancelled':
           break // user backed out of the native share sheet — not an error

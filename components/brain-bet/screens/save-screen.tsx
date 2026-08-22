@@ -2,6 +2,7 @@
 
 import { Logo } from '@/components/brain-bet/logo'
 import { AuthForm } from '@/components/brain-bet/auth/auth-form'
+import { trackProductEvent } from '@/lib/analytics/analytics'
 import { useAuth } from '@/lib/auth/auth-provider'
 
 interface SaveScreenProps {
@@ -12,9 +13,20 @@ interface SaveScreenProps {
 /**
  * Post-hatch save/login prompt (GAME_SPEC.MD §16.1). Login is never forced —
  * "나중에 하기" always advances the flow the same way `onContinue` does.
+ *
+ * auth_choice_made only fires for the skip path below — `onContinue` here IS
+ * AuthForm's onAuthenticated, which fires immediately after auth-form.tsx's
+ * own GA4 `sign_up` call at the exact same moment, so a choice:'sign_up'
+ * event here would just duplicate that signal rather than add new funnel
+ * information (see lib/analytics/analytics.ts's auth_choice_made doc comment).
  */
 export function SaveScreen({ onContinue, onSkip }: SaveScreenProps) {
   const { isConfigured } = useAuth()
+
+  function handleSkip() {
+    trackProductEvent('auth_choice_made', { choice: 'skip' })
+    onSkip()
+  }
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col items-center justify-center px-5 py-10 text-center">
@@ -40,7 +52,7 @@ export function SaveScreen({ onContinue, onSkip }: SaveScreenProps) {
 
       <button
         type="button"
-        onClick={onSkip}
+        onClick={handleSkip}
         className="mt-6 text-sm font-bold text-muted-foreground underline-offset-4 hover:underline"
       >
         나중에 하기
