@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { getSyncReadyUserId } from '@/lib/sync/session-registry'
+import { touchLocalSyncUpdatedAt, loadLocalSyncUpdatedAt } from '@/lib/sync/sync-freshness'
 import {
   buildPetRow,
   buildDexEntryRows,
@@ -13,6 +14,11 @@ import {
   buildActivityCountersRow,
   buildDailyMissionRows,
   buildDialogueMemoryRow,
+  buildRoomStateRow,
+  buildRoomItemRows,
+  buildDecoPlacementItemRows,
+  buildRoomInventoryRows,
+  buildDecoInventoryRows,
 } from '@/lib/migration/build-local-snapshot'
 import {
   writePetRow,
@@ -26,6 +32,11 @@ import {
   writeActivityCountersRow,
   writeDailyMissions,
   writeDialogueMemoryRow,
+  writeRoomStateRow,
+  writeRoomItemsRpc,
+  writeDecoPlacementItemsRpc,
+  writeRoomInventory,
+  writeDecoInventory,
 } from '@/lib/migration/write-local-snapshot'
 
 /**
@@ -40,6 +51,13 @@ import {
  * it is, and scheduleSync's for how the debounce itself works. Every other
  * domain (Room/Deco/Inventory/Dex placement, user_notes, ...) is still
  * untouched — see the Phase 2D-1 roadmap for what remains.
+ *
+ * Phase 2D-5 added the five Room/Deco/Inventory domains below
+ * (room_state/room_items/deco_placement_items/room_inventory/deco_inventory)
+ * — all immediate (DEBOUNCE_MS 0), same as the original five, since each is
+ * driven by an explicit, low-frequency user action (a "저장" button press or
+ * an inventory unlock), never a tick. `dex_entries` was already connected in
+ * Phase 2D-2 and is untouched here.
  *
  * Deliberately reuses Phase 2B's own row-mapping (build-local-snapshot.ts)
  * and per-table write helpers (write-local-snapshot.ts) verbatim — no new
@@ -62,78 +80,180 @@ export type SyncDomain =
   | 'activity_counters'
   | 'daily_missions'
   | 'dialogue_memory'
+  | 'room_state'
+  | 'room_items'
+  | 'deco_placement_items'
+  | 'room_inventory'
+  | 'deco_inventory'
+
+/**
+ * Phase 2D-6 Follow-up — `_account_marker` is NOT one of the 18 migration
+ * tables and never appears in the exported `SyncDomain` union other files
+ * switch over; it's an internal-only pseudo-domain reusing this same
+ * debounce/coalescing machinery to push profiles.sync_updated_at. Never call
+ * scheduleSync('_account_marker' as SyncDomain) from outside this file —
+ * scheduleSync/flushSync trigger it automatically after every real domain
+ * (see their own bodies below). Kept out of SyncDomain itself specifically
+ * so no other call site can even type-check a direct call.
+ */
+type InternalSyncTarget = SyncDomain | '_account_marker'
 
 function devWarn(...args: unknown[]): void {
   if (process.env.NODE_ENV !== 'production') console.warn(...args)
 }
 
-async function pushDomain(domain: SyncDomain, client: SupabaseClient, userId: string): Promise<void> {
+/**
+ * Phase 2D-6 Follow-up Safety Fix — domains whose most recent push attempt
+ * failed and hasn't yet been retried successfully. `_account_marker`'s own
+ * push (below) checks this and SKIPS — leaving profiles.sync_updated_at
+ * exactly where it was — rather than advancing it while some domain's data
+ * might still be missing from the server. The 15s debounce alone (added in
+ * the original Follow-up) only made a premature marker LESS likely by
+ * giving real domain pushes a head start; it never actually verified they
+ * landed, so a genuinely failed domain (not just a slow one) could still
+ * let the marker race ahead — this set closes that gap.
+ *
+ * A domain is added here the instant its OWN push fails, and removed the
+ * instant a LATER push for that SAME domain succeeds — so a lingering
+ * failure for domain X keeps blocking the marker even after some UNRELATED
+ * domain Y succeeds in between, and stops blocking the moment X itself (or
+ * a full catch-up / migration batch that necessarily included X) succeeds.
+ * Deliberately just a Set, not a queue/retry system — nothing here ever
+ * re-attempts a failed domain on its own; that already happens naturally
+ * the next time a real local change touches it (see this file's own
+ * top-of-file doc comment on the no-retry-queue-needed model).
+ */
+const domainsWithOutstandingFailure = new Set<SyncDomain>()
+
+/** Called after any batch write Phase 2B/2D-6's own "all tables, all at once" paths (migration, catch-up) confirm fully succeeded — see migration-orchestrator.ts / session-catchup.ts. */
+export function clearOutstandingDomainFailures(): void {
+  domainsWithOutstandingFailure.clear()
+}
+
+async function pushDomain(domain: InternalSyncTarget, client: SupabaseClient, userId: string): Promise<boolean> {
   switch (domain) {
+    case '_account_marker': {
+      // Reads the CURRENT local marker fresh at push time (same "always
+      // push current state, never a captured snapshot" rule every other
+      // domain here follows) — null means nothing has actually touched
+      // sync-scoped local data yet this device, so there's nothing
+      // meaningful to advance the server marker to.
+      const current = loadLocalSyncUpdatedAt()
+      if (!current) return true
+      if (domainsWithOutstandingFailure.size > 0) {
+        devWarn(
+          '[sync-dispatcher] _account_marker push skipped — domain(s) with an outstanding failure, marker stays at its last known-safe value:',
+          [...domainsWithOutstandingFailure],
+        )
+        return true
+      }
+      const { error } = await client.from('profiles').update({ sync_updated_at: current }).eq('id', userId)
+      if (error) {
+        devWarn('[sync-dispatcher] _account_marker sync failed (local state unaffected):', error.message)
+        return false
+      }
+      return true
+    }
     case 'pets': {
       const row = buildPetRow(userId)
       const result = await writePetRow(client, row, userId)
       if (!result.ok) devWarn('[sync-dispatcher] pets sync failed (local state unaffected):', result.error)
-      return
+      return result.ok
     }
     case 'dex_entries': {
       const rows = buildDexEntryRows(userId, new Date())
       const result = await writeDexEntries(client, rows, userId)
       if (!result.ok) devWarn('[sync-dispatcher] dex_entries sync failed (local state unaffected):', result.error)
-      return
+      return result.ok
     }
     case 'achievements': {
       const rows = buildAchievementRows(userId)
       const result = await writeAchievements(client, rows, userId)
       if (!result.ok) devWarn('[sync-dispatcher] achievements sync failed (local state unaffected):', result.error)
-      return
+      return result.ok
     }
     case 'player_skill_records': {
       const rows = buildPlayerSkillRecordRows(userId)
       const result = await writePlayerSkillRecords(client, rows, userId)
       if (!result.ok) devWarn('[sync-dispatcher] player_skill_records sync failed (local state unaffected):', result.error)
-      return
+      return result.ok
     }
     case 'xp_totals': {
       const row = buildXpTotalsRow(userId, new Date())
       const result = await writeXpTotalsRow(client, row, userId)
       if (!result.ok) devWarn('[sync-dispatcher] xp_totals sync failed (local state unaffected):', result.error)
-      return
+      return result.ok
     }
     case 'pet_care_state': {
       const row = buildPetCareStateRow(userId)
       const result = await writePetCareStateRow(client, row, userId)
       if (!result.ok) devWarn('[sync-dispatcher] pet_care_state sync failed (local state unaffected):', result.error)
-      return
+      return result.ok
     }
     case 'room_care_state': {
       const row = buildRoomCareStateRow(userId)
       const result = await writeRoomCareStateRow(client, row, userId)
       if (!result.ok) devWarn('[sync-dispatcher] room_care_state sync failed (local state unaffected):', result.error)
-      return
+      return result.ok
     }
     case 'pet_memory': {
       const row = buildPetMemoryRow(userId, new Date())
       const result = await writePetMemoryRow(client, row, userId)
       if (!result.ok) devWarn('[sync-dispatcher] pet_memory sync failed (local state unaffected):', result.error)
-      return
+      return result.ok
     }
     case 'activity_counters': {
       const row = buildActivityCountersRow(userId)
       const result = await writeActivityCountersRow(client, row, userId)
       if (!result.ok) devWarn('[sync-dispatcher] activity_counters sync failed (local state unaffected):', result.error)
-      return
+      return result.ok
     }
     case 'daily_missions': {
       const rows = buildDailyMissionRows(userId, new Date())
       const result = await writeDailyMissions(client, rows, userId)
       if (!result.ok) devWarn('[sync-dispatcher] daily_missions sync failed (local state unaffected):', result.error)
-      return
+      return result.ok
     }
     case 'dialogue_memory': {
       const row = buildDialogueMemoryRow(userId)
       const result = await writeDialogueMemoryRow(client, row, userId)
       if (!result.ok) devWarn('[sync-dispatcher] dialogue_memory sync failed (local state unaffected):', result.error)
-      return
+      return result.ok
+    }
+    case 'room_state': {
+      const row = buildRoomStateRow(userId)
+      const result = await writeRoomStateRow(client, row, userId)
+      if (!result.ok) devWarn('[sync-dispatcher] room_state sync failed (local state unaffected):', result.error)
+      return result.ok
+    }
+    case 'room_items': {
+      // Group D — replace_room_items RPC (transactional delete+insert), same
+      // as the one-time migration path. No new cross-table transaction here:
+      // room_state and room_items are pushed as two independent calls (see
+      // their call sites in theme-screen.tsx's handleSave) — a failure in
+      // one never rolls back or blocks the other.
+      const rows = buildRoomItemRows(userId)
+      const result = await writeRoomItemsRpc(client, rows, userId)
+      if (!result.ok) devWarn('[sync-dispatcher] room_items sync failed (local state unaffected):', result.error)
+      return result.ok
+    }
+    case 'deco_placement_items': {
+      const rows = buildDecoPlacementItemRows(userId)
+      const result = await writeDecoPlacementItemsRpc(client, rows, userId)
+      if (!result.ok) devWarn('[sync-dispatcher] deco_placement_items sync failed (local state unaffected):', result.error)
+      return result.ok
+    }
+    case 'room_inventory': {
+      const rows = buildRoomInventoryRows(userId)
+      const result = await writeRoomInventory(client, rows, userId)
+      if (!result.ok) devWarn('[sync-dispatcher] room_inventory sync failed (local state unaffected):', result.error)
+      return result.ok
+    }
+    case 'deco_inventory': {
+      const rows = buildDecoInventoryRows(userId)
+      const result = await writeDecoInventory(client, rows, userId)
+      if (!result.ok) devWarn('[sync-dispatcher] deco_inventory sync failed (local state unaffected):', result.error)
+      return result.ok
     }
   }
 }
@@ -162,7 +282,7 @@ async function pushDomain(domain: SyncDomain, client: SupabaseClient, userId: st
  *     question-open or memory-tagged answer, never a tick) — the shortest
  *     window.
  */
-const DEBOUNCE_MS: Record<SyncDomain, number> = {
+const DEBOUNCE_MS: Record<InternalSyncTarget, number> = {
   pets: 0,
   dex_entries: 0,
   achievements: 0,
@@ -174,6 +294,24 @@ const DEBOUNCE_MS: Record<SyncDomain, number> = {
   activity_counters: 5_000,
   daily_missions: 5_000,
   dialogue_memory: 4_000,
+  // Phase 2D-5 — all five immediate (0), like the original Phase 2D-2/2D-3
+  // domains: each is driven by an explicit, deliberate user action (a
+  // "저장" button, an inventory unlock), never a tick or a rapid button
+  // burst, so there is no recurring driver to coalesce against.
+  room_state: 0,
+  room_items: 0,
+  deco_placement_items: 0,
+  room_inventory: 0,
+  deco_inventory: 0,
+  // Phase 2D-6 Follow-up — longer than every real domain's own window
+  // (pet_care_state's 8s is the longest) so that, in the common case, the
+  // individual domain pushes a burst of local activity triggers have already
+  // had time to land before this coalesced account-level marker follows —
+  // see restore-conflict.ts#compareSyncFreshness's doc comment for why that
+  // ordering matters (a marker that races ahead of the domain data it's
+  // implicitly vouching for is exactly the "4 succeeded, 1 failed, but we
+  // already said 'fresh'" risk the Phase 2D-6 Follow-up task warned about).
+  _account_marker: 15_000,
 }
 
 interface DomainSyncState {
@@ -185,9 +323,9 @@ interface DomainSyncState {
   debounceTimer: number | null
 }
 
-const domainState = new Map<SyncDomain, DomainSyncState>()
+const domainState = new Map<InternalSyncTarget, DomainSyncState>()
 
-function stateFor(domain: SyncDomain): DomainSyncState {
+function stateFor(domain: InternalSyncTarget): DomainSyncState {
   let s = domainState.get(domain)
   if (!s) {
     s = { inFlight: null, dirty: false, debounceTimer: null }
@@ -196,25 +334,36 @@ function stateFor(domain: SyncDomain): DomainSyncState {
   return s
 }
 
-function runAndMaybeRepeat(domain: SyncDomain, client: SupabaseClient, userId: string, s: DomainSyncState): void {
+function runAndMaybeRepeat(domain: InternalSyncTarget, client: SupabaseClient, userId: string, s: DomainSyncState): void {
   s.dirty = false
   s.inFlight = pushDomain(domain, client, userId)
-    .catch((err) => devWarn(`[sync-dispatcher] ${domain} sync threw unexpectedly (local state unaffected):`, err))
+    .then((ok) => {
+      // _account_marker never "vouches" for other domains and is never
+      // itself vouched for — only real domains feed the outstanding-failure
+      // set that gates it (see the set's own doc comment above pushDomain).
+      if (domain === '_account_marker') return
+      if (ok) domainsWithOutstandingFailure.delete(domain)
+      else domainsWithOutstandingFailure.add(domain)
+    })
+    .catch((err) => {
+      devWarn(`[sync-dispatcher] ${domain} sync threw unexpectedly (local state unaffected):`, err)
+      if (domain !== '_account_marker') domainsWithOutstandingFailure.add(domain)
+    })
     .finally(() => {
       s.inFlight = null
-      // Re-enters through scheduleSync (not requestRun with this closure's
-      // now-possibly-stale userId/client) so a rerun re-validates
+      // Re-enters through scheduleInternal (not requestRun with this
+      // closure's now-possibly-stale userId/client) so a rerun re-validates
       // getSyncReadyUserId() fresh at the moment it actually fires — a push
       // can resolve well after logout/a session change, and reusing the
       // ORIGINAL caller's userId would silently attempt a write for a user
       // who is no longer the current session (Phase 2D-4 §13's "실행
       // 시점에도 registry/user readiness를 다시 확인" requirement — a real
       // gap the Case K QA run caught, see the Phase 2D-4 report).
-      if (s.dirty) scheduleSync(domain)
+      if (s.dirty) scheduleInternal(domain)
     })
 }
 
-function requestRun(domain: SyncDomain, client: SupabaseClient, userId: string, s: DomainSyncState): void {
+function requestRun(domain: InternalSyncTarget, client: SupabaseClient, userId: string, s: DomainSyncState): void {
   const debounceMs = DEBOUNCE_MS[domain]
 
   if (debounceMs === 0) {
@@ -243,29 +392,24 @@ function requestRun(domain: SyncDomain, client: SupabaseClient, userId: string, 
   runAndMaybeRepeat(domain, client, userId, s)
   s.debounceTimer = window.setTimeout(() => {
     s.debounceTimer = null
-    // Re-enters through scheduleSync, not requestRun with this closure's
+    // Re-enters through scheduleInternal, not requestRun with this closure's
     // stale userId/client — same "re-validate at fire time" reasoning as
     // runAndMaybeRepeat's .finally() above. Guarded by !s.inFlight so this
     // never races an in-flight push's own .finally() re-entry (that path
     // already handles s.dirty once it settles).
-    if (s.dirty && !s.inFlight) scheduleSync(domain)
+    if (s.dirty && !s.inFlight) scheduleInternal(domain)
   }, debounceMs)
 }
 
 /**
- * Requests a background push of `domain`'s current localStorage state to
- * Supabase. A pure fire-and-forget call — never awaited by callers, never
- * throws, never touches localStorage or the current session/auth state.
- *
- * A guaranteed no-op (zero network requests) for a guest, a not-yet-ready
- * session (Phase 2B/2C initial sync still in flight, or an unresolved Case C
- * conflict), or when Supabase isn't configured — see
- * lib/sync/session-registry.ts#getSyncReadyUserId. Re-checked on every call
- * (not just once), so a timer that fires after logout is already a no-op by
- * the time it runs — see requestRun/scheduleSync's shared gate and the
- * Phase 2D-4 report's "logout 중 debounce" analysis.
+ * Shared gate + dispatch for both a real domain and the internal
+ * `_account_marker` pseudo-domain — never touches the local freshness
+ * marker itself (see scheduleSync/flushSync, the only two public entry
+ * points, for that) and never cascades into `_account_marker` on its own,
+ * so a debounce/inFlight re-entry just re-runs the SAME target it was
+ * already running, nothing more.
  */
-export function scheduleSync(domain: SyncDomain): void {
+function scheduleInternal(domain: InternalSyncTarget): void {
   const userId = getSyncReadyUserId()
   if (!userId) return
 
@@ -273,6 +417,38 @@ export function scheduleSync(domain: SyncDomain): void {
   if (!client) return
 
   requestRun(domain, client, userId, stateFor(domain))
+}
+
+/**
+ * Requests a background push of `domain`'s current localStorage state to
+ * Supabase. A pure fire-and-forget call — never awaited by callers, never
+ * throws.
+ *
+ * Phase 2D-6 Follow-up — the ONE place that touches the local
+ * sync_updated_at freshness marker (lib/sync/sync-freshness.ts), and it does
+ * so UNCONDITIONALLY, before the guest/ready gate below — every real call
+ * site already only calls scheduleSync right after its own local save
+ * succeeds (the established local-first ordering), so this correctly fires
+ * for a guest too (the task's own "Guest에서도 local timestamp는 갱신 가능"
+ * requirement), even though the background push itself stays gated. Also
+ * kicks the internal `_account_marker` pseudo-domain so the server side of
+ * this marker eventually catches up too — see its own DEBOUNCE_MS entry for
+ * why that's a separate, longer-debounced push rather than an inline write
+ * here.
+ *
+ * The background push itself is a guaranteed no-op (zero network requests)
+ * for a guest, a not-yet-ready session (Phase 2B/2C initial sync still in
+ * flight, or an unresolved Case C conflict), or when Supabase isn't
+ * configured — see lib/sync/session-registry.ts#getSyncReadyUserId.
+ * Re-checked on every call (not just once), so a timer that fires after
+ * logout is already a no-op by the time it runs — see
+ * requestRun/scheduleInternal's shared gate and the Phase 2D-4 report's
+ * "logout 중 debounce" analysis.
+ */
+export function scheduleSync(domain: SyncDomain): void {
+  touchLocalSyncUpdatedAt()
+  scheduleInternal(domain)
+  scheduleInternal('_account_marker')
 }
 
 /**
@@ -287,18 +463,22 @@ export function scheduleSync(domain: SyncDomain): void {
  * path, so it's just as safe against an in-flight write already running.
  * A harmless no-op for a domain with no debounce configured (DEBOUNCE_MS[domain]
  * === 0) or nothing pending — behaves exactly like scheduleSync there.
+ * Also touches the local freshness marker and kicks `_account_marker`, same
+ * as scheduleSync — a claim urgent enough to flush is urgent enough to mark.
  */
 export function flushSync(domain: SyncDomain): void {
+  touchLocalSyncUpdatedAt()
   const userId = getSyncReadyUserId()
-  if (!userId) return
-
-  const client = getSupabaseBrowserClient()
-  if (!client) return
-
-  const s = stateFor(domain)
-  if (s.debounceTimer !== null) {
-    window.clearTimeout(s.debounceTimer)
-    s.debounceTimer = null
+  if (userId) {
+    const client = getSupabaseBrowserClient()
+    if (client) {
+      const s = stateFor(domain)
+      if (s.debounceTimer !== null) {
+        window.clearTimeout(s.debounceTimer)
+        s.debounceTimer = null
+      }
+      requestRun(domain, client, userId, s)
+    }
   }
-  requestRun(domain, client, userId, s)
+  scheduleInternal('_account_marker')
 }

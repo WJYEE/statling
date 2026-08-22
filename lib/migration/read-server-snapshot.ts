@@ -57,6 +57,10 @@ export type ReadServerSnapshotResult =
   | { status: 'failed'; userId: string; failures: ReadSnapshotFailure[] }
   | { status: 'ok'; snapshot: ServerDataSnapshot }
 
+function devWarn(...args: unknown[]): void {
+  if (process.env.NODE_ENV !== 'production') console.warn(...args)
+}
+
 function failureMessage(error: unknown): string {
   return error instanceof Error
     ? error.message
@@ -72,6 +76,7 @@ export async function readServerDataSnapshot(client: SupabaseClient): Promise<Re
   const userId = user.id
 
   const [
+    profile,
     pet,
     playerSkillRecords,
     xpTotals,
@@ -91,6 +96,10 @@ export async function readServerDataSnapshot(client: SupabaseClient): Promise<Re
     roomInventory,
     dexEntries,
   ] = await Promise.all([
+    // Phase 2D-6 Follow-up — profiles.sync_updated_at, read alongside the 18
+    // domain tables so this stays the ONE network round-trip a login/reload
+    // pays for restore-related reads.
+    client.from('profiles').select('sync_updated_at').eq('id', userId).maybeSingle<{ sync_updated_at: string | null }>(),
     client.from('pets').select('*').eq('user_id', userId).maybeSingle<PetsRow>(),
     client.from('player_skill_records').select('*').eq('user_id', userId).returns<PlayerSkillRecordRow[]>(),
     client.from('xp_totals').select('*').eq('user_id', userId).maybeSingle<XpTotalsRow>(),
@@ -140,9 +149,24 @@ export async function readServerDataSnapshot(client: SupabaseClient): Promise<Re
     return { status: 'failed', userId, failures }
   }
 
+  // Phase 2D-6 Follow-up — deliberately NOT folded into the `named`/
+  // `failures` treatment above: profiles.sync_updated_at is account-level
+  // metadata, not one of the 18 migration-domain tables, and the whole
+  // freshness feature already has a safe, well-defined behavior for "no
+  // marker" (restore-conflict.ts#compareSyncFreshness's 'in_sync' fallback).
+  // Until the Phase 2D-6 Follow-up schema migration is actually applied,
+  // this column does not exist yet — a query error here (e.g. "column does
+  // not exist") must never fail the ENTIRE snapshot read (and therefore
+  // every login/reload's restore) over one account-level field the rest of
+  // this function doesn't otherwise depend on.
+  if (profile.error) {
+    devWarn('[read-server-snapshot] profiles.sync_updated_at read failed (treating as no marker):', failureMessage(profile.error))
+  }
+
   const snapshot: ServerDataSnapshot = {
     userId,
     readAt: new Date().toISOString(),
+    syncUpdatedAt: profile.error ? null : (profile.data?.sync_updated_at ?? null),
     pet: pet.data,
     playerSkillRecords: playerSkillRecords.data ?? [],
     xpTotals: xpTotals.data,

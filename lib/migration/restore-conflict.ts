@@ -70,6 +70,50 @@ function isSameConfirmedPet(local: StoredPetProfile, server: NonNullable<ServerD
   )
 }
 
+export type SyncFreshnessComparison = 'server_newer' | 'local_newer' | 'in_sync'
+
+/**
+ * Phase 2D-6 Follow-up — Case B's own freshness refinement (session-sync.ts
+ * calls this ONLY inside its Case B branch; determineRestoreSituation's own
+ * identity-fingerprint classification above is untouched). Deliberately a
+ * single flat timestamp comparison, not a per-domain revision system — see
+ * the Phase 2D-6 Follow-up report for why per-domain revisions were rejected
+ * as over-engineering for what's meant to be a conservative freshness
+ * marker, not a distributed transaction.
+ *
+ * `toleranceMs` absorbs both domains this needs to worry about at once: (a)
+ * clock skew between two real devices, and (b) the ordinary latency between
+ * "local changed" and "the coalesced account-marker push actually reaches
+ * the server" (see sync-dispatcher.ts's `_account_marker` pseudo-domain,
+ * debounced 15s). Both timestamps are CLIENT clocks (see
+ * lib/sync/sync-freshness.ts's own doc comment) — there is no single
+ * authoritative clock in this design, so a badly-skewed device clock (well
+ * beyond the tolerance window) could still produce a wrong verdict. Complex
+ * logical/vector clocks are explicitly out of scope for this beta; a wrong
+ * verdict here can only ever route to 'in_sync' or trigger an extra
+ * restore/catch-up, never delete data outright.
+ *
+ * Missing timestamp on EITHER side (a legacy account from before this
+ * column/key existed, or a device that has never touched sync-scoped data)
+ * always resolves to 'in_sync' — the same trust-local no-op this whole
+ * system already defaults to today. Never treated as "unknown = server
+ * wins" or "unknown = local wins": a missing marker must never be read as
+ * permission to overwrite anything.
+ */
+export function compareSyncFreshness(
+  localSyncUpdatedAt: string | null,
+  serverSyncUpdatedAt: string | null,
+  toleranceMs: number = 5000,
+): SyncFreshnessComparison {
+  if (!localSyncUpdatedAt || !serverSyncUpdatedAt) return 'in_sync'
+  const localMs = Date.parse(localSyncUpdatedAt)
+  const serverMs = Date.parse(serverSyncUpdatedAt)
+  if (Number.isNaN(localMs) || Number.isNaN(serverMs)) return 'in_sync'
+  if (serverMs - localMs > toleranceMs) return 'server_newer'
+  if (localMs - serverMs > toleranceMs) return 'local_newer'
+  return 'in_sync'
+}
+
 /**
  * `localPet` is whatever lib/pets/pet-storage.ts#loadStoredPetProfile()
  * currently returns on this device — null if this device has never hatched

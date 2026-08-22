@@ -7,6 +7,7 @@ import { AuthContext, type AuthContextValue, type AuthUser, type RestoreConflict
 import { runSessionSync } from '@/lib/migration/session-sync'
 import { restoreLocalDataFromSnapshot } from '@/lib/migration/restore-local-snapshot'
 import { registerSyncSession, markSyncReady, clearSyncSession } from '@/lib/sync/session-registry'
+import { loadLocalSyncUpdatedAt } from '@/lib/sync/sync-freshness'
 
 const NOT_CONFIGURED_ERROR = '로그인 기능이 아직 준비되지 않았어요. 잠시 후 다시 시도해주세요.'
 
@@ -57,6 +58,26 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!supabase) return
 
+    // Phase 2D-6 Follow-up Safety Fix — captured HERE, synchronously, as the
+    // very first thing this effect does, before getSession() below has even
+    // started. `loading` is still true at this exact point, which is what
+    // keeps the whole game UI (and therefore use-pet-care.ts's own mount
+    // effect, which touches this SAME marker unconditionally on every
+    // mount) from rendering at all yet — so this read is guaranteed to
+    // reflect the marker exactly as the LAST session left it, immune to a
+    // race against that mount effect. A live read taken later (inside
+    // session-sync's own async chain, after a real network round-trip) can
+    // lose that race: a live QA run during this Follow-up's real rollout
+    // caught it happening — the mount effect touched the marker to "now"
+    // before session-sync's Case B comparison ran, making genuinely STALE
+    // local data look artificially freshest and triggering a wrong
+    // "local is newer" catch-up that silently regressed a server value a
+    // second device had already pushed (see the Follow-up report for the
+    // full trace). Passed through to syncSession only for the reload path
+    // below — the SIGNED_IN path intentionally omits it (see that call
+    // site's own comment for why a live read is correct there instead).
+    const localMarkerAtReload = loadLocalSyncUpdatedAt()
+
     /**
      * The one place migration-vs-restore is decided for a real session (see
      * lib/migration/session-sync.ts's own doc comment for the full ordering
@@ -76,13 +97,13 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
      * still unresolved (same "don't touch state before the user chooses"
      * rule Phase 2C-2 already applies to the conflict itself).
      */
-    async function syncSession(client: SupabaseClient, userId: string) {
+    async function syncSession(client: SupabaseClient, userId: string, localMarkerOverride?: string | null) {
       setRestoreConflict(null)
       setRestoreReady(false)
       registerSyncSession(userId)
       let awaitingConflictResolution = false
       try {
-        const result = await runSessionSync(client)
+        const result = await runSessionSync(client, localMarkerOverride)
         switch (result.status) {
           case 'not_authenticated':
             clearSyncSession()
@@ -121,7 +142,8 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
       setUser(toAuthUser(data.session))
       setLoading(false)
       if (data.session?.user) {
-        syncSession(supabase, data.session.user.id)
+        // Reload path — pass the pre-captured marker (see localMarkerAtReload's own comment above).
+        syncSession(supabase, data.session.user.id, localMarkerAtReload)
       } else {
         setRestoreReady(true) // no session — nothing to check, never adds latency for a guest
         clearSyncSession()
@@ -133,7 +155,14 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
       // SIGNED_IN covers both a fresh signup (SaveScreen) and a real login
       // (LoginScreen/My Page) — Supabase fires the same event for either.
       // Deliberately NOT triggered on every event (TOKEN_REFRESHED etc. fire
-      // periodically and would just be wasted reads).
+      // periodically and would just be wasted reads). Deliberately does NOT
+      // pass a captured marker override here (unlike the reload path above)
+      // — by the time SIGNED_IN fires, the app has already been mounted and
+      // interactive for a while (this is a user clicking "로그인"/"가입하기"
+      // mid-session, e.g. a guest attaching an account), so any mount-effect
+      // race is long over and a genuinely later local change (real guest
+      // play since page load) should count — a live read inside
+      // session-sync is correct here, not stale.
       if (event === 'SIGNED_IN' && session?.user) syncSession(supabase, session.user.id)
       // Covers SIGNED_OUT and any other transition to no-session — belt and
       // braces alongside signOut()'s own immediate clearSyncSession() call

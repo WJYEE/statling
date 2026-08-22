@@ -292,6 +292,15 @@ export interface ServerDataSnapshot {
   userId: string
   /** When this snapshot was read — NOT a per-row timestamp, see individual row fields. */
   readAt: string
+  /**
+   * Phase 2D-6 Follow-up — profiles.sync_updated_at, the account-level
+   * freshness marker (NOT one of the 18 migration-domain tables above; kept
+   * here anyway so read-server-snapshot.ts's single Promise.all covers it
+   * without a second network round-trip on every login). Null for a legacy
+   * account (never migrated, or migrated before this column existed) — see
+   * restore-conflict.ts#compareSyncFreshness for how that's handled.
+   */
+  syncUpdatedAt: string | null
   pet: PetsRow | null
   playerSkillRecords: PlayerSkillRecordRow[]
   xpTotals: XpTotalsRow | null

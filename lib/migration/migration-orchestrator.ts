@@ -3,6 +3,8 @@ import { buildLocalDataSnapshot } from '@/lib/migration/build-local-snapshot'
 import { writeLocalDataSnapshot, type SnapshotWriteReport } from '@/lib/migration/write-local-snapshot'
 import { getOrCreateDeviceId } from '@/lib/room/room-storage'
 import { loadStoredPetProfile } from '@/lib/pets/pet-storage'
+import { setLocalSyncUpdatedAt } from '@/lib/sync/sync-freshness'
+import { clearOutstandingDomainFailures } from '@/lib/sync/sync-dispatcher'
 
 /**
  * Phase 2B-3/2B-4 — the one-time localStorage -> Supabase migration
@@ -17,6 +19,10 @@ import { loadStoredPetProfile } from '@/lib/pets/pet-storage'
  * loadStoredPetProfile, all already read-only with respect to game data),
  * never modifies Auth, never touches game/XP/achievement read/write paths.
  */
+
+function devWarn(...args: unknown[]): void {
+  if (process.env.NODE_ENV !== 'production') console.warn(...args)
+}
 
 export interface MigrationFailure {
   table: string
@@ -134,6 +140,29 @@ async function runLocalDataMigrationInner(client: SupabaseClient): Promise<Migra
 
   if (profileUpdateError) {
     return { status: 'failed', userId: user.id, failures: [{ table: 'profiles', error: profileUpdateError.message }] }
+  }
+
+  // Phase 2D-6 Follow-up — this migration snapshot IS the first coherent
+  // "local and server agree" moment, so it's also the natural birth point
+  // for the sync_updated_at freshness marker (its own column, deliberately
+  // never folded into the migrated_at update above — see
+  // restore-conflict.ts#compareSyncFreshness). A SEPARATE, best-effort call:
+  // until the Phase 2D-6 Follow-up schema migration is actually applied,
+  // this column doesn't exist yet, and that must never fail the migration
+  // itself (migrated_at above is already durably set at this point) — a
+  // missing/failed marker here just means Case B keeps its current
+  // trust-local behavior for this account a little longer, never that the
+  // migration silently didn't happen. Local is aligned to the SAME value
+  // right here rather than left to whatever it happened to accumulate
+  // during guest play beforehand. Also clears any leftover
+  // outstanding-failure flags (Safety Fix follow-up) — vanishingly unlikely
+  // this early (nothing has touched continuous sync yet for a brand-new
+  // account), but harmless and correct if it ever did.
+  clearOutstandingDomainFailures()
+  setLocalSyncUpdatedAt(migratedAt)
+  const { error: syncMarkerError } = await client.from('profiles').update({ sync_updated_at: migratedAt }).eq('id', user.id)
+  if (syncMarkerError) {
+    devWarn('[migration-orchestrator] sync_updated_at marker write failed after a successful migration (migrated_at is already set; will retry via the next continuous-sync push):', syncMarkerError.message)
   }
 
   return { status: 'migrated', userId: user.id, legacyDeviceId, migratedAt, writeReport: report }
