@@ -2,10 +2,8 @@
 
 import { useRef, useState } from 'react'
 import {
-  Download,
   HelpCircle,
   Link2,
-  Loader2,
   LogOut,
   Mail,
   Music,
@@ -16,12 +14,12 @@ import {
 } from 'lucide-react'
 import { Toast } from '@base-ui/react/toast'
 import { trackEvent, type ShareContext } from '@/lib/analytics/ga'
-import { trackProductEvent } from '@/lib/analytics/analytics'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { AuthForm } from '@/components/brain-bet/auth/auth-form'
 import { ConfirmDialog } from '@/components/brain-bet/confirm-dialog'
 import { FeedbackSection } from '@/components/brain-bet/feedback-section'
 import { ShareFallbackModal } from '@/components/brain-bet/share-fallback-modal'
+import { SharePreviewModal } from '@/components/brain-bet/share-preview-modal'
 import { StatlingFriendCard } from '@/components/share/statling-friend-card'
 import { STATLING_TYPES, STATS, type StatId } from '@/lib/brain-bet'
 import { audioManager } from '@/lib/audio/audio-manager'
@@ -31,16 +29,17 @@ import type { BgmTrackId } from '@/lib/audio/bgm-config'
 import type { BgmMode } from '@/lib/audio/types'
 import { useAuth } from '@/lib/auth/auth-provider'
 import { loadPetCareState } from '@/lib/pet-care/pet-care-storage'
-import { loadPetMemory } from '@/lib/pet-care/pet-memory-storage'
+import { allGamePools } from '@/lib/game/game-registry'
+import { getStatCompatibility } from '@/lib/pets/compatibility'
 import type { PetProfile } from '@/lib/pets/pet-profile'
-import { loadStoredPetProfile } from '@/lib/pets/pet-storage'
-import { daysTogether, totalMiniGamePlays } from '@/lib/pets/pet-growth-summary'
+import { ROOM_ASSETS } from '@/lib/room-assets'
+import { loadSavedRoomState } from '@/lib/room/room-storage'
 import { loadXpState } from '@/lib/ranking/xp-ledger'
 import { trackShare } from '@/lib/missions/mission-tracker'
 import { buildFriendInviteText, buildFriendInviteTitle, buildShareUrl } from '@/lib/share/build-share-text'
-import { createShareImage } from '@/lib/share/create-share-image'
-import { saveShareImage } from '@/lib/share/save-share-image'
-import { shareStatlingResult } from '@/lib/share/share-statling-result'
+import { useSharePreview } from '@/lib/share/use-share-preview'
+import { buildDifferentRhythmCards, buildGoodMatchCards } from '@/lib/stats/stat-compatibility-copy'
+import { buildStatInsight } from '@/lib/stats/stat-insights'
 
 /** Correct 이/가 for a Korean noun by checking whether its last syllable has a batchim (same technique as mission-screen.tsx's withObjectParticle for 을/를 — Hangul syllables are a fixed Unicode block starting at U+AC00, in 28-value groups, remainder 0 means no final consonant). Falls back to '가' for anything that isn't a plain Hangul syllable (defensive only — every Statling character name in lib/pets/pet-profile.ts is Korean). */
 function withSubjectParticle(word: string): string {
@@ -63,6 +62,8 @@ const SHARE_CONTEXT: ShareContext = 'my_page'
 interface MyPageScreenProps {
   statlingName: string
   topStat: StatId
+  /** The pet's initial-diagnosis secondary stat (see game-flow.tsx's own `secondaryStat`, computed identically to `topStat` — Phase 3C-2 threads it through for the friend-invite share card's TOP STATS/strength/compatibility content, none of which existed here before). */
+  secondaryStat: StatId
   petProfile: PetProfile | null
   /** Wipes the pet profile + care state + memory and returns to Landing. See resetAllPetData in game-flow.tsx. */
   onResetPet: () => void
@@ -70,22 +71,13 @@ interface MyPageScreenProps {
   onShowOnboarding: () => void
 }
 
-export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, onShowOnboarding }: MyPageScreenProps) {
+export function MyPageScreen({ statlingName, topStat, secondaryStat, petProfile, onResetPet, onShowOnboarding }: MyPageScreenProps) {
   const [sfxEnabled, setSfxEnabled] = useState(() => loadSfxEnabled())
   /** Personal growth number only (see lib/ranking/xp-ledger.ts) — never used for any ranking computation, see lib/ranking/ranking-provider.ts. */
   const [totalXp] = useState(() => loadXpState().totalXp)
-  /** Real, currently-available growth numbers for the friend-invite share card only (see StatlingFriendCard) — never the initial diagnosis TOP 2/scores that Character Reveal's own card uses. Loaded once via the same plain-storage-read pattern as totalXp above, not a live-ticking subscription (usePetCare), since this screen only needs a snapshot to render/capture a PNG. */
-  const [friendCardStats] = useState(() => ({
-    level: loadPetCareState().intimacyLevel,
-    daysTogether: daysTogether(loadStoredPetProfile()?.confirmedAt),
-    totalPlays: totalMiniGamePlays(loadPetMemory()),
-  }))
+  /** Only used by buildFriendInviteText's share-message copy (never the visual card — see StatlingFriendCard). Loaded once via the same plain-storage-read pattern as totalXp above. */
+  const [petCareLevel] = useState(() => loadPetCareState().intimacyLevel)
   const shareCardRef = useRef<HTMLDivElement>(null)
-  // One shared lock (not two independent flags): both actions capture the
-  // same hidden card DOM node via html-to-image, so they must never overlap
-  // — same convention as reveal-screen.tsx's own share/save buttons.
-  const [busyAction, setBusyAction] = useState<'share' | 'save' | null>(null)
-  const [fallback, setFallback] = useState<{ title: string; text: string; url: string } | null>(null)
   const bgm = useBgm()
   const [bgmEnabled, setBgmEnabledState] = useState(() => bgm.isEnabled())
   const [bgmMode, setBgmModeState] = useState<BgmMode>(() => bgm.getMode())
@@ -97,98 +89,55 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
   const [signingOut, setSigningOut] = useState(false)
   const [confirmingReset, setConfirmingReset] = useState(false)
 
-  async function handleShareFriendCard() {
-    if (!petProfile || busyAction) return
-    setBusyAction('share')
-    trackEvent('share_click', { action_type: 'web_share', share_context: SHARE_CONTEXT })
-    trackProductEvent('share_started', { channel: 'web_share', share_context: SHARE_CONTEXT })
+  // Phase 3C-1 — Share Preview: same shared hook as RevealScreen's own
+  // share/save buttons (see lib/share/use-share-preview.ts). trackShare()
+  // (mission progress) is passed as onShareSucceeded since it's specific to
+  // this friend-invite card — RevealScreen's result share never had it.
+  const share = useSharePreview({
+    cardRef: shareCardRef,
+    buildContent: () =>
+      petProfile
+        ? {
+            title: buildFriendInviteTitle(),
+            text: buildFriendInviteText({
+              statlingName,
+              characterName: petProfile.name,
+              level: petCareLevel,
+            }),
+            // Same "친구 도감 등록" invite link the old standalone copy-link
+            // button used to share on its own, before this action absorbed it —
+            // the one existing structure this feature can hook a future friend
+            // system into.
+            url: buildShareUrl(`${window.location.origin}/share/${encodeURIComponent(petProfile.id)}`, SHARE_CONTEXT),
+          }
+        : { title: '', text: '', url: '' }, // unreachable — the buttons below only render when petProfile is set
+    saveName: statlingName,
+    shareContext: SHARE_CONTEXT,
+    toastManager,
+    onShareSucceeded: trackShare,
+  })
+
+  // Phase 3C-2 — Share Card content: same real diagnosis-derived data
+  // RevealScreen's own StatlingShareCard uses (see that component's doc
+  // comment) — getStatCompatibility/buildStatInsight are both pure
+  // functions of petProfile/topStat/secondaryStat, nothing newly computed.
+  const insight = buildStatInsight(topStat, secondaryStat)
+  const shareStrength = insight.strengths[0]
+  const shareWeakness = insight.cautions[0]
+  const compatibility = petProfile ? getStatCompatibility(petProfile) : null
+  const shareGoodMatches = compatibility ? buildGoodMatchCards(compatibility.goodMatches) : undefined
+  const shareDifferentRhythms = compatibility ? buildDifferentRhythmCards(compatibility.differentRhythms) : undefined
+  const [shareGameCount] = useState(() => allGamePools().length)
+  // Best-effort decorative framing only (see ShareCardHero's own doc
+  // comment) — never blocks rendering if unavailable.
+  const [shareRoomBackgroundSrc] = useState<string | null>(() => {
     try {
-      const content = {
-        title: buildFriendInviteTitle(),
-        text: buildFriendInviteText({
-          statlingName,
-          characterName: petProfile.name,
-          level: friendCardStats.level,
-        }),
-        // Same "친구 도감 등록" invite link the old standalone copy-link
-        // button used to share on its own, before this action absorbed it —
-        // the one existing structure this feature can hook a future friend
-        // system into.
-        url: buildShareUrl(`${window.location.origin}/share/${encodeURIComponent(petProfile.id)}`, SHARE_CONTEXT),
-      }
-      const outcome = await shareStatlingResult(
-        content,
-        shareCardRef.current ?? undefined,
-        `statling-${petProfile.id}-invite.png`,
-      )
-
-      switch (outcome.status) {
-        case 'shared':
-          toastManager.add({ title: '공유했어요!', type: 'success' })
-          trackEvent('share_success', { action_type: 'web_share', share_context: SHARE_CONTEXT })
-          trackProductEvent('share_completed', { channel: 'web_share', share_context: SHARE_CONTEXT })
-          trackShare()
-          break
-        case 'copied':
-          toastManager.add({ title: '공유 내용이 복사되었어요.', type: 'success' })
-          trackEvent('share_success', { action_type: 'web_share', share_context: SHARE_CONTEXT })
-          trackProductEvent('share_completed', { channel: 'web_share', share_context: SHARE_CONTEXT })
-          trackShare()
-          break
-        case 'cancelled':
-          break // user backed out of the share sheet — not an error
-        case 'manual-copy':
-          setFallback({ title: outcome.title, text: outcome.text, url: outcome.url })
-          break
-        case 'error':
-          toastManager.add({ title: '공유하지 못했어요. 다시 시도해주세요.', type: 'error' })
-          trackEvent('share_fail', { action_type: 'web_share', share_context: SHARE_CONTEXT, error_type: 'unknown' })
-          break
-      }
-    } finally {
-      setBusyAction(null)
-    }
-  }
-
-  async function handleSaveFriendCardImage() {
-    if (!petProfile || busyAction || !shareCardRef.current) return
-    setBusyAction('save')
-    trackEvent('share_click', { action_type: 'png', share_context: SHARE_CONTEXT })
-    trackProductEvent('share_started', { channel: 'png', share_context: SHARE_CONTEXT })
-    try {
-      const blob = await createShareImage(shareCardRef.current)
-      if (!blob) {
-        toastManager.add({ title: '이미지를 만들지 못했어요. 다시 시도해주세요.', type: 'error' })
-        trackEvent('share_fail', { action_type: 'png', share_context: SHARE_CONTEXT, error_type: 'image_creation_failed' })
-        return
-      }
-
-      const outcome = await saveShareImage(blob, statlingName)
-      switch (outcome.status) {
-        case 'shared':
-          toastManager.add({ title: '공유 시트에서 사진 앱에 저장할 수 있어요.', type: 'success' })
-          trackEvent('share_success', { action_type: 'png', share_context: SHARE_CONTEXT })
-          trackProductEvent('share_completed', { channel: 'png', share_context: SHARE_CONTEXT })
-          break
-        case 'downloaded':
-          toastManager.add({ title: '이미지가 저장되었어요.', type: 'success' })
-          trackEvent('share_success', { action_type: 'png', share_context: SHARE_CONTEXT })
-          trackProductEvent('share_completed', { channel: 'png', share_context: SHARE_CONTEXT })
-          break
-        case 'cancelled':
-          break // user backed out of the native share sheet — not an error
-        case 'error':
-          toastManager.add({ title: '이미지를 저장하지 못했어요. 다시 시도해주세요.', type: 'error' })
-          trackEvent('share_fail', { action_type: 'png', share_context: SHARE_CONTEXT, error_type: 'unknown' })
-          break
-      }
+      const backgroundId = loadSavedRoomState().backgroundId
+      return ROOM_ASSETS[backgroundId]?.src ?? null
     } catch {
-      toastManager.add({ title: '이미지를 만들지 못했어요. 다시 시도해주세요.', type: 'error' })
-      trackEvent('share_fail', { action_type: 'png', share_context: SHARE_CONTEXT, error_type: 'unknown' })
-    } finally {
-      setBusyAction(null)
+      return null
     }
-  }
+  })
 
   function toggleSfx() {
     const next = !sfxEnabled
@@ -335,54 +284,28 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
       {/* Merged with the old standalone "친구에게 공유" button — one action
           now covers both "링크만 복사" and "친구에게 공유", since
           shareStatlingResult's own fallback chain already lands on a plain
-          link copy (see handleShareFriendCard) whenever native share isn't
-          available, so a separate copy-only button no longer added anything. */}
+          link copy whenever native share isn't available, so a separate
+          copy-only button no longer added anything. Phase 3C-1: opens
+          Share Preview (see share.openPreview) rather than firing
+          immediately. Phase 3C-1 Follow-up: removed the separate "소개
+          카드 이미지로 저장" button entirely — Share Preview's own "이미지
+          저장" button already covers that, so a second entry point into the
+          identical Preview was pure duplication; this is now MyPage's one
+          share entry point. */}
       {petProfile && (
-        <>
-          <button
-            type="button"
-            onClick={handleShareFriendCard}
-            disabled={busyAction !== null}
-            aria-disabled={busyAction !== null}
-            className="mt-2 flex items-center gap-3 rounded-2xl bg-card px-4 py-4 text-left toy-border disabled:opacity-60"
-          >
-            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground toy-border">
-              {busyAction === 'share' ? (
-                <Loader2 size={20} strokeWidth={2.2} className="animate-spin" />
-              ) : (
-                <Link2 size={20} strokeWidth={2.2} />
-              )}
-            </span>
-            <div className="flex-1">
-              <p className="font-display text-sm font-extrabold text-foreground">
-                {busyAction === 'share' ? '공유 준비 중...' : '내 Statling 친구에게 공유'}
-              </p>
-              <p className="text-xs text-muted-foreground">친구가 링크를 열고 기록하면 친구 도감에 {withSubjectParticle(petProfile.name)} 등록돼요.</p>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleSaveFriendCardImage}
-            disabled={busyAction !== null}
-            aria-disabled={busyAction !== null}
-            className="mt-2 flex items-center gap-3 rounded-2xl bg-card px-4 py-4 text-left toy-border disabled:opacity-60"
-          >
-            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground toy-border">
-              {busyAction === 'save' ? (
-                <Loader2 size={20} strokeWidth={2.2} className="animate-spin" />
-              ) : (
-                <Download size={20} strokeWidth={2.2} />
-              )}
-            </span>
-            <div className="flex-1">
-              <p className="font-display text-sm font-extrabold text-foreground">
-                {busyAction === 'save' ? '이미지 만드는 중...' : '소개 카드 이미지로 저장'}
-              </p>
-              <p className="text-xs text-muted-foreground">공유 카드 PNG만 따로 저장해요.</p>
-            </div>
-          </button>
-        </>
+        <button
+          type="button"
+          onClick={share.openPreview}
+          className="mt-2 flex items-center gap-3 rounded-2xl bg-card px-4 py-4 text-left toy-border disabled:opacity-60"
+        >
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground toy-border">
+            <Link2 size={20} strokeWidth={2.2} />
+          </span>
+          <div className="flex-1">
+            <p className="font-display text-sm font-extrabold text-foreground">내 Statling 친구에게 공유</p>
+            <p className="text-xs text-muted-foreground">친구가 링크를 열고 기록하면 친구 도감에 {withSubjectParticle(petProfile.name)} 등록돼요.</p>
+          </div>
+        </button>
       )}
 
       {/* 3. 설정 */}
@@ -513,21 +436,36 @@ export function MyPageScreen({ statlingName, topStat, petProfile, onResetPet, on
           ref={shareCardRef}
           petProfile={petProfile}
           statlingName={statlingName}
-          level={friendCardStats.level}
-          daysTogether={friendCardStats.daysTogether}
-          totalPlays={friendCardStats.totalPlays}
+          topStat={topStat}
+          secondaryStat={secondaryStat}
+          strength={shareStrength}
+          weakness={shareWeakness}
+          goodMatches={shareGoodMatches}
+          differentRhythms={shareDifferentRhythms}
+          gameCount={shareGameCount}
+          roomBackgroundSrc={shareRoomBackgroundSrc}
         />
       )}
 
-      {fallback && (
+      <SharePreviewModal
+        open={share.isOpen}
+        onOpenChange={share.onOpenChange}
+        imageState={share.imageState}
+        imageUrl={share.imageUrl}
+        busyAction={share.busyAction}
+        onShare={share.handleShare}
+        onSave={share.handleSave}
+      />
+
+      {share.fallback && (
         <ShareFallbackModal
-          open={!!fallback}
+          open={!!share.fallback}
           onOpenChange={(open) => {
-            if (!open) setFallback(null)
+            if (!open) share.clearFallback()
           }}
-          title={fallback.title}
-          text={fallback.text}
-          url={fallback.url}
+          title={share.fallback.title}
+          text={share.fallback.text}
+          url={share.fallback.url}
         />
       )}
     </div>

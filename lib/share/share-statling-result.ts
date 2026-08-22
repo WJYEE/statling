@@ -1,4 +1,4 @@
-import { createShareImage } from '@/lib/share/create-share-image'
+import { detectDevice } from '@/lib/game/device'
 import type { ShareCardContent, ShareOutcome } from '@/lib/share/share-types'
 
 function isAbortError(err: unknown): boolean {
@@ -9,16 +9,23 @@ function isAbortError(err: unknown): boolean {
 }
 
 /**
- * Shares a Statling result, cascading down a priority chain until something
- * works (each tier's *failure* — not the user cancelling — falls through to
- * the next):
+ * Shares a Statling result — Phase 3C-1 Follow-up: URL-first, not PNG-first.
+ * "친구에게 공유" is about getting a clickable Statling link in front of a
+ * friend (title+text+url), never the raw image file — the image is what
+ * OG Preview (app/api/og/share/route.tsx) shows once the link is opened, and
+ * what the Preview's own separate "이미지 저장" button saves (see
+ * saveShareImage) — this function no longer touches the PNG at all.
  *
- *   1. Image file + text, via navigator.share({ files }) — only attempted if
- *      an `imageElement` was given, image generation succeeds, AND
- *      navigator.canShare({ files }) reports true.
- *   2. Text + url, via navigator.share({ title, text, url }).
- *   3. Clipboard — copies `text + url` as plain text.
- *   4. Manual — caller shows the content in a modal so the user can select
+ *   1. Mobile only (see detectDevice — desktop always skips straight to
+ *      step 2, deliberately: Web Share's actual OS-level behavior is
+ *      inconsistent enough across desktop browsers/OSes that a native share
+ *      sheet there reads as "different from what I expected" more often
+ *      than it helps) + navigator.share exists: native share with
+ *      { title, text, url } — never `files`.
+ *   2. Clipboard — copies `text + url` as plain text. This is the Desktop
+ *      default, and Mobile's own fallback when native share is unsupported
+ *      or fails.
+ *   3. Manual — caller shows the content in a modal so the user can select
  *      and copy it themselves (there's always a next tier, so this never
  *      needs to fail).
  *
@@ -28,38 +35,14 @@ function isAbortError(err: unknown): boolean {
  * unexpected exception (nothing in the normal flow should throw past this)
  * produces 'error'.
  */
-export async function shareStatlingResult(
-  content: ShareCardContent,
-  imageElement?: HTMLElement,
-  imageFilename = 'my-statling.png',
-): Promise<ShareOutcome> {
+export async function shareStatlingResult(content: ShareCardContent): Promise<ShareOutcome> {
   try {
     const { title, text, url } = content
-
+    const isMobile = detectDevice().deviceType === 'mobile'
     const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
 
-    // --- 1. image file + text ---
-    if (canShare && imageElement) {
-      const blob = await createShareImage(imageElement)
-      if (blob) {
-        const file = new File([blob], imageFilename, { type: 'image/png' })
-        const canShareFiles =
-          typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })
-
-        if (canShareFiles) {
-          try {
-            await navigator.share({ title, text, files: [file] })
-            return { status: 'shared', method: 'file' }
-          } catch (err) {
-            if (isAbortError(err)) return { status: 'cancelled' }
-            // fall through to text+url share
-          }
-        }
-      }
-    }
-
-    // --- 2. text + url ---
-    if (canShare) {
+    // --- 1. Mobile native share: title + text + url, never files ---
+    if (isMobile && canShare) {
       try {
         await navigator.share({ title, text, url })
         return { status: 'shared', method: 'web-share' }
@@ -69,7 +52,7 @@ export async function shareStatlingResult(
       }
     }
 
-    // --- 3. clipboard ---
+    // --- 2. clipboard (Desktop default; Mobile's own fallback) ---
     const canWriteClipboard =
       typeof navigator !== 'undefined' && typeof navigator.clipboard?.writeText === 'function'
     if (canWriteClipboard) {
@@ -81,7 +64,7 @@ export async function shareStatlingResult(
       }
     }
 
-    // --- 4. manual (always succeeds) ---
+    // --- 3. manual (always succeeds) ---
     return { status: 'manual-copy', title, text, url }
   } catch {
     return { status: 'error' }

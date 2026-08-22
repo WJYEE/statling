@@ -15,7 +15,7 @@ export interface ShareStatlingInput {
 }
 
 export type ShareOutcome =
-  | { status: 'shared'; method: 'file' | 'web-share' }
+  | { status: 'shared'; method: 'web-share' }
   | { status: 'copied'; method: 'clipboard' }
   | { status: 'cancelled' }
   | { status: 'manual-copy'; title: string; text: string; url: string }

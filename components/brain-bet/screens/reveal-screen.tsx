@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Toast } from '@base-ui/react/toast'
-import { ArrowRight, Download, Loader2, Share2 } from 'lucide-react'
+import { ArrowRight, Share2 } from 'lucide-react'
 import { trackEvent, type ShareContext } from '@/lib/analytics/ga'
 import { trackProductEvent } from '@/lib/analytics/analytics'
 import { CharacterTraits } from '@/components/brain-bet/result/character-traits'
@@ -12,16 +12,18 @@ import { StatlingCompatibility } from '@/components/brain-bet/result/statling-co
 import { StatlingHero } from '@/components/brain-bet/result/statling-hero'
 import { Logo } from '@/components/brain-bet/logo'
 import { ShareFallbackModal } from '@/components/brain-bet/share-fallback-modal'
+import { SharePreviewModal } from '@/components/brain-bet/share-preview-modal'
 import { ToyButton } from '@/components/brain-bet/toy-button'
-import { StatlingShareCard, type ShareTopStatEntry } from '@/components/share/statling-share-card'
+import { StatlingShareCard } from '@/components/share/statling-share-card'
 import { STATLING_TYPES, STATS, type StatId } from '@/lib/brain-bet'
-import { getStatCompatibility, getStatTypeLabel } from '@/lib/pets/compatibility'
+import { allGamePools } from '@/lib/game/game-registry'
+import { getStatCompatibility } from '@/lib/pets/compatibility'
 import { buildCoreTraitSummary } from '@/lib/pets/pet-analysis'
 import type { PetProfile } from '@/lib/pets/pet-profile'
+import { ROOM_ASSETS } from '@/lib/room-assets'
+import { loadSavedRoomState } from '@/lib/room/room-storage'
 import { buildShareText, buildShareTitle, buildShareUrl } from '@/lib/share/build-share-text'
-import { createShareImage } from '@/lib/share/create-share-image'
-import { saveShareImage } from '@/lib/share/save-share-image'
-import { shareStatlingResult } from '@/lib/share/share-statling-result'
+import { useSharePreview } from '@/lib/share/use-share-preview'
 import { buildDifferentRhythmCards, buildGoodMatchCards } from '@/lib/stats/stat-compatibility-copy'
 import { buildStatInsight } from '@/lib/stats/stat-insights'
 
@@ -51,10 +53,6 @@ export function RevealScreen({
 
   const toastManager = Toast.useToastManager()
   const shareCardRef = useRef<HTMLDivElement>(null)
-  // One shared lock (not two independent flags): both actions capture the
-  // same hidden card DOM node via html-to-image, so they must never overlap.
-  const [busyAction, setBusyAction] = useState<'share' | 'save' | null>(null)
-  const [fallback, setFallback] = useState<{ title: string; text: string; url: string } | null>(null)
 
   // "캐릭터 공개" — fires on every mount, including a refresh that bounces
   // straight back here pre-confirm (see game-flow.tsx's restore effect), by
@@ -66,91 +64,28 @@ export function RevealScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per mount only
   }, [])
 
-  const handleShare = async () => {
-    if (busyAction) return // prevent double-clicks while an action is in flight
-    setBusyAction('share')
-    trackEvent('share_click', { action_type: 'web_share', share_context: SHARE_CONTEXT })
-    trackProductEvent('share_started', { channel: 'web_share', share_context: SHARE_CONTEXT })
-    try {
-      const content = {
-        title: buildShareTitle(),
-        text: buildShareText({ petName: petProfile.name, primaryStat: stat.name, secondaryStat: secondary.name }),
-        // Real per-result landing page (see app/share/[petId]/[[...stats]]/)
-        // — carries TOP1/TOP2 as extra path segments so both the link
-        // preview card and the page itself can headline the same 2 stats,
-        // rather than sharing a generic site-root URL.
-        url: buildShareUrl(
-          `${window.location.origin}/share/${encodeURIComponent(petProfile.id)}/${topStat}/${secondaryStat}`,
-          SHARE_CONTEXT,
-        ),
-      }
-      const outcome = await shareStatlingResult(content, shareCardRef.current ?? undefined)
-
-      switch (outcome.status) {
-        case 'shared':
-          toastManager.add({ title: '공유했어요!', type: 'success' })
-          trackEvent('share_success', { action_type: 'web_share', share_context: SHARE_CONTEXT })
-          trackProductEvent('share_completed', { channel: 'web_share', share_context: SHARE_CONTEXT })
-          break
-        case 'copied':
-          toastManager.add({ title: '공유 내용이 복사되었어요.', type: 'success' })
-          trackEvent('share_success', { action_type: 'web_share', share_context: SHARE_CONTEXT })
-          trackProductEvent('share_completed', { channel: 'web_share', share_context: SHARE_CONTEXT })
-          break
-        case 'cancelled':
-          break // user backed out of the share sheet — not an error
-        case 'manual-copy':
-          setFallback({ title: outcome.title, text: outcome.text, url: outcome.url })
-          break
-        case 'error':
-          toastManager.add({ title: '공유하지 못했어요. 다시 시도해주세요.', type: 'error' })
-          trackEvent('share_fail', { action_type: 'web_share', share_context: SHARE_CONTEXT, error_type: 'unknown' })
-          break
-      }
-    } finally {
-      setBusyAction(null)
-    }
-  }
-
-  const handleSaveImage = async () => {
-    if (busyAction || !shareCardRef.current) return
-    setBusyAction('save')
-    trackEvent('share_click', { action_type: 'png', share_context: SHARE_CONTEXT })
-    trackProductEvent('share_started', { channel: 'png', share_context: SHARE_CONTEXT })
-    try {
-      const blob = await createShareImage(shareCardRef.current)
-      if (!blob) {
-        toastManager.add({ title: '이미지를 만들지 못했어요. 다시 시도해주세요.', type: 'error' })
-        trackEvent('share_fail', { action_type: 'png', share_context: SHARE_CONTEXT, error_type: 'image_creation_failed' })
-        return
-      }
-
-      const outcome = await saveShareImage(blob, petProfile.name)
-      switch (outcome.status) {
-        case 'shared':
-          toastManager.add({ title: '공유 시트에서 사진 앱에 저장할 수 있어요.', type: 'success' })
-          trackEvent('share_success', { action_type: 'png', share_context: SHARE_CONTEXT })
-          trackProductEvent('share_completed', { channel: 'png', share_context: SHARE_CONTEXT })
-          break
-        case 'downloaded':
-          toastManager.add({ title: '이미지가 저장되었어요.', type: 'success' })
-          trackEvent('share_success', { action_type: 'png', share_context: SHARE_CONTEXT })
-          trackProductEvent('share_completed', { channel: 'png', share_context: SHARE_CONTEXT })
-          break
-        case 'cancelled':
-          break // user backed out of the native share sheet — not an error
-        case 'error':
-          toastManager.add({ title: '이미지를 저장하지 못했어요. 다시 시도해주세요.', type: 'error' })
-          trackEvent('share_fail', { action_type: 'png', share_context: SHARE_CONTEXT, error_type: 'unknown' })
-          break
-      }
-    } catch {
-      toastManager.add({ title: '이미지를 만들지 못했어요. 다시 시도해주세요.', type: 'error' })
-      trackEvent('share_fail', { action_type: 'png', share_context: SHARE_CONTEXT, error_type: 'unknown' })
-    } finally {
-      setBusyAction(null)
-    }
-  }
+  // Phase 3C-1 — Share Preview: image generation, the file/text/clipboard
+  // fallback cascade, and toast/analytics for both "공유하기"/"이미지로
+  // 저장" now live in this one shared hook (also used by MyPageScreen's
+  // friend-invite card) rather than being duplicated per screen.
+  const share = useSharePreview({
+    cardRef: shareCardRef,
+    buildContent: () => ({
+      title: buildShareTitle(),
+      text: buildShareText({ petName: petProfile.name, primaryStat: stat.name, secondaryStat: secondary.name }),
+      // Real per-result landing page (see app/share/[petId]/[[...stats]]/)
+      // — carries TOP1/TOP2 as extra path segments so both the link
+      // preview card and the page itself can headline the same 2 stats,
+      // rather than sharing a generic site-root URL.
+      url: buildShareUrl(
+        `${window.location.origin}/share/${encodeURIComponent(petProfile.id)}/${topStat}/${secondaryStat}`,
+        SHARE_CONTEXT,
+      ),
+    }),
+    saveName: petProfile.name,
+    shareContext: SHARE_CONTEXT,
+    toastManager,
+  })
 
   const coreTraitSummary = buildCoreTraitSummary(finals, topStat, secondaryStat)
   const compatibility = getStatCompatibility(petProfile)
@@ -158,31 +93,24 @@ export function RevealScreen({
   const goodMatchCards = buildGoodMatchCards(compatibility.goodMatches)
   const differentRhythmCards = buildDifferentRhythmCards(compatibility.differentRhythms)
 
-  // Share-card content — TOP 2 from the *initial* diagnosis only (topStat/
-  // secondaryStat, never a later-grown stat), reusing the same
-  // STATLING_TYPES/getStatTypeLabel short tags already shown elsewhere on
-  // this screen rather than inventing new keyword copy. goodMatchCards[0]/
-  // differentRhythmCards[0] reuse the exact compatibility lists already
-  // computed above for StatlingCompatibility, just the first of each.
-  const buildTopStatEntry = (id: StatId): ShareTopStatEntry => ({
-    name: STATS[id].name,
-    keywords: [STATLING_TYPES[id].typeName, getStatTypeLabel(id)],
-    description: STATLING_TYPES[id].personality,
+  // Phase 3C-2 (Follow-up: now both strength+weakness, both compatibility
+  // entries per group) — coreTraitSummary/insight/goodMatchCards/
+  // differentRhythmCards above are already this screen's own real,
+  // already-computed diagnosis results (see StatlingShareCard's own doc
+  // comment) — nothing here is newly calculated for the card.
+  const shareStrength = insight.strengths[0]
+  const shareWeakness = insight.cautions[0]
+  const shareGameCount = allGamePools().length
+  // Best-effort decorative framing only (see ShareCardHero's own doc
+  // comment) — never blocks rendering if unavailable.
+  const [shareRoomBackgroundSrc] = useState<string | null>(() => {
+    try {
+      const backgroundId = loadSavedRoomState().backgroundId
+      return ROOM_ASSETS[backgroundId]?.src ?? null
+    } catch {
+      return null
+    }
   })
-  const shareTopStats: [ShareTopStatEntry, ShareTopStatEntry] = [
-    buildTopStatEntry(topStat),
-    buildTopStatEntry(secondaryStat),
-  ]
-  const shareGoodMatch = goodMatchCards[0]
-  const shareDifferentRhythm = differentRhythmCards[0]
-
-  // Same `insight` CharacterTraits/CompatibleEnvironment already render
-  // on-screen (see the JSX below) — the share card just takes a smaller
-  // slice of the exact same arrays, never new copy, to fit its fixed
-  // 1080x1350 canvas alongside everything else on it.
-  const shareStrengths = insight.strengths.slice(0, 2)
-  const shareCautions = insight.cautions.slice(0, 1)
-  const shareCompatibleEnvironment = [...insight.learningStyle.slice(0, 1), ...insight.workStyle.slice(0, 1)]
 
   return (
     <div className="dot-grid-bg contain-[layout] mx-auto flex min-h-dvh w-full max-w-md flex-col items-center overflow-x-hidden px-5 py-6">
@@ -212,35 +140,18 @@ export function RevealScreen({
           <ArrowRight size={20} strokeWidth={2.8} />
         </ToyButton>
 
+        {/* Phase 3C-1 Follow-up: one entry point into Share Preview, which
+            itself offers both "친구에게 공유" and "이미지 저장" — a
+            separate "이미지로 저장" button here just opened the identical
+            Preview, so it added nothing (same consolidation MyPage's own
+            share buttons went through). */}
         <ToyButton
           className="w-full"
-          onClick={handleShare}
-          disabled={busyAction !== null}
-          aria-disabled={busyAction !== null}
-          aria-label="대표 스탯링 결과 공유하기"
+          onClick={share.openPreview}
+          aria-label="대표 스탯링 결과 공유 미리보기 열기"
         >
-          {busyAction === 'share' ? (
-            <Loader2 size={18} strokeWidth={2.4} className="animate-spin" />
-          ) : (
-            <Share2 size={18} strokeWidth={2.4} />
-          )}
-          {busyAction === 'share' ? '공유 준비 중...' : '공유하기'}
-        </ToyButton>
-
-        <ToyButton
-          variant="secondary"
-          className="w-full"
-          onClick={handleSaveImage}
-          disabled={busyAction !== null}
-          aria-disabled={busyAction !== null}
-          aria-label="대표 스탯링 결과 이미지로 저장하기"
-        >
-          {busyAction === 'save' ? (
-            <Loader2 size={18} strokeWidth={2.4} className="animate-spin" />
-          ) : (
-            <Download size={18} strokeWidth={2.4} />
-          )}
-          {busyAction === 'save' ? '이미지 만드는 중...' : '이미지로 저장'}
+          <Share2 size={18} strokeWidth={2.4} />
+          공유하기
         </ToyButton>
       </div>
 
@@ -248,24 +159,36 @@ export function RevealScreen({
       <StatlingShareCard
         ref={shareCardRef}
         petProfile={petProfile}
-        topStats={shareTopStats}
-        goodMatch={shareGoodMatch}
-        differentRhythm={shareDifferentRhythm}
-        strengths={shareStrengths}
-        cautions={shareCautions}
-        compatibleEnvironment={shareCompatibleEnvironment}
-        finals={finals}
+        topStat={topStat}
+        secondaryStat={secondaryStat}
+        coreTrait={coreTraitSummary}
+        strength={shareStrength}
+        weakness={shareWeakness}
+        goodMatches={goodMatchCards}
+        differentRhythms={differentRhythmCards}
+        gameCount={shareGameCount}
+        roomBackgroundSrc={shareRoomBackgroundSrc}
       />
 
-      {fallback && (
+      <SharePreviewModal
+        open={share.isOpen}
+        onOpenChange={share.onOpenChange}
+        imageState={share.imageState}
+        imageUrl={share.imageUrl}
+        busyAction={share.busyAction}
+        onShare={share.handleShare}
+        onSave={share.handleSave}
+      />
+
+      {share.fallback && (
         <ShareFallbackModal
-          open={!!fallback}
+          open={!!share.fallback}
           onOpenChange={(open) => {
-            if (!open) setFallback(null)
+            if (!open) share.clearFallback()
           }}
-          title={fallback.title}
-          text={fallback.text}
-          url={fallback.url}
+          title={share.fallback.title}
+          text={share.fallback.text}
+          url={share.fallback.url}
         />
       )}
     </div>

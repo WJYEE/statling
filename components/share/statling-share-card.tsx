@@ -1,43 +1,39 @@
 import { forwardRef } from 'react'
-import { ShareCardFooter, ShareCardHeader, ShareCardHidden } from '@/components/share/share-card-common'
-import { STAT_DISPLAY_ORDER, STATS, type StatId } from '@/lib/brain-bet'
+import { Gamepad2, Sprout } from 'lucide-react'
+import {
+  ShareCardCompatGroup,
+  ShareCardFeatureCard,
+  ShareCardFooter,
+  ShareCardHeader,
+  ShareCardHero,
+  ShareCardHidden,
+  ShareCardSectionLabel,
+  ShareCardTag,
+  ShareCardTraitPair,
+  ShareCardTypeLine,
+  type ShareCardCompatItem,
+} from '@/components/share/share-card-common'
+import { StatBadge } from '@/components/brain-bet/stat-badge'
+import { STATS, type StatId } from '@/lib/brain-bet'
 import type { PetProfile } from '@/lib/pets/pet-profile'
-
-/** One of the initial diagnosis's TOP 2 stats — no 0-100 score anywhere, per spec (Character Reveal share is about *which* Statling was born, not the raw numbers). */
-export interface ShareTopStatEntry {
-  /** e.g. "순발력" */
-  name: string
-  /** 2 short existing tags for this stat — reused as-is, never newly authored copy (see reveal-screen.tsx: STATLING_TYPES[id].typeName + getStatTypeLabel(id)). */
-  keywords: [string, string]
-  /** One existing line, reused as-is (STATLING_TYPES[id].personality) — never a newly authored description. */
-  description: string
-}
-
-/** One compatibility entry — a real other catalog character, reused as-is from lib/stats/stat-compatibility-copy.ts (no new matching rules invented here). */
-export interface ShareCompatibilityEntry {
-  characterName: string
-  characterImageSrc: string
-}
 
 export interface StatlingShareCardProps {
   petProfile: PetProfile
-  /** [TOP 1, TOP 2] — highest first, from the *initial* diagnosis (see reveal-screen.tsx's `finals`), never later growth. */
-  topStats: [ShareTopStatEntry, ShareTopStatEntry]
-  goodMatch?: ShareCompatibilityEntry
-  differentRhythm?: ShareCompatibilityEntry
-  /**
-   * All optional-safe display-only additions — every one of these is a
-   * pre-trimmed slice of content the RevealScreen already computes via its
-   * existing copy-generation functions (buildStatInsight, CompatibleEnvironment's
-   * own composition, `finals`) — see reveal-screen.tsx's call site. Nothing
-   * here is newly authored or recalculated inside this component; missing
-   * fields just quietly skip that block rather than showing an empty panel.
-   */
-  strengths?: string[]
-  cautions?: string[]
-  compatibleEnvironment?: string[]
-  /** Same shape as StatDistribution's own `finals` prop — a compact bar-per-stat mini version renders if given. */
-  finals?: Record<StatId, number>
+  /** The initial diagnosis's TOP 1/2 stats (see reveal-screen.tsx's `topStat`/`secondaryStat`) — shown only as two small tags, never raw scores. */
+  topStat: StatId
+  secondaryStat: StatId
+  /** buildCoreTraitSummary(finals, topStat, secondaryStat)'s real output (see reveal-screen.tsx) — the screen's own already-computed "핵심 성향" sentence, never recalculated or newly authored here. */
+  coreTrait: string
+  /** insight.strengths[0] / insight.cautions[0] (see lib/stats/stat-insights.ts#buildStatInsight) — the screen's own already-computed sentences, shown verbatim (never truncated/rewritten, to avoid inventing new phrasing). */
+  strength?: string
+  weakness?: string
+  /** goodMatchCards/differentRhythmCards (see lib/stats/stat-compatibility-copy.ts) — real compatibility data from the pet's own catalog vector, always exactly 2 entries each; passed through as-is, never sliced to 1 or recomputed. */
+  goodMatches?: ShareCardCompatItem[]
+  differentRhythms?: ShareCardCompatItem[]
+  /** Total registered mini-game count (see lib/game/game-registry.ts#allGamePools) for the closing feature-card row. */
+  gameCount: number
+  /** The user's currently-equipped Room background image src (see ShareCardHero's own doc comment) — optional/best-effort. */
+  roomBackgroundSrc?: string | null
 }
 
 /**
@@ -47,158 +43,68 @@ export interface StatlingShareCardProps {
  * `statlingName` (the pet's own naming step hasn't happened yet at this
  * point in the flow) — only `petProfile.name`, the catalog species name,
  * which is always already known.
+ *
+ * Phase 3C-2 — a psychology-test-style result card: "나의 능력을 분석했더니
+ * 이런 Statling이 나왔어요", not just "내 Statling을 소개할게요". Every piece
+ * of content here is a direct reuse of data RevealScreen (or its upstream
+ * lib/pets, lib/stats helpers) already computes for the on-screen result —
+ * coreTrait, strength/weakness, and compatibility are never recalculated or
+ * newly authored inside this purely-presentational component. Deliberately
+ * still no 6-stat chart/raw scores/XP/ranking.
+ *
+ * Phase 3C-2 Follow-up: bigger Hero, no more type-name badge (redundant with
+ * coreTrait/TOP STATS — see ShareCardHero's own doc comment), both strength
+ * AND weakness (not strength-only), both compatibility entries per group
+ * (not just the first), and a more prominent closing feature row + footer.
+ * `SHARE_CARD_WIDTH`/`HEIGHT` (1080x1350) are unchanged, so every section
+ * below is kept deliberately compact (tight gaps, 1-2 line text caps) —
+ * this got measurably richer without the card's fixed capture canvas
+ * growing, verified by checking the actual saved PNG isn't clipped.
  */
 export const StatlingShareCard = forwardRef<HTMLDivElement, StatlingShareCardProps>(function StatlingShareCard(
-  { petProfile, topStats, goodMatch, differentRhythm, strengths, cautions, compatibleEnvironment, finals },
+  { petProfile, topStat, secondaryStat, coreTrait, strength, weakness, goodMatches, differentRhythms, gameCount, roomBackgroundSrc },
   ref,
 ) {
-  const [top1, top2] = topStats
-  const hasFeaturePanel = (strengths && strengths.length > 0) || (cautions && cautions.length > 0) || (compatibleEnvironment && compatibleEnvironment.length > 0)
-
   return (
-    <ShareCardHidden ref={ref} className="justify-between">
-      <ShareCardHeader title="나의 숨겨진 스탯" />
+    <ShareCardHidden ref={ref} className="justify-between gap-2 py-8">
+      <ShareCardHeader />
 
-      <div className="flex flex-col items-center gap-2">
-        <img
-          src={petProfile.imageSrc}
-          alt=""
-          width={230}
-          height={230}
-          className="h-57.5 w-57.5 object-contain"
+      <ShareCardHero imageSrc={petProfile.imageSrc} name={petProfile.name} roomBackgroundSrc={roomBackgroundSrc} />
+
+      <ShareCardTypeLine text={coreTrait} />
+
+      <div className="flex w-full flex-col items-center gap-1.5">
+        <ShareCardSectionLabel>TOP STATS</ShareCardSectionLabel>
+        <div className="flex items-center gap-3">
+          <ShareCardTag icon={<StatBadge stat={STATS[topStat]} size="xs" />} label={STATS[topStat].name} />
+          <ShareCardTag icon={<StatBadge stat={STATS[secondaryStat]} size="xs" />} label={STATS[secondaryStat].name} />
+        </div>
+      </div>
+
+      <ShareCardTraitPair strength={strength} weakness={weakness} />
+
+      {goodMatches && goodMatches.length > 0 && <ShareCardCompatGroup label="💕 잘 맞는 Statling" items={goodMatches} />}
+      {differentRhythms && differentRhythms.length > 0 && (
+        <ShareCardCompatGroup label="🎐 잘 안 맞는 Statling" items={differentRhythms} />
+      )}
+
+      <div className="flex w-full gap-3">
+        <ShareCardFeatureCard
+          icon={<Gamepad2 size={22} strokeWidth={2.4} />}
+          title={`${gameCount}가지 미니게임`}
+          description="숨겨진 능력을 발견해요"
         />
-        <p className="font-display text-4xl font-extrabold text-foreground">{petProfile.name}</p>
+        <ShareCardFeatureCard
+          icon={<Sprout size={22} strokeWidth={2.4} />}
+          title="함께 성장하는 친구"
+          description="같이 키우고 성장해요"
+        />
       </div>
 
-      <div className="flex w-full flex-col gap-3">
-        {[top1, top2].map((entry, i) => (
-          <div
-            key={entry.name}
-            className="flex items-center gap-5 rounded-[1.5rem] bg-card px-7 py-4 text-left toy-border toy-shadow-sm"
-          >
-            <span className="grid h-13 w-13 shrink-0 place-items-center rounded-2xl bg-primary font-display text-xl font-extrabold text-primary-foreground toy-border">
-              {i === 0 ? 'TOP1' : 'TOP2'}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-baseline gap-2">
-                <span className="font-display text-2xl font-extrabold text-foreground">{entry.name}</span>
-                {entry.keywords.map((keyword) => (
-                  <span
-                    key={keyword}
-                    className="rounded-full bg-accent px-3 py-0.5 text-base font-bold text-accent-foreground toy-border"
-                  >
-                    {keyword}
-                  </span>
-                ))}
-              </div>
-              <p className="mt-1 text-lg leading-snug text-muted-foreground">{entry.description}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* "강점 / 주의할 점 / 잘 맞는 환경" — every line here is a pre-trimmed
-          slice of RevealScreen's own buildStatInsight()/CompatibleEnvironment
-          copy (see reveal-screen.tsx's call site), never newly authored for
-          this card. One compact panel (not 3 separate cards) to keep the
-          1080x1350 canvas from feeling packed. */}
-      {hasFeaturePanel && (
-        <div className="w-full rounded-[1.5rem] bg-card px-7 py-5 text-left toy-border toy-shadow-sm">
-          {strengths && strengths.length > 0 && (
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-              <span className="text-lg font-extrabold text-foreground">✨ 강점</span>
-              {strengths.map((item) => (
-                <span key={item} className="text-base leading-snug text-secondary-foreground">
-                  {item}
-                </span>
-              ))}
-            </div>
-          )}
-          {cautions && cautions.length > 0 && (
-            <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-              <span className="text-lg font-extrabold text-foreground">⚠ 주의</span>
-              {cautions.map((item) => (
-                <span key={item} className="text-base leading-snug text-muted-foreground">
-                  {item}
-                </span>
-              ))}
-            </div>
-          )}
-          {compatibleEnvironment && compatibleEnvironment.length > 0 && (
-            <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-              <span className="text-lg font-extrabold text-foreground">📚 잘 맞는 환경</span>
-              {compatibleEnvironment.map((item) => (
-                <span key={item} className="text-base leading-snug text-secondary-foreground">
-                  {item}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* "나의 6가지 스탯" mini distribution — same `finals` values StatDistribution
-          already renders on-screen, just a tighter bar-per-stat list with no
-          card-panel chrome, sized to fit this card's remaining space. */}
-      {finals && (
-        <div className="w-full">
-          <ul className="flex w-full flex-col gap-1.5">
-            {STAT_DISPLAY_ORDER.map((id) => {
-              const stat = STATS[id]
-              const value = Math.max(0, Math.min(100, finals[id] ?? 0))
-              return (
-                <li key={id} className="flex items-center gap-3">
-                  <span className="w-20 shrink-0 text-left text-base font-bold text-foreground">{stat.name}</span>
-                  <div className="h-3 flex-1 overflow-hidden rounded-md bg-foreground/10">
-                    <div className="h-full rounded-sm" style={{ width: `${value}%`, backgroundColor: `var(${stat.colorVar})` }} />
-                  </div>
-                  <span className="w-10 shrink-0 text-right text-base font-bold text-muted-foreground">{value}</span>
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-      )}
-
-      {(goodMatch || differentRhythm) && (
-        <div className="w-full">
-          <p className="mb-2 font-display text-lg font-bold text-muted-foreground">Statling 궁합</p>
-          <div className="grid grid-cols-2 gap-3">
-            {goodMatch && (
-              <div className="flex flex-col items-center gap-1.5 rounded-2xl bg-card px-4 py-3 toy-border toy-shadow-sm">
-                <span className="rounded-full bg-secondary px-3 py-1 text-sm font-bold text-secondary-foreground">
-                  잘 맞는 Statling
-                </span>
-                <img
-                  src={goodMatch.characterImageSrc}
-                  alt=""
-                  width={90}
-                  height={90}
-                  className="h-22.5 w-22.5 object-contain"
-                />
-                <p className="font-display text-lg font-extrabold text-foreground">{goodMatch.characterName}</p>
-              </div>
-            )}
-            {differentRhythm && (
-              <div className="flex flex-col items-center gap-1.5 rounded-2xl bg-card px-4 py-3 toy-border toy-shadow-sm">
-                <span className="rounded-full bg-muted px-3 py-1 text-sm font-bold text-muted-foreground">
-                  잘 안 맞는 Statling
-                </span>
-                <img
-                  src={differentRhythm.characterImageSrc}
-                  alt=""
-                  width={90}
-                  height={90}
-                  className="h-22.5 w-22.5 object-contain"
-                />
-                <p className="font-display text-lg font-extrabold text-foreground">{differentRhythm.characterName}</p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      <ShareCardFooter message={'너의 플레이에서는\n어떤 Statling이 태어날까?'} />
+      <ShareCardFooter
+        message={'너의 플레이에서는\n어떤 Statling이 태어날까?'}
+        subtitle={`${gameCount}가지 미니게임으로 나만의 Statling을 만나보세요.`}
+      />
     </ShareCardHidden>
   )
 })

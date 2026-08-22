@@ -2058,6 +2058,7 @@ export function GameFlow() {
           <MyPageScreen
             statlingName={statlingName}
             topStat={topStat}
+            secondaryStat={secondaryStat}
             petProfile={displayedPetProfile}
             onResetPet={resetAllPetData}
             onShowOnboarding={() => setShowOnboarding(true)}
