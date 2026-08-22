@@ -3,6 +3,8 @@ import { SpeedInsights } from '@vercel/speed-insights/next'
 import type { Metadata, Viewport } from 'next'
 import { Baloo_2, Nunito } from 'next/font/google'
 import { GoogleAnalytics } from '@/components/analytics/google-analytics'
+import { PostHogAnalytics } from '@/components/analytics/posthog-analytics'
+import { PostHogIdentify } from '@/components/analytics/posthog-identify'
 import { AppToastProvider } from '@/components/brain-bet/toast-provider'
 import { AudioProvider } from '@/components/brain-bet/audio-provider'
 import { AuthProvider } from '@/lib/auth/auth-provider'
@@ -100,10 +102,15 @@ export default function RootLayout({
       <body className="antialiased">
         <AppToastProvider>
           <AuthProvider>
+            {/* Phase 3A-1 — renders nothing; a silent sibling that only reads
+                useAuth() to sync PostHog identity. AudioProvider/children's
+                own order and behavior are unchanged. */}
+            <PostHogIdentify />
             <AudioProvider>{children}</AudioProvider>
           </AuthProvider>
         </AppToastProvider>
         <GoogleAnalytics />
+        <PostHogAnalytics />
         {process.env.NODE_ENV === 'production' && <Analytics />}
         {process.env.NODE_ENV === 'production' && <SpeedInsights />}
       </body>
