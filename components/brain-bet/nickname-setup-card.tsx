@@ -5,7 +5,13 @@ import { Toast } from '@base-ui/react/toast'
 import { ToyButton } from '@/components/brain-bet/toy-button'
 import { useAuth } from '@/lib/auth/auth-provider'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
-import { updateProfileNickname, validateNickname, type NicknameValidationError } from '@/lib/profile/nickname'
+import {
+  updateProfileNickname,
+  updateProfileNicknameFromStatlingName,
+  validateNickname,
+  validateStatlingNameForReuse,
+  type NicknameValidationError,
+} from '@/lib/profile/nickname'
 
 const VALIDATION_MESSAGE: Record<NicknameValidationError, string> = {
   empty: '이름을 입력해주세요.',
@@ -34,9 +40,14 @@ export function NicknameSetupCard({ statlingName, onSaved }: NicknameSetupCardPr
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
-  async function save(rawValue: string) {
+/** Shared by both save paths below — only the validator/writer pair differs. */
+  async function saveWith(
+    rawValue: string,
+    validate: (raw: string) => ReturnType<typeof validateNickname>,
+    write: (client: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>, userId: string, raw: string) => ReturnType<typeof updateProfileNickname>,
+  ) {
     if (!user || saving) return
-    const validated = validateNickname(rawValue)
+    const validated = validate(rawValue)
     if (!validated.ok) {
       setError(VALIDATION_MESSAGE[validated.reason])
       return
@@ -48,7 +59,7 @@ export function NicknameSetupCard({ statlingName, onSaved }: NicknameSetupCardPr
     }
     setSaving(true)
     setError(null)
-    const result = await updateProfileNickname(client, user.id, validated.value)
+    const result = await write(client, user.id, validated.value)
     setSaving(false)
     if (!result.ok) {
       toastManager.add({ title: '저장하지 못했어요. 다시 시도해주세요.', type: 'error' })
@@ -57,17 +68,27 @@ export function NicknameSetupCard({ statlingName, onSaved }: NicknameSetupCardPr
     onSaved(validated.value)
   }
 
+  /** Direct input — 2-12자 (validateNickname's normal floor, unchanged). */
+  function save(rawValue: string) {
+    return saveWith(rawValue, validateNickname, updateProfileNickname)
+  }
+
   /**
    * "Statling 이름 그대로 사용할래요" — never assumes statlingName already
-   * satisfies nickname rules (it was validated against a completely
-   * different, unrelated naming flow). Runs the exact same validateNickname()
-   * path as manual input: an invalid Statling name lands in the input field
-   * with its own inline error instead of silently failing or crashing.
+   * satisfies the DIRECT-input nickname rules (it was validated against a
+   * completely different, unrelated naming flow with its own, more
+   * permissive 1자 floor — lib/naming.ts). Uses
+   * validateStatlingNameForReuse()/updateProfileNicknameFromStatlingName()
+   * instead of the direct-input pair, so a 1-character Statling name (e.g.
+   * "몽") is accepted here without loosening what a manually-typed nickname
+   * requires. Still runs through the same inline-error UI as manual input —
+   * an invalid Statling name (too long, bad characters) lands in the input
+   * field with its own inline error instead of silently failing or crashing.
    */
   function handleUseStatlingName() {
     if (!statlingName || saving) return
     setInput(statlingName)
-    void save(statlingName)
+    void saveWith(statlingName, validateStatlingNameForReuse, updateProfileNicknameFromStatlingName)
   }
 
   return (

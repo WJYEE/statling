@@ -8,15 +8,13 @@ import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { ToyButton } from '@/components/brain-bet/toy-button'
 import { PLAY_ORDER, STATS, type StatId } from '@/lib/brain-bet'
 import { GAME_POOL } from '@/lib/game/game-registry'
+import { getGameRankingMetricConfig } from '@/lib/ranking/game-ranking-metrics.config'
 import { useAuth } from '@/lib/auth/auth-provider'
 import { trackEvent } from '@/lib/analytics/ga'
 import { getProfileNickname } from '@/lib/profile/nickname'
-import {
-  rankingProvider,
-  type GameRankingEntry,
-  type OverallRankingEntry,
-  type RankedDifficulty,
-} from '@/lib/ranking/ranking-provider'
+import type { RankedDifficulty } from '@/lib/ranking/ranking-provider'
+import { fetchGameLeaderboard, type GameLeaderboardEntry, type MyGameRank } from '@/lib/ranking/game-leaderboard'
+import { fetchOverallLeaderboard, type MyOverallRank, type OverallLeaderboardEntry } from '@/lib/ranking/overall-leaderboard'
 import { fetchXpLeaderboard, type MyXpRank, type XpLeaderboardEntry } from '@/lib/ranking/xp-leaderboard'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
@@ -39,6 +37,30 @@ interface RankingScreenProps {
   statlingName: string
 }
 
+function RankingHeader() {
+  return (
+    <header>
+      <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">랭킹</p>
+      <h1 className="font-display text-2xl font-extrabold text-foreground">랭킹</h1>
+    </header>
+  )
+}
+
+/**
+ * Phase 3B-4 Follow-up — profiles.nickname is shared by all 3 tabs (종합/
+ * 게임별/XP), so whether it exists is checked exactly once here, before any
+ * tab renders — not per-tab (that was Phase 3B-4's original, now-removed
+ * XP-only gate inside XpRankingPanel). `ready` only means "nickname
+ * confirmed to exist"; it says nothing about whether the XP leaderboard
+ * fetch itself will succeed — that's XpRankingPanel's own concern.
+ */
+type RankingGateState =
+  | { kind: 'guest' }
+  | { kind: 'loading' }
+  | { kind: 'needsNickname' }
+  | { kind: 'error'; message: string }
+  | { kind: 'ready' }
+
 /**
  * Bottom tab bar's 랭킹 destination. Three independent views, all backed by
  * lib/ranking/ranking-provider.ts so a future Supabase-backed leaderboard is
@@ -58,6 +80,8 @@ interface RankingScreenProps {
 export function RankingScreen({ statlingName }: RankingScreenProps) {
   const [activeTab, setActiveTab] = useState<RankingTab>('overall')
   const { user } = useAuth()
+  const [gate, setGate] = useState<RankingGateState>({ kind: user ? 'loading' : 'guest' })
+  const [gateReloadToken, setGateReloadToken] = useState(0)
 
   // Fires on mount (the default 'overall' tab) and every subsequent tab
   // switch. `period` has no real filter behind it yet (no daily/weekly view
@@ -67,12 +91,84 @@ export function RankingScreen({ statlingName }: RankingScreenProps) {
     trackEvent('ranking_view', { ranking_type: activeTab, period: 'all_time' })
   }, [activeTab])
 
+  // Common nickname gate — never fires the nickname read at all for a guest
+  // (matches profiles_select_own's authenticated-only reach anyway).
+  useEffect(() => {
+    if (!user) {
+      setGate({ kind: 'guest' })
+      return
+    }
+    let cancelled = false
+    setGate({ kind: 'loading' })
+
+    const client = getSupabaseBrowserClient()
+    if (!client) {
+      setGate({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
+      return
+    }
+
+    getProfileNickname(client, user.id).then((result) => {
+      if (cancelled) return
+      if (!result.ok) {
+        if (process.env.NODE_ENV !== 'production') console.warn('[ranking] nickname fetch failed:', result.error)
+        setGate({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
+        return
+      }
+      setGate({ kind: !result.nickname || result.nickname.trim() === '' ? 'needsNickname' : 'ready' })
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [user, gateReloadToken])
+
+  if (gate.kind === 'guest') {
+    return (
+      <div className="mx-auto flex w-full max-w-3xl flex-col px-5 pb-28 pt-8">
+        <RankingHeader />
+        <div className="mt-6">
+          <RankingGuestPrompt />
+        </div>
+      </div>
+    )
+  }
+
+  if (gate.kind === 'loading') {
+    return (
+      <div className="mx-auto flex w-full max-w-3xl flex-col px-5 pb-28 pt-8">
+        <RankingHeader />
+        <div className="mt-6">
+          <RankingSkeleton />
+        </div>
+      </div>
+    )
+  }
+
+  if (gate.kind === 'error') {
+    return (
+      <div className="mx-auto flex w-full max-w-3xl flex-col px-5 pb-28 pt-8">
+        <RankingHeader />
+        <div className="mt-6">
+          <RankingErrorState message={gate.message} onRetry={() => setGateReloadToken((t) => t + 1)} />
+        </div>
+      </div>
+    )
+  }
+
+  if (gate.kind === 'needsNickname') {
+    return (
+      <div className="mx-auto flex w-full max-w-3xl flex-col px-5 pb-28 pt-8">
+        <RankingHeader />
+        <div className="mt-6">
+          <NicknameSetupCard statlingName={statlingName} onSaved={() => setGate({ kind: 'ready' })} />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col px-5 pb-28 pt-8">
-      <header>
-        <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">랭킹</p>
-        <h1 className="font-display text-2xl font-extrabold text-foreground">랭킹</h1>
-      </header>
+      <RankingHeader />
 
       <div role="tablist" aria-label="랭킹 종류" className="mt-6 flex gap-2">
         {RANKING_TABS.map((tab) => {
@@ -96,9 +192,9 @@ export function RankingScreen({ statlingName }: RankingScreenProps) {
       </div>
 
       <div role="tabpanel" className="mt-6">
-        {activeTab === 'overall' && <OverallRankingPanel statlingName={statlingName} userId={user?.id ?? null} />}
-        {activeTab === 'byGame' && <ByGameRankingPanel statlingName={statlingName} userId={user?.id ?? null} />}
-        {activeTab === 'xp' && <XpRankingPanel statlingName={statlingName} />}
+        {activeTab === 'overall' && <OverallRankingPanel />}
+        {activeTab === 'byGame' && <ByGameRankingPanel />}
+        {activeTab === 'xp' && <XpRankingPanel />}
       </div>
     </div>
   )
@@ -156,39 +252,105 @@ function MyRankCard({
   )
 }
 
-function OverallRankingPanel({ statlingName, userId }: { statlingName: string; userId: string | null }) {
-  const [entries, setEntries] = useState<OverallRankingEntry[] | null>(null)
+/**
+ * Phase 3B-6 — real Supabase-backed leaderboard, same shape as
+ * XpRankingPanel below (loading/error/ready over lib/ranking/
+ * overall-leaderboard.ts's fetchOverallLeaderboard). RankingScreen's shared
+ * gate above already guarantees a signed-in user with a confirmed nickname
+ * by the time this mounts, so — like XpRankingPanel — this state machine
+ * only covers whether the RPC pair itself succeeded. Deliberately not
+ * factored into a shared hook with XpRankingPanel despite the near-identical
+ * shape: XP Ranking's own code is explicitly out of this phase's scope, and
+ * introducing a shared abstraction both panels depend on is the one change
+ * most likely to accidentally touch it.
+ */
+type OverallPanelState =
+  | { kind: 'loading' }
+  | { kind: 'error'; message: string }
+  | { kind: 'ready'; entries: OverallLeaderboardEntry[]; myRank: MyOverallRank | null }
 
+/** Matches the "N점" convention lib/game/player-skill-storage.ts-derived scores already use everywhere else (My Status, CompleteScreen, GrowScreen) — overall_score is an average of those same 0-100 values, rounded the same way rather than showing raw decimals. */
+function formatOverallScore(score: number): string {
+  return `${Math.round(score)}점`
+}
+
+function OverallRankingPanel() {
+  const { user } = useAuth()
+  const [state, setState] = useState<OverallPanelState>({ kind: 'loading' })
+  const [reloadToken, setReloadToken] = useState(0)
+
+  // RankingScreen's gate already guarantees `user` + a confirmed nickname by
+  // the time this mounts — this effect only ever fetches the leaderboard
+  // itself, never a nickname.
   useEffect(() => {
+    if (!user) return
     let cancelled = false
-    setEntries(null)
-    rankingProvider.getOverallRanking({ displayName: statlingName || '게스트', userId }).then((result) => {
-      if (!cancelled) setEntries(result)
+    setState({ kind: 'loading' })
+
+    const client = getSupabaseBrowserClient()
+    if (!client) {
+      setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
+      return
+    }
+
+    fetchOverallLeaderboard(client).then((leaderboardResult) => {
+      if (cancelled) return
+      if (!leaderboardResult.ok) {
+        if (process.env.NODE_ENV !== 'production') console.warn('[ranking] overall leaderboard fetch failed:', leaderboardResult.error)
+        setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
+        return
+      }
+      setState({ kind: 'ready', entries: leaderboardResult.entries, myRank: leaderboardResult.myRank })
     })
+
     return () => {
       cancelled = true
     }
-  }, [statlingName, userId])
+  }, [user, reloadToken])
 
-  const myIndex = entries?.findIndex((entry) => entry.isMe) ?? -1
-  const myRank = myIndex >= 0 ? myIndex + 1 : null
+  if (state.kind === 'error') {
+    return <RankingErrorState message={state.message} onRetry={() => setReloadToken((t) => t + 1)} />
+  }
+
+  const loading = state.kind === 'loading'
+  const entries = state.kind === 'ready' ? state.entries : []
+  const myRank = state.kind === 'ready' ? state.myRank : null
 
   return (
     <div className="flex flex-col gap-2">
       <MyRankCard
-        loading={entries === null}
-        rank={myRank}
+        loading={loading}
+        rank={myRank?.rank ?? null}
         label="내 종합 랭킹"
-        detail={<p className="font-display text-lg font-extrabold text-foreground">{myRank}위</p>}
-        emptyText="아직 게임 기록이 없어 종합 랭킹에 표시되지 않아요."
+        detail={
+          myRank ? (
+            <p className="font-display text-lg font-extrabold text-foreground">
+              {myRank.rank}위 <span className="text-xs font-bold text-muted-foreground">· {formatOverallScore(myRank.overallScore)}</span>
+            </p>
+          ) : undefined
+        }
+        emptyText="아직 종합 랭킹 기록이 없어요."
       />
-      {entries === null
-        ? <RankingSkeleton />
-        : entries.map((entry, index) => (
-            <RankRow key={entry.id} rank={index + 1} displayName={entry.displayName} isMe={entry.isMe} />
-          ))}
+      {loading ? (
+        <RankingSkeleton />
+      ) : entries.length === 0 ? (
+        <p className="py-8 text-center text-sm font-semibold text-muted-foreground">아직 랭킹 기록이 없어요.</p>
+      ) : (
+        // RPC never returns user_id, and duplicate nicknames are allowed
+        // (Phase 3B-2) — there is no safe way to tell which row is "me" here,
+        // so isMe is always false; MyRankCard above already covers "내 순위".
+        entries.map((entry) => (
+          <RankRow
+            key={entry.rank}
+            rank={entry.rank}
+            displayName={entry.nickname}
+            isMe={false}
+            trailing={<span className="shrink-0 font-display text-sm font-extrabold text-foreground">{formatOverallScore(entry.overallScore)}</span>}
+          />
+        ))
+      )}
       <p className="mt-2 text-center text-[11px] text-muted-foreground">
-        각 미니게임의 Hard 기록을 바탕으로 계산돼요. 다른 유저의 실제 기록은 서버 연동 후 반영될 예정이에요.
+        6개 능력치의 현재 평균으로 계산돼요. 최대 100명까지 표시돼요.
       </p>
     </div>
   )
@@ -197,29 +359,30 @@ function OverallRankingPanel({ statlingName, userId }: { statlingName: string; u
 /**
  * Phase 3B-4 — real Supabase-backed leaderboard, unlike the other two panels
  * above (still lib/ranking/ranking-provider.ts mock data — 종합/게임별 랭킹
- * are out of this phase's scope). Deliberately its own state machine rather
- * than reusing OverallRankingPanel/ByGameRankingPanel's simple
- * `entries: T[] | null` shape: a real backend adds guest/no-nickname/error
- * states none of the mock panels have to handle.
+ * are out of this phase's scope).
+ *
+ * Phase 3B-4 Follow-up — guest/no-nickname are no longer this panel's own
+ * concern: RankingScreen's shared gate above guarantees this only ever
+ * mounts for a signed-in user with a confirmed nickname. This state machine
+ * now covers exactly one thing: whether the XP leaderboard RPC pair itself
+ * succeeded.
  */
 type XpPanelState =
-  | { kind: 'guest' }
   | { kind: 'loading' }
-  | { kind: 'needsNickname' }
   | { kind: 'error'; message: string }
   | { kind: 'ready'; entries: XpLeaderboardEntry[]; myRank: MyXpRank | null }
 
-function XpRankingGuestPrompt() {
+function RankingGuestPrompt() {
   return (
     <div className="flex flex-col items-center gap-3 rounded-2xl bg-card px-5 py-8 text-center toy-border">
       <p className="text-sm font-bold text-foreground">로그인하고 랭킹에 참여해보세요</p>
-      <p className="text-xs text-muted-foreground">XP 랭킹은 로그인한 사용자만 볼 수 있어요.</p>
+      <p className="text-xs text-muted-foreground">랭킹은 로그인한 사용자만 볼 수 있어요.</p>
       <AuthForm className="mt-2 w-full" defaultMode="signin" />
     </div>
   )
 }
 
-function XpRankingErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+function RankingErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div className="flex flex-col items-center gap-3 rounded-2xl bg-card px-5 py-8 text-center toy-border">
       <p className="text-sm font-bold text-foreground">{message}</p>
@@ -230,20 +393,16 @@ function XpRankingErrorState({ message, onRetry }: { message: string; onRetry: (
   )
 }
 
-function XpRankingPanel({ statlingName }: { statlingName: string }) {
+function XpRankingPanel() {
   const { user } = useAuth()
-  const [state, setState] = useState<XpPanelState>({ kind: user ? 'loading' : 'guest' })
+  const [state, setState] = useState<XpPanelState>({ kind: 'loading' })
   const [reloadToken, setReloadToken] = useState(0)
 
-  // nickname -> leaderboard, in that order, every time the signed-in user
-  // (or a manual retry) changes — never fires an RPC at all while `user` is
-  // null (see the 'guest' branch), matching this RPC pair's authenticated-only
-  // access.
+  // RankingScreen's gate already guarantees `user` + a confirmed nickname by
+  // the time this mounts — this effect only ever fetches the leaderboard
+  // itself, never a nickname.
   useEffect(() => {
-    if (!user) {
-      setState({ kind: 'guest' })
-      return
-    }
+    if (!user) return
     let cancelled = false
     setState({ kind: 'loading' })
 
@@ -253,26 +412,14 @@ function XpRankingPanel({ statlingName }: { statlingName: string }) {
       return
     }
 
-    getProfileNickname(client, user.id).then((nicknameResult) => {
+    fetchXpLeaderboard(client).then((leaderboardResult) => {
       if (cancelled) return
-      if (!nicknameResult.ok) {
-        if (process.env.NODE_ENV !== 'production') console.warn('[ranking] nickname fetch failed:', nicknameResult.error)
+      if (!leaderboardResult.ok) {
+        if (process.env.NODE_ENV !== 'production') console.warn('[ranking] xp leaderboard fetch failed:', leaderboardResult.error)
         setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
         return
       }
-      if (!nicknameResult.nickname || nicknameResult.nickname.trim() === '') {
-        setState({ kind: 'needsNickname' })
-        return
-      }
-      fetchXpLeaderboard(client).then((leaderboardResult) => {
-        if (cancelled) return
-        if (!leaderboardResult.ok) {
-          if (process.env.NODE_ENV !== 'production') console.warn('[ranking] xp leaderboard fetch failed:', leaderboardResult.error)
-          setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
-          return
-        }
-        setState({ kind: 'ready', entries: leaderboardResult.entries, myRank: leaderboardResult.myRank })
-      })
+      setState({ kind: 'ready', entries: leaderboardResult.entries, myRank: leaderboardResult.myRank })
     })
 
     return () => {
@@ -280,31 +427,8 @@ function XpRankingPanel({ statlingName }: { statlingName: string }) {
     }
   }, [user, reloadToken])
 
-  // Nickname was just saved — no need to re-check it, go straight to the
-  // leaderboard fetch instead of re-running the whole effect above.
-  async function loadAfterNicknameSaved() {
-    if (!user) return
-    const client = getSupabaseBrowserClient()
-    if (!client) {
-      setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
-      return
-    }
-    setState({ kind: 'loading' })
-    const leaderboardResult = await fetchXpLeaderboard(client)
-    if (!leaderboardResult.ok) {
-      if (process.env.NODE_ENV !== 'production') console.warn('[ranking] xp leaderboard fetch failed:', leaderboardResult.error)
-      setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
-      return
-    }
-    setState({ kind: 'ready', entries: leaderboardResult.entries, myRank: leaderboardResult.myRank })
-  }
-
-  if (state.kind === 'guest') return <XpRankingGuestPrompt />
-  if (state.kind === 'needsNickname') {
-    return <NicknameSetupCard statlingName={statlingName} onSaved={() => void loadAfterNicknameSaved()} />
-  }
   if (state.kind === 'error') {
-    return <XpRankingErrorState message={state.message} onRetry={() => setReloadToken((t) => t + 1)} />
+    return <RankingErrorState message={state.message} onRetry={() => setReloadToken((t) => t + 1)} />
   }
 
   const loading = state.kind === 'loading'
@@ -351,34 +475,65 @@ function XpRankingPanel({ statlingName }: { statlingName: string }) {
   )
 }
 
-function ByGameRankingPanel({ statlingName, userId }: { statlingName: string; userId: string | null }) {
+/**
+ * Phase 3B-7 — real Supabase-backed leaderboard, same loading/error/ready
+ * shape as XpRankingPanel/OverallRankingPanel. Unlike those two, this one
+ * ranks by each game's own real raw metric (never normalizedScore) — see
+ * lib/ranking/game-ranking-metrics.config.ts, reused here (not
+ * re-implemented) to format lib/ranking/game-leaderboard.ts's raw
+ * recordValue/tiebreakValue into the exact same display text
+ * (e.g. "285ms"/"92%") CompleteScreen and the old mock leaderboard already
+ * used.
+ */
+type GamePanelState =
+  | { kind: 'loading' }
+  | { kind: 'error'; message: string }
+  | { kind: 'ready'; entries: GameLeaderboardEntry[]; myRank: MyGameRank | null }
+
+function ByGameRankingPanel() {
+  const { user } = useAuth()
   const [selectedStat, setSelectedStat] = useState<StatId | null>(null)
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null)
   const [selectedDifficulty, setSelectedDifficulty] = useState<RankedDifficulty>('hard')
-  const [entries, setEntries] = useState<GameRankingEntry[] | null>(null)
+  const [state, setState] = useState<GamePanelState>({ kind: 'loading' })
+  const [reloadToken, setReloadToken] = useState(0)
 
+  // RankingScreen's gate already guarantees `user` + a confirmed nickname by
+  // the time this mounts — never fires while no game is selected yet, and
+  // re-fires on every game/difficulty change so switching HARD<->EXTREME (or
+  // to a different game) never shows the previous selection's stale data.
   useEffect(() => {
-    if (!selectedGameId) {
-      setEntries(null)
+    if (!selectedGameId || !user) return
+    let cancelled = false
+    setState({ kind: 'loading' })
+
+    const client = getSupabaseBrowserClient()
+    if (!client) {
+      setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
       return
     }
-    let cancelled = false
-    setEntries(null)
-    rankingProvider
-      .getGameRanking({ gameId: selectedGameId, difficulty: selectedDifficulty, displayName: statlingName || '게스트', userId })
-      .then((result) => {
-        if (!cancelled) setEntries(result)
-      })
+
+    fetchGameLeaderboard(client, selectedGameId, selectedDifficulty).then((result) => {
+      if (cancelled) return
+      if (!result.ok) {
+        if (process.env.NODE_ENV !== 'production') console.warn('[ranking] game leaderboard fetch failed:', result.error)
+        setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
+        return
+      }
+      setState({ kind: 'ready', entries: result.entries, myRank: result.myRank })
+    })
+
     return () => {
       cancelled = true
     }
-  }, [selectedGameId, selectedDifficulty, statlingName, userId])
+  }, [selectedGameId, selectedDifficulty, user, reloadToken])
 
   if (selectedStat && selectedGameId) {
     const game = GAME_POOL[selectedStat].find((g) => g.key === selectedGameId)
-    const myIndex = entries?.findIndex((entry) => entry.isMe) ?? -1
-    const myEntry = myIndex >= 0 ? entries?.[myIndex] : undefined
-    const myRank = myIndex >= 0 ? myIndex + 1 : null
+    const metricConfig = getGameRankingMetricConfig(selectedGameId, selectedDifficulty)
+    const loading = state.kind === 'loading'
+    const entries = state.kind === 'ready' ? state.entries : []
+    const myRank = state.kind === 'ready' ? state.myRank : null
 
     return (
       <div className="flex flex-col gap-2">
@@ -416,35 +571,59 @@ function ByGameRankingPanel({ statlingName, userId }: { statlingName: string; us
           })}
         </div>
 
-        <MyRankCard
-          loading={entries === null}
-          rank={myRank}
-          label={`내 기록 (${DIFFICULTY_TABS.find((t) => t.id === selectedDifficulty)?.label})`}
-          detail={
-            <p className="font-display text-lg font-extrabold text-foreground">
-              {myRank}위{' '}
-              {myEntry && <span className="text-xs font-bold text-muted-foreground">· {myEntry.primaryDisplay}</span>}
-            </p>
-          }
-          emptyText="이 난이도에서 아직 기록이 없어요."
-        />
+        {state.kind === 'error' ? (
+          <RankingErrorState message={state.message} onRetry={() => setReloadToken((t) => t + 1)} />
+        ) : (
+          <>
+            <MyRankCard
+              loading={loading}
+              rank={myRank?.rank ?? null}
+              label={`내 기록 (${DIFFICULTY_TABS.find((t) => t.id === selectedDifficulty)?.label})`}
+              detail={
+                myRank && metricConfig ? (
+                  <p className="font-display text-lg font-extrabold text-foreground">
+                    {myRank.rank}위{' '}
+                    <span className="text-xs font-bold text-muted-foreground">· {metricConfig.primary.format(myRank.recordValue)}</span>
+                  </p>
+                ) : undefined
+              }
+              emptyText="아직 이 난이도의 기록이 없어요."
+            />
 
-        <div className="flex flex-col gap-2">
-          {entries === null
-            ? <RankingSkeleton />
-            : entries.map((entry, index) => (
-                <RankRow
-                  key={entry.id}
-                  rank={index + 1}
-                  displayName={entry.displayName}
-                  isMe={entry.isMe}
-                  trailing={<span className="shrink-0 font-display text-sm font-extrabold text-foreground">{entry.primaryDisplay}</span>}
-                  subtitle={entry.tiebreakerDisplay}
-                />
-              ))}
-        </div>
+            <div className="flex flex-col gap-2">
+              {loading ? (
+                <RankingSkeleton />
+              ) : entries.length === 0 ? (
+                <p className="py-8 text-center text-sm font-semibold text-muted-foreground">아직 이 난이도의 기록이 없어요.</p>
+              ) : (
+                // RPC never returns user_id, and duplicate nicknames are
+                // allowed (Phase 3B-2) — there is no safe way to tell which
+                // row is "me" here, so isMe is always false; MyRankCard above
+                // already covers "내 순위".
+                entries.map((entry) => (
+                  <RankRow
+                    key={entry.rank}
+                    rank={entry.rank}
+                    displayName={entry.nickname}
+                    isMe={false}
+                    trailing={
+                      <span className="shrink-0 font-display text-sm font-extrabold text-foreground">
+                        {metricConfig ? metricConfig.primary.format(entry.recordValue) : entry.recordValue}
+                      </span>
+                    }
+                    subtitle={
+                      metricConfig?.tiebreaker && entry.tiebreakValue != null
+                        ? metricConfig.tiebreaker.format(entry.tiebreakValue)
+                        : undefined
+                    }
+                  />
+                ))
+              )}
+            </div>
+          </>
+        )}
         <p className="mt-2 text-center text-[11px] text-muted-foreground">
-          이 게임의 실제 기록 기준으로 순위가 매겨져요. 다른 유저의 실제 기록은 서버 연동 후 반영될 예정이에요.
+          이 게임의 실제 기록 기준으로 순위가 매겨져요. 최대 100명까지 표시돼요.
         </p>
       </div>
     )
