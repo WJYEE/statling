@@ -1,7 +1,7 @@
 'use client'
 
 import { ArrowRight, Gamepad2, Sparkles, Sprout } from 'lucide-react'
-import { EggImage } from '@/components/brain-bet/egg-image'
+import { LandingMysteryEgg } from '@/components/brain-bet/screens/landing-mystery-egg'
 import { Logo } from '@/components/brain-bet/logo'
 import { TOTAL_GAMES } from '@/lib/brain-bet'
 import type { LandingScreenProps } from '@/components/brain-bet/screens/landing-screen'
@@ -15,6 +15,15 @@ import type { LandingScreenProps } from '@/components/brain-bet/screens/landing-
  * so the curiosity stays on "내 Statling은 무엇일까?" rather than "what will
  * be measured", per the experiment hypothesis.
  *
+ * Phase 3E-4 Follow-up — the Hero/Logo/Headline/Subcopy/Egg/CTA block above
+ * is tightened into one visually cohesive unit (smaller inter-step margins)
+ * and the mystery egg is both larger and animated (LandingMysteryEgg) so it
+ * reads as the screen's clear focal point rather than a small decoration.
+ * The bottom explainer shrinks from 3 boxed cards to 3 compact chips so it
+ * stays visually subordinate to the Hero — this is a refinement of the same
+ * structure, not a redesign (see that Phase's own report for the full
+ * before/after reasoning).
+ *
  * Only ever mounted for an eligible (genuinely-new) visitor — see
  * landing-experiment.tsx's `eligible` computation in game-flow.tsx
  * (`introResume === null && !isReturningLoggedOut && !loadStoredPetProfile()`)
@@ -27,10 +36,10 @@ import type { LandingScreenProps } from '@/components/brain-bet/screens/landing-
  */
 export function LandingVariantB({ onStart, onGoToLogin }: LandingScreenProps) {
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col items-center px-5 py-8 sm:max-w-xl sm:py-14">
+    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col items-center px-5 pt-7 pb-8 sm:max-w-xl sm:pt-12 sm:pb-14">
       <Logo size="md" />
 
-      <div className="mt-6 flex flex-col items-center text-center sm:mt-10">
+      <div className="mt-5 flex flex-col items-center text-center sm:mt-8">
         {/* max-w-md here (mobile) vs the sm:max-w-xl root above is deliberate:
             at sm:text-5xl this sentence needs more horizontal room than the
             mobile-tuned root width to balance into 2 lines instead of an
@@ -38,18 +47,20 @@ export function LandingVariantB({ onStart, onGoToLogin }: LandingScreenProps) {
         <h1 className="text-balance font-display text-3xl font-extrabold leading-[1.2] tracking-tight text-foreground sm:text-5xl">
           내 안에는 어떤 <span className="text-primary">Statling</span>이 숨어 있을까?
         </h1>
-        <p className="mt-3 max-w-xs text-pretty text-sm leading-relaxed text-muted-foreground sm:text-base">
+        <p className="mt-2 max-w-xs text-pretty text-sm leading-relaxed text-muted-foreground sm:text-base">
           미니게임으로 나의 숨은 능력을 발견하고,
           <br />
           나만의 Statling을 만나보세요.
         </p>
       </div>
 
-      <div className="relative mt-5 grid h-32 w-32 place-items-center sm:mt-8 sm:h-40 sm:w-40">
-        <EggImage stage={6} size={112} className="animate-egg-breathe" />
-      </div>
+      {/* Enlarged from the initial 3E-4 pass (h-32/h-40) — the egg is meant
+          to read as this screen's focal point, not a small accent between
+          the copy and the CTA. Tight mt- above/below keeps it feeling like
+          one continuous Hero block rather than an isolated decoration. */}
+      <LandingMysteryEgg className="mt-4 h-44 w-44 sm:mt-6 sm:h-56 sm:w-56" />
 
-      <div className="mt-5 flex w-full flex-col items-center gap-3 sm:mt-8">
+      <div className="mt-4 flex w-full flex-col items-center gap-3 sm:mt-6">
         <button
           type="button"
           onClick={onStart}
@@ -68,20 +79,25 @@ export function LandingVariantB({ onStart, onGoToLogin }: LandingScreenProps) {
         </button>
       </div>
 
-      <ol className="mt-10 flex w-full max-w-sm flex-col gap-2.5 sm:mt-14">
-        <li className="flex items-center gap-3 rounded-2xl bg-card px-4 py-3 toy-border">
-          <Gamepad2 size={18} strokeWidth={2.4} className="shrink-0 text-primary" aria-hidden="true" />
-          <span className="text-sm font-bold text-foreground">{TOTAL_GAMES}개의 짧은 미니게임을 플레이해요</span>
-        </li>
-        <li className="flex items-center gap-3 rounded-2xl bg-card px-4 py-3 toy-border">
-          <Sparkles size={18} strokeWidth={2.4} className="shrink-0 text-primary" aria-hidden="true" />
-          <span className="text-sm font-bold text-foreground">나의 숨겨진 능력을 발견해요</span>
-        </li>
-        <li className="flex items-center gap-3 rounded-2xl bg-card px-4 py-3 toy-border">
-          <Sprout size={18} strokeWidth={2.4} className="shrink-0 text-primary" aria-hidden="true" />
-          <span className="text-sm font-bold text-foreground">나만의 Statling과 함께 성장해요</span>
-        </li>
-      </ol>
+      {/* Compact feature summary — deliberately lighter than a boxed card
+          list (flex-wrap chips, not toy-border cards) so it reads as a
+          footnote under the Hero, never competing with the egg/CTA above.
+          flex-wrap lets narrow screens fall back to 2 lines instead of
+          squeezing 3 chips onto one. */}
+      <div className="mt-8 flex w-full max-w-sm flex-wrap items-center justify-center gap-2 sm:mt-10">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-card/70 px-3 py-1.5 text-xs font-bold text-muted-foreground">
+          <Gamepad2 size={14} strokeWidth={2.4} className="shrink-0 text-primary" aria-hidden="true" />
+          {TOTAL_GAMES}개 미니게임
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-card/70 px-3 py-1.5 text-xs font-bold text-muted-foreground">
+          <Sparkles size={14} strokeWidth={2.4} className="shrink-0 text-primary" aria-hidden="true" />
+          숨은 능력 발견
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-card/70 px-3 py-1.5 text-xs font-bold text-muted-foreground">
+          <Sprout size={14} strokeWidth={2.4} className="shrink-0 text-primary" aria-hidden="true" />
+          함께 성장
+        </span>
+      </div>
     </div>
   )
 }
