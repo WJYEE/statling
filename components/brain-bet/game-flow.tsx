@@ -6,7 +6,7 @@ import { Toast } from '@base-ui/react/toast'
 import { Logo } from '@/components/brain-bet/logo'
 import { RestoreConflictScreen } from '@/components/brain-bet/screens/restore-conflict-screen'
 import { ConfirmDialog } from '@/components/brain-bet/confirm-dialog'
-import { LandingScreen } from '@/components/brain-bet/screens/landing-screen'
+import { LandingExperiment } from '@/components/brain-bet/screens/landing-experiment'
 import { LoginScreen } from '@/components/brain-bet/screens/login-screen'
 import { ReactionGame } from '@/components/brain-bet/games/reaction-game'
 import { MemoryGame } from '@/components/brain-bet/games/memory-game'
@@ -1845,7 +1845,25 @@ export function GameFlow() {
       ) : (
       <div key={stepKey} className="animate-in fade-in slide-in-from-bottom-3 duration-300">
         {phase === 'landing' && (
-          <LandingScreen
+          <LandingExperiment
+            // Phase 3E-2 — the A/B experiment is scoped to a genuinely new
+            // visitor only (spec §5): no resumable Intro checkpoint, never a
+            // device that's logged in before, and — critically —
+            // `!loadStoredPetProfile()` here too: a confirmed returning
+            // user's redirect to Room is a SEPARATE effect (the bootReady
+            // mount effect above) that runs in the SAME commit as this
+            // render, but React fires a child's mount effect (this
+            // component's own exposure-tracking effect) BEFORE its parent's
+            // (that redirect effect) — so without this synchronous check,
+            // `phase` briefly still reads 'landing' on that shared commit
+            // and LandingExperiment would mount, fire
+            // landing_experiment_viewed, and only THEN get redirected away.
+            // loadStoredPetProfile() is a synchronous localStorage read and
+            // this JSX branch only ever evaluates client-side (bootReady is
+            // never true during SSR — see the `!bootReady ? spinner : ...`
+            // gate above), so calling it directly here carries no hydration
+            // risk.
+            eligible={introResume === null && !isReturningLoggedOut && !loadStoredPetProfile()}
             onStart={() => start('landing')}
             resumeCount={introResume?.completedGames.length ?? 0}
             onResume={resumeIntro}

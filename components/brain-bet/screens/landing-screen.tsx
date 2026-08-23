@@ -6,7 +6,7 @@ import { StatBadge } from "@/components/brain-bet/stat-badge";
 import { PLAY_ORDER, STATS, TOTAL_GAMES } from "@/lib/brain-bet";
 import { useSound } from "@/hooks/use-sound";
 
-interface LandingScreenProps {
+export interface LandingScreenProps {
   onStart: () => void;
   /** 완료된 Intro 게임 수. 0이면 새 게임 시작 화면을 표시한다. */
   resumeCount?: number;

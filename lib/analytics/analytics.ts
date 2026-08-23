@@ -73,6 +73,21 @@ export interface ProductEventParams {
   share_started: { channel: string; share_context: string }
   /** share_success's PostHog counterpart, same channel/share_context shape as share_started. */
   share_completed: { channel: string; share_context: string }
+  /**
+   * Phase 3E-2 — Landing A/B experiment exposure (spec §12). `variant` is
+   * the ONLY property — UTM is deliberately NOT duplicated here (spec:
+   * "UTM을 이벤트마다 중복 전송하지 마세요"). Cross-referencing "which UTM
+   * source saw which variant" works natively in PostHog without any extra
+   * property: this event's own `$pageview` (same page load, same session)
+   * already carries the full UTM query string in `$current_url`, and
+   * PostHog surfaces `$initial_utm_source`/etc as person properties once
+   * identified — Funnels/Trends can filter or break down by BOTH this
+   * event's `variant` property AND the session/person's UTM properties at
+   * the same time. Fired at most once per real page load — see
+   * components/brain-bet/screens/landing-experiment.tsx's own doc comment
+   * for the exact once-per-mount guard.
+   */
+  landing_experiment_viewed: { variant: 'A' | 'B' }
 }
 
 /**
