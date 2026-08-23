@@ -1,3 +1,5 @@
+import { resolveConfiguredSiteUrl } from '@/lib/env/site-url'
+
 /**
  * Phase 3E-2 — generic promotional-link UTM builder, for future outbound
  * posts/campaigns (Instagram, Threads, Naver Blog, portfolio, community,
@@ -19,7 +21,7 @@ export interface BuildCampaignUrlInput {
   medium: string
   campaign: string
   content?: string
-  /** Overrides NEXT_PUBLIC_APP_URL — mainly for tests/scripts run outside the app's own env. */
+  /** Overrides NEXT_PUBLIC_APP_URL/Vercel env resolution — mainly for tests/scripts run outside the app's own env. */
   baseUrl?: string
 }
 
@@ -29,9 +31,15 @@ export interface BuildCampaignUrlInput {
  * 생성될 위험") — a promotional link is meant to be pasted somewhere public,
  * so a broken localhost URL here is worse than a loud failure while writing
  * the campaign in the first place.
+ *
+ * Phase 3E-3 — `resolvedBase` now also tries Vercel's own deployment env
+ * vars (via lib/env/site-url.ts's resolveConfiguredSiteUrl(), shared with
+ * getSiteUrl()/buildShareUrl) before giving up — strictly more likely to
+ * resolve than before, never less; still throws (never guesses localhost)
+ * if nothing is configured at all.
  */
 export function buildCampaignUrl({ source, medium, campaign, content, baseUrl }: BuildCampaignUrlInput): string {
-  const resolvedBase = baseUrl || process.env.NEXT_PUBLIC_APP_URL
+  const resolvedBase = baseUrl || resolveConfiguredSiteUrl()
   if (!resolvedBase) {
     throw new Error(
       'buildCampaignUrl: no base URL available — set NEXT_PUBLIC_APP_URL (production domain) or pass baseUrl explicitly.',

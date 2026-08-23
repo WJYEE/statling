@@ -8,6 +8,7 @@ import { PostHogIdentify } from '@/components/analytics/posthog-identify'
 import { AppToastProvider } from '@/components/brain-bet/toast-provider'
 import { AudioProvider } from '@/components/brain-bet/audio-provider'
 import { AuthProvider } from '@/lib/auth/auth-provider'
+import { getSiteUrl } from '@/lib/env/site-url'
 import './globals.css'
 
 const baloo = Baloo_2({
@@ -23,12 +24,14 @@ const nunito = Nunito({
 })
 
 /**
- * Same URL-resolution priority as lib/share/build-share-text.ts's
- * buildShareUrl (NEXT_PUBLIC_APP_URL -> dev fallback) — kept separate
- * because metadata is evaluated at build/request time on the server, where
- * window.location isn't available, unlike the client-side share flow.
+ * Phase 3E-3 — resolved via lib/env/site-url.ts's shared getSiteUrl(),
+ * which tries NEXT_PUBLIC_APP_URL then Vercel's own deployment env vars
+ * before ever falling back to localhost (and logs loudly if it has to).
+ * Metadata is evaluated at build/request time on the server, where
+ * window.location isn't available — unlike the client-side share flow,
+ * which checks window.location.origin first (see build-share-text.ts).
  */
-const SITE_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+const SITE_URL = getSiteUrl()
 
 /**
  * Common Open Graph/Twitter metadata for the whole service. There's no

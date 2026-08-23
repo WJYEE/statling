@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server'
 import { STATLING_TYPES, STATS, type StatId } from '@/lib/brain-bet'
 import { allGamePools } from '@/lib/game/game-registry'
 import { getPetProfileById } from '@/lib/pets/pet-profile'
+import { getSiteUrl } from '@/lib/env/site-url'
 
 /**
  * Dynamic per-pet Open Graph image for app/share/[petId]/[[...stats]]/ —
@@ -16,7 +17,13 @@ import { getPetProfileById } from '@/lib/pets/pet-profile'
  * (not path segments) here are just this handler's own choice — nothing
  * about it requires matching the page route's path shape.
  */
-const SITE_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+// Phase 3E-3 — see lib/env/site-url.ts's getSiteUrl() doc comment: tries
+// NEXT_PUBLIC_APP_URL then Vercel's own deployment env vars before ever
+// falling back to localhost, and logs loudly in production if it has to —
+// this route self-fetches absolute image URLs below (Satori/ImageResponse
+// can't resolve relative paths), so a stray localhost here would mean the
+// OG image silently fails to render in production link previews.
+const SITE_URL = getSiteUrl()
 
 export const alt = 'Statling 공유 카드'
 export const size = { width: 1200, height: 630 }

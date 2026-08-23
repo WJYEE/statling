@@ -1,9 +1,7 @@
 import { formatLevelLabel } from '@/lib/pet-care/leveling'
+import { getSiteUrl } from '@/lib/env/site-url'
 import type { ShareStatlingInput } from '@/lib/share/share-types'
 import type { ShareContext } from '@/lib/analytics/ga'
-
-/** Dev-only placeholder — only reached if NEXT_PUBLIC_APP_URL is unset AND window.location is unavailable (e.g. this ran during SSR), which real callers (always client-side, inside a click handler) should never hit. */
-const DEV_URL_FALLBACK = 'http://localhost:3000'
 
 /** Fixed UTM triple for every link Statling's own share features generate — see lib/analytics/ga.ts's ShareContext for utm_content, the one part that varies per surface. */
 const SHARE_UTM_SOURCE = 'statling_share'
@@ -20,11 +18,17 @@ const SHARE_UTM_CAMPAIGN = 'user_share'
  * see lib/analytics/ga.ts — so the two never drift into different enums for
  * what's conceptually the same "where was this shared from" dimension.
  *
- * Base URL resolution priority (unchanged from before UTM was added):
- *  1. an explicit override (ShareStatlingInput.url)
- *  2. NEXT_PUBLIC_APP_URL (the deployed URL, set at build time)
- *  3. window.location.origin (works in any environment without the env var)
- *  4. a hardcoded dev fallback (last resort, never expected in practice)
+ * Base URL resolution priority:
+ *  1. an explicit override (ShareStatlingInput.url) — both current callers
+ *     (reveal-screen.tsx, my-page-screen.tsx) always pass this, built from
+ *     window.location.origin, so tiers 2-3 below are a safety net for any
+ *     future caller that omits it, not a live path today.
+ *  2. window.location.origin directly (works in any environment without an
+ *     env var, whenever this runs client-side — the common case)
+ *  3. Phase 3E-3 — lib/env/site-url.ts's getSiteUrl(): NEXT_PUBLIC_APP_URL,
+ *     then Vercel's own deployment env vars, then (logged) localhost — see
+ *     that module's doc comment. Only ever reached server-side with no
+ *     explicit URL, which no current caller does.
  *
  * Uses the URL API (not string concatenation) to attach the UTM params, so
  * a base URL that already carries a query string is merged safely rather
@@ -33,11 +37,7 @@ const SHARE_UTM_CAMPAIGN = 'user_share'
  * correct regardless.
  */
 export function buildShareUrl(explicitUrl: string | undefined, context: ShareContext): string {
-  const base =
-    explicitUrl ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    (typeof window !== 'undefined' && window.location?.origin) ||
-    DEV_URL_FALLBACK
+  const base = explicitUrl || (typeof window !== 'undefined' && window.location?.origin) || getSiteUrl()
 
   const url = new URL(base)
   url.searchParams.set('utm_source', SHARE_UTM_SOURCE)
