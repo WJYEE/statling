@@ -244,12 +244,14 @@ export function buildPetMemoryRow(userId: string, now: Date): PetMemoryRow {
   }
 }
 
-function buildRoomStateRow(userId: string): RoomStateRow {
+/** Exported for lib/sync/sync-dispatcher.ts (Phase 2D-5) — same pure row mapping reused for a single-domain continuous-sync push, not just the one-time snapshot below. */
+export function buildRoomStateRow(userId: string): RoomStateRow {
   const s = loadSavedRoomState()
   return { user_id: userId, background_id: s.backgroundId, updated_at: s.updatedAt }
 }
 
-function buildRoomItemRows(userId: string): RoomItemRow[] {
+/** Exported for lib/sync/sync-dispatcher.ts (Phase 2D-5) — same pure row mapping reused for a single-domain continuous-sync push, not just the one-time snapshot below. */
+export function buildRoomItemRows(userId: string): RoomItemRow[] {
   // item.instanceId is carried through as-is — not guaranteed to be a real
   // uuid, see snapshot-types.ts#RoomItemRow and the Phase 2B-1 report.
   const s = loadSavedRoomState()
@@ -268,7 +270,8 @@ function buildRoomItemRows(userId: string): RoomItemRow[] {
   }))
 }
 
-function buildDecoPlacementItemRows(userId: string): DecoPlacementItemRow[] {
+/** Exported for lib/sync/sync-dispatcher.ts (Phase 2D-5) — same pure row mapping reused for a single-domain continuous-sync push, not just the one-time snapshot below. */
+export function buildDecoPlacementItemRows(userId: string): DecoPlacementItemRow[] {
   // item.instanceId is carried through as-is — same non-uuid caveat as room_items above.
   const s = loadSavedDecoPlacementState()
   return s.items.map((item) => ({
@@ -287,13 +290,15 @@ function buildDecoPlacementItemRows(userId: string): DecoPlacementItemRow[] {
   }))
 }
 
-function buildDecoInventoryRows(userId: string): DecoInventoryRow[] {
+/** Exported for lib/sync/sync-dispatcher.ts (Phase 2D-5) — same pure row mapping reused for a single-domain continuous-sync push, not just the one-time snapshot below. */
+export function buildDecoInventoryRows(userId: string): DecoInventoryRow[] {
   const s = loadDecoInventoryState()
   // unlocked_at reuses the whole-state updatedAt — no per-asset timestamp exists locally.
   return s.unlockedIds.map((assetId) => ({ user_id: userId, asset_id: assetId, unlocked_at: s.updatedAt }))
 }
 
-function buildRoomInventoryRows(userId: string): RoomInventoryRow[] {
+/** Exported for lib/sync/sync-dispatcher.ts (Phase 2D-5) — same pure row mapping reused for a single-domain continuous-sync push, not just the one-time snapshot below. */
+export function buildRoomInventoryRows(userId: string): RoomInventoryRow[] {
   const s = loadRoomInventoryState()
   return s.unlockedIds.map((assetId) => ({ user_id: userId, asset_id: assetId, unlocked_at: s.updatedAt }))
 }
