@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { LandingScreen, type LandingScreenProps } from '@/components/brain-bet/screens/landing-screen'
+import { LandingVariantB } from '@/components/brain-bet/screens/landing-variant-b'
 import { getOrAssignLandingVariant, type LandingVariant } from '@/lib/experiments/landing-variant'
 import { trackProductEvent } from '@/lib/analytics/analytics'
 
@@ -19,11 +20,11 @@ export interface LandingExperimentProps extends LandingScreenProps {
 }
 
 /**
- * Phase 3E-2 — component boundary for the Landing A/B experiment. Landing B
- * has no real UI yet (spec: "이번 Phase에서는 Landing B의 실제 새로운 디자인을
- * 만들지 마세요") — both arms render the SAME `<LandingScreen/>` today, so
- * this wrapper is deliberately the only place that needs to change once a
- * real Landing B ships (see the comment at the bottom).
+ * Phase 3E-2 — component boundary for the Landing A/B experiment.
+ * Phase 3E-4 — Variant B (components/brain-bet/screens/landing-variant-b.tsx)
+ * ships here; Variant A (LandingScreen) is untouched Control. This remains
+ * the only place that branches on `variant` — game-flow.tsx and every other
+ * caller only ever sees `LandingExperiment`, never either variant directly.
  *
  * Variant is read via a lazy `useState` initializer (not an effect) so it's
  * already resolved on this component's very first render — by the time
@@ -46,9 +47,9 @@ export function LandingExperiment({ eligible, ...landingProps }: LandingExperime
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately mount-once; eligible/variant are stable for this component's lifetime
   }, [])
 
-  // No Landing B UI exists yet (next Phase's job). When it ships, this
-  // becomes: `if (variant === 'B') return <LandingScreenB {...landingProps} />`
-  // — nothing else in the app (game-flow.tsx, this file's own props) needs
-  // to change.
+  // Phase 3E-4 — Variant B ships. Note this branch can only ever be reached
+  // for an eligible visitor (see this file's own doc comment) — an
+  // ineligible one is hardcoded to 'A' above and never reaches here.
+  if (variant === 'B') return <LandingVariantB {...landingProps} />
   return <LandingScreen {...landingProps} />
 }
