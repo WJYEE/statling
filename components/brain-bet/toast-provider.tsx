@@ -17,7 +17,22 @@ export function AppToastProvider({ children }: { children: React.ReactNode }) {
     <Toast.Provider>
       {children}
       <Toast.Portal>
-        <Toast.Viewport className="fixed inset-x-0 bottom-4 z-[100] mx-auto flex w-full max-w-sm flex-col items-stretch gap-2 px-4 sm:bottom-6">
+        {/*
+          Phase 3F-1 QA fix, two parts:
+          1) pointer-events-none here (Toast.Root below already opts back in
+             with pointer-events-auto) so the empty space around/between
+             toast cards never blocks clicks underneath the viewport's own
+             full-width, high-z-index box.
+          2) bottom-24 sm:bottom-28 (not bottom-4/6) — the same clearance
+             every screen already reserves for NavRail via its content
+             padding (see e.g. room-screen.tsx's pb-24 sm:pb-28). At
+             bottom-4, a real toast card (not just the viewport box) visibly
+             sat on top of NavRail's middle tabs on small viewports — e.g.
+             the post-login "로그인했어요!" toast covered "내 스탯"/"랭킹"/
+             "Statling" at 375x667 for its whole visible duration, a real
+             tap-blocking overlap, not just an empty-space hit-test issue.
+        */}
+        <Toast.Viewport className="pointer-events-none fixed inset-x-0 bottom-24 z-[100] mx-auto flex w-full max-w-sm flex-col items-stretch gap-2 px-4 sm:bottom-28">
           <ToastList />
         </Toast.Viewport>
       </Toast.Portal>
