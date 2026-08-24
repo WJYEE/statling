@@ -13,9 +13,12 @@ import { useAuth } from '@/lib/auth/auth-provider'
 import { trackEvent } from '@/lib/analytics/ga'
 import { getProfileNickname } from '@/lib/profile/nickname'
 import type { RankedDifficulty } from '@/lib/ranking/ranking-provider'
-import { fetchGameLeaderboard, type GameLeaderboardEntry, type MyGameRank } from '@/lib/ranking/game-leaderboard'
-import { fetchOverallLeaderboard, type MyOverallRank, type OverallLeaderboardEntry } from '@/lib/ranking/overall-leaderboard'
-import { fetchXpLeaderboard, type MyXpRank, type XpLeaderboardEntry } from '@/lib/ranking/xp-leaderboard'
+import { fetchGameLeaderboard } from '@/lib/ranking/game-leaderboard'
+import { fetchOverallLeaderboard } from '@/lib/ranking/overall-leaderboard'
+import { fetchXpLeaderboard } from '@/lib/ranking/xp-leaderboard'
+import { fetchFriendGameRanking } from '@/lib/ranking/friend-game-leaderboard'
+import { fetchFriendOverallRanking } from '@/lib/ranking/friend-overall-leaderboard'
+import { fetchFriendXpRanking } from '@/lib/ranking/friend-xp-leaderboard'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 
@@ -25,6 +28,23 @@ const RANKING_TABS: { id: RankingTab; label: string }[] = [
   { id: 'overall', label: '종합 랭킹' },
   { id: 'byGame', label: '게임별 랭킹' },
   { id: 'xp', label: 'XP 랭킹' },
+]
+
+/**
+ * Phase 3G-3 — top-level ranking population, independent of which of the 3
+ * ranking types below is selected. 'global' is the untouched, pre-existing
+ * behavior (every ranking-eligible user); 'friends' re-runs the identical
+ * formula/eligibility/tie-break per type against just the caller + their
+ * confirmed friendships (see supabase/migrations/20260829000000_phase3g3_
+ * friend_ranking_rpcs.sql). Not persisted (localStorage etc.) — every fresh
+ * entry into Ranking starts at 'global', matching existing behavior exactly;
+ * 'friends' is shown only for the duration the user has it selected.
+ */
+type RankingScope = 'global' | 'friends'
+
+const RANKING_SCOPES: { id: RankingScope; label: string }[] = [
+  { id: 'global', label: '전체' },
+  { id: 'friends', label: '친구' },
 ]
 
 const DIFFICULTY_TABS: { id: RankedDifficulty; label: string }[] = [
@@ -79,6 +99,7 @@ type RankingGateState =
  */
 export function RankingScreen({ statlingName }: RankingScreenProps) {
   const [activeTab, setActiveTab] = useState<RankingTab>('overall')
+  const [scope, setScope] = useState<RankingScope>('global')
   const { user } = useAuth()
   const [gate, setGate] = useState<RankingGateState>({ kind: user ? 'loading' : 'guest' })
   const [gateReloadToken, setGateReloadToken] = useState(0)
@@ -170,7 +191,33 @@ export function RankingScreen({ statlingName }: RankingScreenProps) {
     <div className="mx-auto flex w-full max-w-3xl flex-col px-5 pb-28 pt-8">
       <RankingHeader />
 
-      <div role="tablist" aria-label="랭킹 종류" className="mt-6 flex gap-2">
+      {/* Phase 3G-3 — scope selector, deliberately smaller/more muted than
+          the type tabs below it (a segmented control, not a second equal-
+          weight tab row) so the two rows read as "broad filter, then
+          specific view" rather than two competing navigations — see the
+          Phase 3G-3 report's mobile-layout note. */}
+      <div role="tablist" aria-label="랭킹 범위" className="mt-6 flex gap-1.5 rounded-xl bg-muted p-1">
+        {RANKING_SCOPES.map((s) => {
+          const isActive = s.id === scope
+          return (
+            <button
+              key={s.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => setScope(s.id)}
+              className={cn(
+                'flex-1 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors',
+                isActive ? 'bg-card text-foreground toy-shadow-sm' : 'text-muted-foreground',
+              )}
+            >
+              {s.label}
+            </button>
+          )
+        })}
+      </div>
+
+      <div role="tablist" aria-label="랭킹 종류" className="mt-3 flex gap-2">
         {RANKING_TABS.map((tab) => {
           const isActive = tab.id === activeTab
           return (
@@ -192,9 +239,9 @@ export function RankingScreen({ statlingName }: RankingScreenProps) {
       </div>
 
       <div role="tabpanel" className="mt-6">
-        {activeTab === 'overall' && <OverallRankingPanel />}
-        {activeTab === 'byGame' && <ByGameRankingPanel />}
-        {activeTab === 'xp' && <XpRankingPanel />}
+        {activeTab === 'overall' && <OverallRankingPanel scope={scope} />}
+        {activeTab === 'byGame' && <ByGameRankingPanel scope={scope} />}
+        {activeTab === 'xp' && <XpRankingPanel scope={scope} />}
       </div>
     </div>
   )
@@ -263,25 +310,38 @@ function MyRankCard({
  * shape: XP Ranking's own code is explicitly out of this phase's scope, and
  * introducing a shared abstraction both panels depend on is the one change
  * most likely to accidentally touch it.
+ *
+ * Phase 3G-3 — `entries`/`myRank` are normalized to this SAME local shape
+ * regardless of `scope`, so every line below this point (MyRankCard, the
+ * empty-state branch, RankRow) runs completely unchanged for either scope —
+ * only the fetch effect and these two lines' construction differ. Global
+ * scope still can't safely know "which row is me" (duplicate nicknames —
+ * unchanged, still `isMe: false` always); friend scope's RPC returns a real
+ * per-row `isMe` (safe there — see friend-overall-leaderboard.ts's doc
+ * comment), which now finally lets RankRow's already-existing `isMe`
+ * highlighting do something for the first time in this file.
  */
+type OverallRankingRow = { rank: number; nickname: string; overallScore: number; isMe: boolean }
 type OverallPanelState =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
-  | { kind: 'ready'; entries: OverallLeaderboardEntry[]; myRank: MyOverallRank | null }
+  | { kind: 'ready'; entries: OverallRankingRow[]; myRank: OverallRankingRow | null }
 
 /** Matches the "N점" convention lib/game/player-skill-storage.ts-derived scores already use everywhere else (My Status, CompleteScreen, GrowScreen) — overall_score is an average of those same 0-100 values, rounded the same way rather than showing raw decimals. */
 function formatOverallScore(score: number): string {
   return `${Math.round(score)}점`
 }
 
-function OverallRankingPanel() {
+function OverallRankingPanel({ scope }: { scope: RankingScope }) {
   const { user } = useAuth()
   const [state, setState] = useState<OverallPanelState>({ kind: 'loading' })
   const [reloadToken, setReloadToken] = useState(0)
 
   // RankingScreen's gate already guarantees `user` + a confirmed nickname by
   // the time this mounts — this effect only ever fetches the leaderboard
-  // itself, never a nickname.
+  // itself, never a nickname. `scope` in the dependency array means
+  // switching 전체<->친구 resets straight to `loading` before the new fetch
+  // resolves, so the previous scope's rows never flash inside this panel.
   useEffect(() => {
     if (!user) return
     let cancelled = false
@@ -293,20 +353,37 @@ function OverallRankingPanel() {
       return
     }
 
-    fetchOverallLeaderboard(client).then((leaderboardResult) => {
-      if (cancelled) return
-      if (!leaderboardResult.ok) {
-        if (process.env.NODE_ENV !== 'production') console.warn('[ranking] overall leaderboard fetch failed:', leaderboardResult.error)
-        setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
-        return
-      }
-      setState({ kind: 'ready', entries: leaderboardResult.entries, myRank: leaderboardResult.myRank })
-    })
+    if (scope === 'friends') {
+      fetchFriendOverallRanking(client).then((result) => {
+        if (cancelled) return
+        if (!result.ok) {
+          if (process.env.NODE_ENV !== 'production') console.warn('[ranking] friend overall ranking fetch failed:', result.error)
+          setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
+          return
+        }
+        const entries = result.entries.map((e) => ({ rank: e.rank, nickname: e.nickname, overallScore: e.overallScore, isMe: e.isMe }))
+        setState({ kind: 'ready', entries, myRank: entries.find((e) => e.isMe) ?? null })
+      })
+    } else {
+      fetchOverallLeaderboard(client).then((leaderboardResult) => {
+        if (cancelled) return
+        if (!leaderboardResult.ok) {
+          if (process.env.NODE_ENV !== 'production') console.warn('[ranking] overall leaderboard fetch failed:', leaderboardResult.error)
+          setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
+          return
+        }
+        const entries = leaderboardResult.entries.map((e) => ({ rank: e.rank, nickname: e.nickname, overallScore: e.overallScore, isMe: false }))
+        const myRank = leaderboardResult.myRank
+          ? { rank: leaderboardResult.myRank.rank, nickname: leaderboardResult.myRank.nickname, overallScore: leaderboardResult.myRank.overallScore, isMe: false }
+          : null
+        setState({ kind: 'ready', entries, myRank })
+      })
+    }
 
     return () => {
       cancelled = true
     }
-  }, [user, reloadToken])
+  }, [user, reloadToken, scope])
 
   if (state.kind === 'error') {
     return <RankingErrorState message={state.message} onRetry={() => setReloadToken((t) => t + 1)} />
@@ -315,13 +392,14 @@ function OverallRankingPanel() {
   const loading = state.kind === 'loading'
   const entries = state.kind === 'ready' ? state.entries : []
   const myRank = state.kind === 'ready' ? state.myRank : null
+  const friendCount = entries.filter((e) => !e.isMe).length
 
   return (
     <div className="flex flex-col gap-2">
       <MyRankCard
         loading={loading}
         rank={myRank?.rank ?? null}
-        label="내 종합 랭킹"
+        label={scope === 'friends' ? '친구 중 내 순위' : '내 종합 랭킹'}
         detail={
           myRank ? (
             <p className="font-display text-lg font-extrabold text-foreground">
@@ -333,24 +411,23 @@ function OverallRankingPanel() {
       />
       {loading ? (
         <RankingSkeleton />
+      ) : scope === 'friends' && friendCount === 0 ? (
+        <FriendRankingEmptyState />
       ) : entries.length === 0 ? (
         <p className="py-8 text-center text-sm font-semibold text-muted-foreground">아직 랭킹 기록이 없어요.</p>
       ) : (
-        // RPC never returns user_id, and duplicate nicknames are allowed
-        // (Phase 3B-2) — there is no safe way to tell which row is "me" here,
-        // so isMe is always false; MyRankCard above already covers "내 순위".
         entries.map((entry) => (
           <RankRow
             key={entry.rank}
             rank={entry.rank}
             displayName={entry.nickname}
-            isMe={false}
+            isMe={entry.isMe}
             trailing={<span className="shrink-0 font-display text-sm font-extrabold text-foreground">{formatOverallScore(entry.overallScore)}</span>}
           />
         ))
       )}
       <p className="mt-2 text-center text-[11px] text-muted-foreground">
-        6개 능력치의 현재 평균으로 계산돼요. 최대 100명까지 표시돼요.
+        6개 능력치의 현재 평균으로 계산돼요. {scope === 'friends' ? '나와 친구만 표시돼요.' : '최대 100명까지 표시돼요.'}
       </p>
     </div>
   )
@@ -367,10 +444,21 @@ function OverallRankingPanel() {
  * now covers exactly one thing: whether the XP leaderboard RPC pair itself
  * succeeded.
  */
+type XpRankingRow = { rank: number; nickname: string; totalXp: number; isMe: boolean }
 type XpPanelState =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
-  | { kind: 'ready'; entries: XpLeaderboardEntry[]; myRank: MyXpRank | null }
+  | { kind: 'ready'; entries: XpRankingRow[]; myRank: XpRankingRow | null }
+
+/** Phase 3G-3 — shown when the current scope+ranking-type combination is "친구", and the caller has zero confirmed friendships (or exactly zero OTHER than themselves). No CTA button here — Phase 3G-4 wires the actual share/invite flow; this is text-only guidance for now. */
+function FriendRankingEmptyState() {
+  return (
+    <div className="flex flex-col items-center gap-1.5 rounded-2xl bg-card px-5 py-10 text-center toy-border">
+      <p className="text-sm font-bold text-foreground">아직 비교할 친구가 없어요.</p>
+      <p className="text-xs text-muted-foreground">친구와 Statling을 공유하고 기록을 비교해보세요.</p>
+    </div>
+  )
+}
 
 function RankingGuestPrompt() {
   return (
@@ -393,14 +481,16 @@ function RankingErrorState({ message, onRetry }: { message: string; onRetry: () 
   )
 }
 
-function XpRankingPanel() {
+function XpRankingPanel({ scope }: { scope: RankingScope }) {
   const { user } = useAuth()
   const [state, setState] = useState<XpPanelState>({ kind: 'loading' })
   const [reloadToken, setReloadToken] = useState(0)
 
   // RankingScreen's gate already guarantees `user` + a confirmed nickname by
   // the time this mounts — this effect only ever fetches the leaderboard
-  // itself, never a nickname.
+  // itself, never a nickname. `scope` in the dependency array means
+  // switching 전체<->친구 resets straight to `loading` before the new fetch
+  // resolves, so the previous scope's rows never flash inside this panel.
   useEffect(() => {
     if (!user) return
     let cancelled = false
@@ -412,20 +502,37 @@ function XpRankingPanel() {
       return
     }
 
-    fetchXpLeaderboard(client).then((leaderboardResult) => {
-      if (cancelled) return
-      if (!leaderboardResult.ok) {
-        if (process.env.NODE_ENV !== 'production') console.warn('[ranking] xp leaderboard fetch failed:', leaderboardResult.error)
-        setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
-        return
-      }
-      setState({ kind: 'ready', entries: leaderboardResult.entries, myRank: leaderboardResult.myRank })
-    })
+    if (scope === 'friends') {
+      fetchFriendXpRanking(client).then((result) => {
+        if (cancelled) return
+        if (!result.ok) {
+          if (process.env.NODE_ENV !== 'production') console.warn('[ranking] friend xp ranking fetch failed:', result.error)
+          setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
+          return
+        }
+        const entries = result.entries.map((e) => ({ rank: e.rank, nickname: e.nickname, totalXp: e.totalXp, isMe: e.isMe }))
+        setState({ kind: 'ready', entries, myRank: entries.find((e) => e.isMe) ?? null })
+      })
+    } else {
+      fetchXpLeaderboard(client).then((leaderboardResult) => {
+        if (cancelled) return
+        if (!leaderboardResult.ok) {
+          if (process.env.NODE_ENV !== 'production') console.warn('[ranking] xp leaderboard fetch failed:', leaderboardResult.error)
+          setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
+          return
+        }
+        const entries = leaderboardResult.entries.map((e) => ({ rank: e.rank, nickname: e.nickname, totalXp: e.totalXp, isMe: false }))
+        const myRank = leaderboardResult.myRank
+          ? { rank: leaderboardResult.myRank.rank, nickname: leaderboardResult.myRank.nickname, totalXp: leaderboardResult.myRank.totalXp, isMe: false }
+          : null
+        setState({ kind: 'ready', entries, myRank })
+      })
+    }
 
     return () => {
       cancelled = true
     }
-  }, [user, reloadToken])
+  }, [user, reloadToken, scope])
 
   if (state.kind === 'error') {
     return <RankingErrorState message={state.message} onRetry={() => setReloadToken((t) => t + 1)} />
@@ -434,13 +541,14 @@ function XpRankingPanel() {
   const loading = state.kind === 'loading'
   const entries = state.kind === 'ready' ? state.entries : []
   const myRank = state.kind === 'ready' ? state.myRank : null
+  const friendCount = entries.filter((e) => !e.isMe).length
 
   return (
     <div className="flex flex-col gap-2">
       <MyRankCard
         loading={loading}
         rank={myRank?.rank ?? null}
-        label="내 XP 랭킹"
+        label={scope === 'friends' ? '친구 중 내 XP 순위' : '내 XP 랭킹'}
         detail={
           myRank ? (
             <p className="font-display text-lg font-extrabold text-foreground">
@@ -452,24 +560,23 @@ function XpRankingPanel() {
       />
       {loading ? (
         <RankingSkeleton />
+      ) : scope === 'friends' && friendCount === 0 ? (
+        <FriendRankingEmptyState />
       ) : entries.length === 0 ? (
         <p className="py-8 text-center text-sm font-semibold text-muted-foreground">아직 랭킹 기록이 없어요.</p>
       ) : (
-        // RPC never returns user_id, and duplicate nicknames are allowed
-        // (Phase 3B-2) — there is no safe way to tell which row is "me" here,
-        // so isMe is always false; MyRankCard above already covers "내 순위".
         entries.map((entry) => (
           <RankRow
             key={entry.rank}
             rank={entry.rank}
             displayName={entry.nickname}
-            isMe={false}
+            isMe={entry.isMe}
             trailing={<span className="shrink-0 font-display text-sm font-extrabold text-foreground">{entry.totalXp.toLocaleString()} XP</span>}
           />
         ))
       )}
       <p className="mt-2 text-center text-[11px] text-muted-foreground">
-        게임을 완료할 때마다 점수만큼 XP를 얻어요. 최대 100명까지 표시돼요.
+        게임을 완료할 때마다 점수만큼 XP를 얻어요. {scope === 'friends' ? '나와 친구만 표시돼요.' : '최대 100명까지 표시돼요.'}
       </p>
     </div>
   )
@@ -485,12 +592,13 @@ function XpRankingPanel() {
  * (e.g. "285ms"/"92%") CompleteScreen and the old mock leaderboard already
  * used.
  */
+type GameRankingRow = { rank: number; nickname: string; recordValue: number; tiebreakValue: number | null; isMe: boolean }
 type GamePanelState =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
-  | { kind: 'ready'; entries: GameLeaderboardEntry[]; myRank: MyGameRank | null }
+  | { kind: 'ready'; entries: GameRankingRow[]; myRank: GameRankingRow | null }
 
-function ByGameRankingPanel() {
+function ByGameRankingPanel({ scope }: { scope: RankingScope }) {
   const { user } = useAuth()
   const [selectedStat, setSelectedStat] = useState<StatId | null>(null)
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null)
@@ -500,8 +608,9 @@ function ByGameRankingPanel() {
 
   // RankingScreen's gate already guarantees `user` + a confirmed nickname by
   // the time this mounts — never fires while no game is selected yet, and
-  // re-fires on every game/difficulty change so switching HARD<->EXTREME (or
-  // to a different game) never shows the previous selection's stale data.
+  // re-fires on every game/difficulty/scope change so switching HARD<->EXTREME
+  // (or to a different game, or 전체<->친구) never shows the previous
+  // selection's stale data.
   useEffect(() => {
     if (!selectedGameId || !user) return
     let cancelled = false
@@ -513,20 +622,37 @@ function ByGameRankingPanel() {
       return
     }
 
-    fetchGameLeaderboard(client, selectedGameId, selectedDifficulty).then((result) => {
-      if (cancelled) return
-      if (!result.ok) {
-        if (process.env.NODE_ENV !== 'production') console.warn('[ranking] game leaderboard fetch failed:', result.error)
-        setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
-        return
-      }
-      setState({ kind: 'ready', entries: result.entries, myRank: result.myRank })
-    })
+    if (scope === 'friends') {
+      fetchFriendGameRanking(client, selectedGameId, selectedDifficulty).then((result) => {
+        if (cancelled) return
+        if (!result.ok) {
+          if (process.env.NODE_ENV !== 'production') console.warn('[ranking] friend game ranking fetch failed:', result.error)
+          setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
+          return
+        }
+        const entries = result.entries.map((e) => ({ rank: e.rank, nickname: e.nickname, recordValue: e.recordValue, tiebreakValue: e.tiebreakValue, isMe: e.isMe }))
+        setState({ kind: 'ready', entries, myRank: entries.find((e) => e.isMe) ?? null })
+      })
+    } else {
+      fetchGameLeaderboard(client, selectedGameId, selectedDifficulty).then((result) => {
+        if (cancelled) return
+        if (!result.ok) {
+          if (process.env.NODE_ENV !== 'production') console.warn('[ranking] game leaderboard fetch failed:', result.error)
+          setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
+          return
+        }
+        const entries = result.entries.map((e) => ({ rank: e.rank, nickname: e.nickname, recordValue: e.recordValue, tiebreakValue: e.tiebreakValue, isMe: false }))
+        const myRank = result.myRank
+          ? { rank: result.myRank.rank, nickname: result.myRank.nickname, recordValue: result.myRank.recordValue, tiebreakValue: result.myRank.tiebreakValue, isMe: false }
+          : null
+        setState({ kind: 'ready', entries, myRank })
+      })
+    }
 
     return () => {
       cancelled = true
     }
-  }, [selectedGameId, selectedDifficulty, user, reloadToken])
+  }, [selectedGameId, selectedDifficulty, user, reloadToken, scope])
 
   if (selectedStat && selectedGameId) {
     const game = GAME_POOL[selectedStat].find((g) => g.key === selectedGameId)
@@ -534,6 +660,7 @@ function ByGameRankingPanel() {
     const loading = state.kind === 'loading'
     const entries = state.kind === 'ready' ? state.entries : []
     const myRank = state.kind === 'ready' ? state.myRank : null
+    const friendCount = entries.filter((e) => !e.isMe).length
 
     return (
       <div className="flex flex-col gap-2">
@@ -578,7 +705,11 @@ function ByGameRankingPanel() {
             <MyRankCard
               loading={loading}
               rank={myRank?.rank ?? null}
-              label={`내 기록 (${DIFFICULTY_TABS.find((t) => t.id === selectedDifficulty)?.label})`}
+              label={
+                scope === 'friends'
+                  ? `친구 중 내 기록 (${DIFFICULTY_TABS.find((t) => t.id === selectedDifficulty)?.label})`
+                  : `내 기록 (${DIFFICULTY_TABS.find((t) => t.id === selectedDifficulty)?.label})`
+              }
               detail={
                 myRank && metricConfig ? (
                   <p className="font-display text-lg font-extrabold text-foreground">
@@ -593,19 +724,17 @@ function ByGameRankingPanel() {
             <div className="flex flex-col gap-2">
               {loading ? (
                 <RankingSkeleton />
+              ) : scope === 'friends' && friendCount === 0 ? (
+                <FriendRankingEmptyState />
               ) : entries.length === 0 ? (
                 <p className="py-8 text-center text-sm font-semibold text-muted-foreground">아직 이 난이도의 기록이 없어요.</p>
               ) : (
-                // RPC never returns user_id, and duplicate nicknames are
-                // allowed (Phase 3B-2) — there is no safe way to tell which
-                // row is "me" here, so isMe is always false; MyRankCard above
-                // already covers "내 순위".
                 entries.map((entry) => (
                   <RankRow
                     key={entry.rank}
                     rank={entry.rank}
                     displayName={entry.nickname}
-                    isMe={false}
+                    isMe={entry.isMe}
                     trailing={
                       <span className="shrink-0 font-display text-sm font-extrabold text-foreground">
                         {metricConfig ? metricConfig.primary.format(entry.recordValue) : entry.recordValue}
@@ -623,7 +752,7 @@ function ByGameRankingPanel() {
           </>
         )}
         <p className="mt-2 text-center text-[11px] text-muted-foreground">
-          이 게임의 실제 기록 기준으로 순위가 매겨져요. 최대 100명까지 표시돼요.
+          이 게임의 실제 기록 기준으로 순위가 매겨져요. {scope === 'friends' ? '나와 친구만 표시돼요.' : '최대 100명까지 표시돼요.'}
         </p>
         <p className="text-center text-[11px] text-muted-foreground">
           동일한 기록은 먼저 달성한 순서대로 순위가 결정돼요.
