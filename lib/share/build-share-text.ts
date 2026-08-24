@@ -47,6 +47,23 @@ export function buildShareUrl(explicitUrl: string | undefined, context: ShareCon
   return url.toString()
 }
 
+/**
+ * Phase 3G-2 — friend-invite variant of buildShareUrl above. Adds
+ * `?ref=<friendCode>` on top of the same UTM stamp, so a link built by a
+ * future, explicit "친구와 기록 비교하기" action (Phase 3G-4) carries the
+ * invite token. Never call this for a general share (Character Reveal's
+ * "공유하기", MyPage's plain "공유 링크") — those must keep calling
+ * buildShareUrl as-is, with no ref param, since a general share link can end
+ * up posted publicly (SNS/blogs) and a standing friend-invite token must
+ * never ride along with every casual share (see the Phase 3G-2 report).
+ * buildShareUrl itself is untouched — this only wraps its output.
+ */
+export function buildFriendInviteUrl(explicitUrl: string | undefined, context: ShareContext, friendCode: string): string {
+  const url = new URL(buildShareUrl(explicitUrl, context))
+  url.searchParams.set('ref', friendCode)
+  return url.toString()
+}
+
 export function buildShareTitle(): string {
   return '나의 스탯링이 태어났어요!'
 }
