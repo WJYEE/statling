@@ -51,6 +51,7 @@ export function LocalAuthProvider({ children }: { children: ReactNode }) {
     // No Supabase, so nothing to restore/upload — always trivially "ready",
     // never a conflict. See auth-context.tsx's doc comments.
     restoreReady: true,
+    restoreFailed: false,
     restoreConflict: null,
     useServerStatling() {},
     keepLocalStatling() {},

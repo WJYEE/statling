@@ -53,6 +53,8 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
    * session's restore-from-server check is actually in flight.
    */
   const [restoreReady, setRestoreReady] = useState(true)
+  /** See auth-context.tsx's doc comment on AuthContextValue.restoreFailed. */
+  const [restoreFailed, setRestoreFailed] = useState(false)
   const [restoreConflict, setRestoreConflict] = useState<RestoreConflictInfo | null>(null)
 
   useEffect(() => {
@@ -100,6 +102,10 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
     async function syncSession(client: SupabaseClient, userId: string, localMarkerOverride?: string | null) {
       setRestoreConflict(null)
       setRestoreReady(false)
+      // Reset here (not just on a specific failure branch below) so a
+      // failure from a PREVIOUS login/session-sync attempt never lingers
+      // into this new one — every fresh attempt starts presumed-ok.
+      setRestoreFailed(false)
       registerSyncSession(userId)
       let awaitingConflictResolution = false
       try {
@@ -114,12 +120,16 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
           case 'read_failed':
             // Failure policy: never clear the session, never touch
             // localStorage — just stop blocking so the app proceeds with
-            // whatever local state already exists.
+            // whatever local state already exists. restoreFailed lets a
+            // consumer tell this apart from "nothing to restore" — see its
+            // own doc comment.
             devWarn('[session-sync] server read failed (proceeding with local state as-is):', result.failures)
+            setRestoreFailed(true)
             break
           case 'restored':
             if (!result.report.ok) {
               devWarn('[session-sync] restore failed/rolled back (local state preserved):', result.report.results)
+              setRestoreFailed(true)
             }
             break
           case 'conflict':
@@ -130,8 +140,11 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         // Defensive only — runSessionSync's own internals already catch
         // everything they can; this just guarantees restoreReady is never
-        // left stuck on an unexpected throw (see "무한 loading 금지").
+        // left stuck on an unexpected throw (see "무한 loading 금지"). An
+        // unexpected throw is unambiguously "did not complete successfully,"
+        // same category as read_failed/report.ok===false above.
         devWarn('[session-sync] runSessionSync threw unexpectedly (proceeding with local state as-is):', err)
+        setRestoreFailed(true)
       } finally {
         setRestoreReady(true)
         if (!awaitingConflictResolution) markSyncReady(userId)
@@ -179,6 +192,7 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
     loading,
     isConfigured: Boolean(supabase),
     restoreReady,
+    restoreFailed,
     restoreConflict,
 
     useServerStatling() {

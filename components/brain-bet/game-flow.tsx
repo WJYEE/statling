@@ -210,7 +210,7 @@ const emptyFinals = () =>
 const ACHIEVEMENT_TOAST_TIMEOUT_MS = 7000
 
 export function GameFlow() {
-  const { user, loading: authLoading, restoreReady, restoreConflict, useServerStatling, keepLocalStatling } = useAuth()
+  const { user, loading: authLoading, restoreReady, restoreFailed, restoreConflict, useServerStatling, keepLocalStatling } = useAuth()
   /**
    * Phase 2C-2 — true once it's safe to read localStorage and decide the
    * initial/post-auth phase: auth has resolved, any server-restore check
@@ -466,27 +466,36 @@ export function GameFlow() {
   /**
    * Phase 2C-2 — Case E fallback: a user who just authenticated (fresh
    * login/signup via LoginScreen, not a plain guest's initial mount) but has
-   * no local pet at all — either genuinely nothing to restore, or restore
-   * failed/rolled back with nothing local to fall back on either. Mirrors
-   * handleLoginAuthenticated's ORIGINAL fallback (start() when there's no
-   * stored pet), which had to be removed from that synchronous callback
-   * because it read localStorage before restore/conflict-resolution could
-   * settle — see that function's own doc comment. This effect does the same
-   * job, just correctly sequenced after bootReady.
+   * no local pet at all — genuinely nothing to restore (a real new account).
+   * Mirrors handleLoginAuthenticated's ORIGINAL fallback (start() when
+   * there's no stored pet), which had to be removed from that synchronous
+   * callback because it read localStorage before restore/conflict-resolution
+   * could settle — see that function's own doc comment. This effect does the
+   * same job, just correctly sequenced after bootReady.
    *
    * Deliberately gated on `user` (not just bootReady) so this never fires
    * for a plain guest's initial mount — Landing's own "게임 시작하기" button
    * already covers that path, and auto-starting Assessment out from under a
    * first-time visitor who hasn't clicked anything yet would be a real
    * regression, not a fix.
+   *
+   * Login restore wrong-phase fix — also gated on `!restoreFailed`.
+   * `bootReady` alone can't tell "no local pet because this account
+   * genuinely has none yet" (restoreFailed stays false — correct to
+   * auto-start Assessment here) apart from "no local pet because THIS
+   * login's server read/restore didn't complete" (restoreFailed is true —
+   * an existing user whose data is still only on the server, wrongly routed
+   * into a brand-new Assessment run without this guard). See
+   * auth-context.tsx's doc comment on restoreFailed for the exact
+   * classification.
    */
   const hasAutoStartedAfterLoginRef = useRef(false)
   useEffect(() => {
-    if (!bootReady || !user || hasAutoStartedAfterLoginRef.current) return
+    if (!bootReady || !user || restoreFailed || hasAutoStartedAfterLoginRef.current) return
     if (loadStoredPetProfile()) return // the other bootReady effect above already handles this device
     hasAutoStartedAfterLoginRef.current = true
     start('post_login_auto')
-  }, [bootReady, user])
+  }, [bootReady, user, restoreFailed])
 
   // Offers "이어서 하기" on Landing only when a resumable, not-yet-stale
   // checkpoint exists (see lib/game/intro-progress-storage.ts#loadIntroProgress
@@ -1899,6 +1908,34 @@ export function GameFlow() {
         <div className="flex min-h-dvh flex-col items-center justify-center gap-4 px-5">
           <Logo size="sm" />
           <Loader2 size={28} strokeWidth={2.4} className="animate-spin text-muted-foreground" aria-hidden="true" />
+        </div>
+      ) : restoreFailed && user && !loadStoredPetProfile() ? (
+        // Login restore wrong-phase fix — the narrow case post_login_auto's
+        // own restoreFailed guard above deliberately leaves unhandled: an
+        // authenticated existing account whose local device has no pet
+        // (nothing here for the other bootReady effect to route on either)
+        // AND this login's server read/restore didn't complete. Without this
+        // branch, `phase` would just sit at its 'landing' default and this
+        // already-logged-in user would see the guest-facing "게임 시작하기"
+        // Landing flow, indistinguishable from actually being logged out.
+        // Smallest safe fallback: reuse the exact spinner layout above, swap
+        // in a short message + retry, mirroring the one recovery already
+        // proven to work (a reload naturally retries session-sync from
+        // scratch) rather than inventing new retry plumbing.
+        <div className="flex min-h-dvh flex-col items-center justify-center gap-4 px-5 text-center">
+          <Logo size="sm" />
+          <p className="text-sm text-muted-foreground">
+            데이터를 불러오는 데 실패했어요.
+            <br />
+            다시 시도해주세요.
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground"
+          >
+            다시 시도하기
+          </button>
         </div>
       ) : (
       <div key={stepKey} className="animate-in fade-in slide-in-from-bottom-3 duration-300">

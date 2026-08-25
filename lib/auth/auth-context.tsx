@@ -63,6 +63,22 @@ export interface AuthContextValue {
    * adds latency for a guest.
    */
   restoreReady: boolean
+  /**
+   * True exactly when THIS authenticated session's server read or restore
+   * did not complete successfully (lib/migration/session-sync.ts's
+   * SessionSyncResult status 'read_failed', or 'restored' with
+   * report.ok === false) — distinct from "restoreReady is true because
+   * there was genuinely nothing to restore" (a real new user, or an
+   * in-sync/migration-delegated outcome), which leaves this false. Exists
+   * so a consumer that only gates on restoreReady (like game-flow.tsx's
+   * bootReady) can't mistake "restore attempted and failed" for "nothing to
+   * restore" — see post_login_auto's own guard for why that distinction
+   * matters. Reset to false at the start of every new session-sync attempt,
+   * so a stale failure from a previous login never lingers into the next
+   * one. Always false on the localStorage-only backend (there is no server
+   * to fail against).
+   */
+  restoreFailed: boolean
   /** Non-null exactly while a Case C conflict is awaiting the user's choice. Always null on the localStorage-only backend. */
   restoreConflict: RestoreConflictInfo | null
   /** Case C resolution: adopt the server's Statling — overwrites this device's local state via restoreLocalDataFromSnapshot (with its own backup/rollback). No-op on the localStorage-only backend. */
