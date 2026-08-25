@@ -5,7 +5,7 @@ import type { GameDifficulty } from '@/lib/game/difficulty'
 import type { DialogueMemoryKey } from '@/lib/pet-care/dialogue-memory-storage'
 import type { ServerDataSnapshot } from '@/lib/migration/snapshot-types'
 
-import { loadStoredPetProfile, saveStoredPetProfile, type StoredPetProfile } from '@/lib/pets/pet-storage'
+import { clearStoredPetProfile, loadStoredPetProfile, saveStoredPetProfile, type StoredPetProfile } from '@/lib/pets/pet-storage'
 import {
   loadPlayerSkillState,
   savePlayerSkillState,
@@ -424,11 +424,21 @@ function userNotesFromServer(rows: ServerDataSnapshot['userNotes']): UserNote[] 
 
 function buildRestoreSteps(snapshot: ServerDataSnapshot, now: Date): RestoreStepRuntime[] {
   return [
-    makeStep(
+    // Rollback correctness fix — backup is StoredPetProfile | null (a device
+    // with no local pet yet backs up as null, same as loadStoredPetProfile's
+    // own return type). restoreBackup must be able to express BOTH restore
+    // targets: an actual prior profile (saveStoredPetProfile) AND "there was
+    // genuinely nothing here before" (clearStoredPetProfile) — the old
+    // `v ? saveStoredPetProfile(v) : undefined` treated a null backup as
+    // "nothing to do," which silently left a later step's rollback unable to
+    // undo this step's already-applied server write, even though the report
+    // still claimed rolledBack:true. `null` here always means "no backup
+    // existed"; this type has no other use for `undefined`.
+    makeStep<StoredPetProfile | null>(
       'pets',
       snapshot.pet !== null,
       loadStoredPetProfile,
-      (v) => (v ? saveStoredPetProfile(v) : undefined),
+      (v) => (v === null ? clearStoredPetProfile() : saveStoredPetProfile(v)),
       () => saveStoredPetProfile(petFromServer(snapshot.pet as NonNullable<ServerDataSnapshot['pet']>)),
     ),
     makeStep(
