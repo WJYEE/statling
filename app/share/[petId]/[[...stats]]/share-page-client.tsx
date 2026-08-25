@@ -2,12 +2,14 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { ArrowRight, Check } from 'lucide-react'
 import { AssetImage } from '@/components/brain-bet/asset-image'
 import { Logo } from '@/components/brain-bet/logo'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { StatlingCompatibility } from '@/components/brain-bet/result/statling-compatibility'
 import { ToyButton } from '@/components/brain-bet/toy-button'
+import { FriendInviteCta } from '@/components/share/friend-invite-cta'
 import { STATS, type StatId } from '@/lib/brain-bet'
 import { getPetProfileById } from '@/lib/pets/pet-profile'
 import { getStatCompatibility } from '@/lib/pets/compatibility'
@@ -39,11 +41,24 @@ interface SharePageClientProps {
  * discussion this feature was scoped from). The compatibility section below
  * the CTA reuses the exact same lib/pets/compatibility.ts calculation
  * Character Reveal already shows — no new algorithm, no server lookup.
+ *
+ * Phase 3G-4 — a friend-invite link (built only by MyPage's dedicated
+ * "친구와 기록 비교하기" action, never by the general share above) adds
+ * exactly one thing on top of all of this: a `?ref=<friend_code>` query
+ * param, read here via useSearchParams (not a route param — resolve-share-
+ * params.ts/generateMetadata/the OG image are untouched, since none of them
+ * read the query string). When present, FriendInviteCta renders below the
+ * existing dex CTA; when absent (every general share link, including every
+ * one already in the wild), nothing here changes at all. Opening this page
+ * — with or without `ref` — never creates a friendship by itself; that only
+ * ever happens from FriendInviteCta's own explicit button, and Dex
+ * registration above stays fully independent of whichever way that goes.
  */
 export function SharePageClient({ petId, topStat, secondaryStat }: SharePageClientProps) {
   const pet = getPetProfileById(petId)
   const [recorded, setRecorded] = useState(() => hasMetPet(petId))
   const isReveal = topStat != null && secondaryStat != null
+  const friendCode = useSearchParams().get('ref')
 
   // Same calculation Character Reveal already shows (lib/pets/compatibility.ts's
   // getStatCompatibility) — deterministic from the pet's own catalog vector,
@@ -111,6 +126,10 @@ export function SharePageClient({ petId, topStat, secondaryStat }: SharePageClie
               </ToyButton>
             )}
           </div>
+
+          {/* Only rendered when the link is a friend invite (see this file's
+              own doc comment above) — never for a plain share link. */}
+          {friendCode && <FriendInviteCta friendCode={friendCode} />}
 
           {/* Extra info below the primary "내 도감에 기록하기" CTA, never above
               it — the CTA stays the first thing a visitor can act on. */}

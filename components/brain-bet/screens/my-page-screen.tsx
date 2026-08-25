@@ -4,11 +4,13 @@ import { useRef, useState } from 'react'
 import {
   HelpCircle,
   Link2,
+  Loader2,
   LogOut,
   Mail,
   Music,
   RotateCcw,
   User,
+  Users,
   Volume2,
   VolumeX,
 } from 'lucide-react'
@@ -36,10 +38,12 @@ import { ROOM_ASSETS } from '@/lib/room-assets'
 import { loadSavedRoomState } from '@/lib/room/room-storage'
 import { loadXpState } from '@/lib/ranking/xp-ledger'
 import { trackShare } from '@/lib/missions/mission-tracker'
-import { buildFriendInviteText, buildFriendInviteTitle, buildShareUrl } from '@/lib/share/build-share-text'
+import { buildFriendInviteText, buildFriendInviteTitle, buildFriendInviteUrl, buildShareUrl } from '@/lib/share/build-share-text'
 import { useSharePreview } from '@/lib/share/use-share-preview'
 import { buildDifferentRhythmCards, buildGoodMatchCards } from '@/lib/stats/stat-compatibility-copy'
 import { buildStatInsight } from '@/lib/stats/stat-insights'
+import { getOrCreateMyFriendCode } from '@/lib/friends/friend-connection'
+import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 
 /** Correct 이/가 for a Korean noun by checking whether its last syllable has a batchim (same technique as mission-screen.tsx's withObjectParticle for 을/를 — Hangul syllables are a fixed Unicode block starting at U+AC00, in 28-value groups, remainder 0 means no final consonant). Falls back to '가' for anything that isn't a plain Hangul syllable (defensive only — every Statling character name in lib/pets/pet-profile.ts is Korean). */
 function withSubjectParticle(word: string): string {
@@ -116,6 +120,56 @@ export function MyPageScreen({ statlingName, topStat, secondaryStat, petProfile,
     toastManager,
     onShareSucceeded: trackShare,
   })
+
+  // Phase 3G-4 — Friend Invite: a SEPARATE useSharePreview instance (same
+  // hook, same hidden StatlingFriendCard capture target, same Preview/
+  // Fallback modals below) rather than branching the general `share` hook
+  // above — keeps the general "내 Statling 친구에게 공유" button (no `ref`,
+  // can end up posted publicly) completely untouched while still reusing
+  // every existing share/save/native-share/clipboard code path. `friendCode`
+  // is resolved BEFORE opening the preview (not inside buildContent, which
+  // stays synchronous like every other caller of this hook) — see
+  // handleFriendInviteClick below.
+  const [friendCode, setFriendCode] = useState<string | null>(null)
+  const [friendCodeLoading, setFriendCodeLoading] = useState(false)
+  const friendShare = useSharePreview({
+    cardRef: shareCardRef,
+    buildContent: () =>
+      petProfile && friendCode
+        ? {
+            title: buildFriendInviteTitle(),
+            text: buildFriendInviteText({ statlingName, characterName: petProfile.name, level: petCareLevel }),
+            url: buildFriendInviteUrl(`${window.location.origin}/share/${encodeURIComponent(petProfile.id)}`, SHARE_CONTEXT, friendCode),
+          }
+        : { title: '', text: '', url: '' }, // unreachable — handleFriendInviteClick never opens the preview before friendCode resolves
+    saveName: statlingName,
+    shareContext: SHARE_CONTEXT,
+    toastManager,
+    onShareSucceeded: trackShare,
+  })
+
+  /** Guest: reveals the existing inline login form (same as the account card's own 로그인 button) instead of proceeding — generating a friend_code needs a real account, and there's nothing to "resume" after login here (unlike consuming someone else's invite link), so this simply asks the user to tap the button again once signed in. */
+  async function handleFriendInviteClick() {
+    if (!user) {
+      setShowLogin(true)
+      return
+    }
+    const client = getSupabaseBrowserClient()
+    if (!client) {
+      toastManager.add({ title: '친구 초대 링크를 만들지 못했어요. 다시 시도해주세요.', type: 'error' })
+      return
+    }
+    setFriendCodeLoading(true)
+    const result = await getOrCreateMyFriendCode(client)
+    setFriendCodeLoading(false)
+    if (!result.ok) {
+      if (process.env.NODE_ENV !== 'production') console.warn('[friend-invite] get_or_create_my_friend_code failed:', result.error)
+      toastManager.add({ title: '친구 초대 링크를 만들지 못했어요. 다시 시도해주세요.', type: 'error' })
+      return
+    }
+    setFriendCode(result.friendCode)
+    friendShare.openPreview()
+  }
 
   // Phase 3C-2 — Share Card content: same real diagnosis-derived data
   // RevealScreen's own StatlingShareCard uses (see that component's doc
@@ -308,6 +362,29 @@ export function MyPageScreen({ statlingName, topStat, secondaryStat, petProfile,
         </button>
       )}
 
+      {/* Phase 3G-4 — separate, explicit action from the general share above:
+          this is the ONLY place a friend-invite link (with `?ref=`) gets
+          created. General share never carries it. */}
+      {petProfile && (
+        <button
+          type="button"
+          onClick={handleFriendInviteClick}
+          disabled={friendCodeLoading}
+          className="mt-2 flex items-center gap-3 rounded-2xl bg-card px-4 py-4 text-left toy-border disabled:opacity-60"
+        >
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground toy-border">
+            <Users size={20} strokeWidth={2.2} />
+          </span>
+          <div className="flex-1">
+            <p className="font-display text-sm font-extrabold text-foreground">친구와 기록 비교하기</p>
+            <p className="text-xs text-muted-foreground">
+              {user ? '친구가 링크를 열고 수락하면 랭킹에서 서로 기록을 비교할 수 있어요.' : '로그인하면 친구와 기록을 비교할 수 있어요.'}
+            </p>
+          </div>
+          {friendCodeLoading && <Loader2 size={16} strokeWidth={2.4} className="shrink-0 animate-spin text-muted-foreground" />}
+        </button>
+      )}
+
       {/* 3. 설정 */}
       <p className="mt-6 text-xs font-bold uppercase tracking-wide text-muted-foreground">설정</p>
       <button
@@ -466,6 +543,31 @@ export function MyPageScreen({ statlingName, topStat, secondaryStat, petProfile,
           title={share.fallback.title}
           text={share.fallback.text}
           url={share.fallback.url}
+        />
+      )}
+
+      {/* Phase 3G-4 — Friend Invite's own Preview/Fallback modal pair, same
+          components as the general share above, just bound to friendShare's
+          own state instead. */}
+      <SharePreviewModal
+        open={friendShare.isOpen}
+        onOpenChange={friendShare.onOpenChange}
+        imageState={friendShare.imageState}
+        imageUrl={friendShare.imageUrl}
+        busyAction={friendShare.busyAction}
+        onShare={friendShare.handleShare}
+        onSave={friendShare.handleSave}
+      />
+
+      {friendShare.fallback && (
+        <ShareFallbackModal
+          open={!!friendShare.fallback}
+          onOpenChange={(open) => {
+            if (!open) friendShare.clearFallback()
+          }}
+          title={friendShare.fallback.title}
+          text={friendShare.fallback.text}
+          url={friendShare.fallback.url}
         />
       )}
     </div>

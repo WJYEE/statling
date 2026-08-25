@@ -94,6 +94,8 @@ import { useAuth } from '@/lib/auth/auth-provider'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { triggerBackgroundMigration } from '@/lib/migration/trigger-background-migration'
 import { trackDailyVisit, trackFirstLogin, trackGamePlayed } from '@/lib/missions/mission-tracker'
+import { createFriendship } from '@/lib/friends/friend-connection'
+import { clearPendingFriendCode, getPendingFriendCode } from '@/lib/friends/pending-friend-code'
 import {
   isAchievementNotified,
   markAchievementNotified,
@@ -503,6 +505,44 @@ export function GameFlow() {
   useEffect(() => {
     if (user) trackFirstLogin()
   }, [user])
+
+  /**
+   * Phase 3G-4 — resumes a friend invite across a real page reload. This is
+   * the ONE place a pending friend_code (lib/friends/pending-friend-code.ts)
+   * ever gets consumed, deliberately placed here rather than inside the
+   * share page itself: Google OAuth is a hard redirect (browser leaves the
+   * app, app/auth/callback/route.ts sends it back to the bare origin —
+   * verified by reading that route directly), so the share page a guest
+   * tapped "친구로 추가하고 기록 비교하기" on is long gone by the time
+   * `user` resolves again — but this component (the app's root phase
+   * machine) always remounts fresh at `/` regardless, same as
+   * trackFirstLogin above. Covers the email/password path too (no harm
+   * running the same check there, and it means share-page-client.tsx itself
+   * doesn't need its own separate post-login handling).
+   *
+   * create_friendship is idempotent server-side (already-friends is a no-op
+   * success — see the Phase 3G-2 migration), so this never needs its own
+   * ref-guard against a rare double-fire; the pending code is cleared
+   * immediately after one attempt regardless of outcome, per
+   * pending-friend-code.ts's own doc comment, so a stale code can never
+   * re-fire on a later, unrelated login.
+   */
+  useEffect(() => {
+    if (!user) return
+    const pendingCode = getPendingFriendCode()
+    if (!pendingCode) return
+    clearPendingFriendCode()
+
+    const client = getSupabaseBrowserClient()
+    if (!client) return
+    createFriendship(client, pendingCode).then((result) => {
+      if (result.ok) {
+        toastManager.add({ title: result.nickname ? `${result.nickname}님과 친구가 되었어요!` : '친구가 되었어요!', type: 'success' })
+      } else if (process.env.NODE_ENV !== 'production') {
+        console.warn('[friend-invite] resumed create_friendship failed:', result.error)
+      }
+    })
+  }, [user, toastManager])
 
   /**
    * True once this session has actually observed a real signed-in `user` —

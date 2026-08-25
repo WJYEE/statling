@@ -1,8 +1,10 @@
 'use client'
 
 import { type ReactNode, useEffect, useState } from 'react'
-import { ArrowLeft, ChevronRight } from 'lucide-react'
+import { ArrowLeft, ChevronRight, UserMinus } from 'lucide-react'
+import { Toast } from '@base-ui/react/toast'
 import { AuthForm } from '@/components/brain-bet/auth/auth-form'
+import { ConfirmDialog } from '@/components/brain-bet/confirm-dialog'
 import { NicknameSetupCard } from '@/components/brain-bet/nickname-setup-card'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { ToyButton } from '@/components/brain-bet/toy-button'
@@ -19,6 +21,7 @@ import { fetchXpLeaderboard } from '@/lib/ranking/xp-leaderboard'
 import { fetchFriendGameRanking } from '@/lib/ranking/friend-game-leaderboard'
 import { fetchFriendOverallRanking } from '@/lib/ranking/friend-overall-leaderboard'
 import { fetchFriendXpRanking } from '@/lib/ranking/friend-xp-leaderboard'
+import { removeFriendship } from '@/lib/friends/friend-connection'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 
@@ -321,7 +324,7 @@ function MyRankCard({
  * comment), which now finally lets RankRow's already-existing `isMe`
  * highlighting do something for the first time in this file.
  */
-type OverallRankingRow = { rank: number; nickname: string; overallScore: number; isMe: boolean }
+type OverallRankingRow = { rank: number; nickname: string; overallScore: number; isMe: boolean; friendCode: string | null }
 type OverallPanelState =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
@@ -336,6 +339,22 @@ function OverallRankingPanel({ scope }: { scope: RankingScope }) {
   const { user } = useAuth()
   const [state, setState] = useState<OverallPanelState>({ kind: 'loading' })
   const [reloadToken, setReloadToken] = useState(0)
+  const toastManager = Toast.useToastManager()
+  const [pendingRemoval, setPendingRemoval] = useState<{ friendCode: string; nickname: string } | null>(null)
+
+  async function confirmRemoval() {
+    if (!pendingRemoval) return
+    const client = getSupabaseBrowserClient()
+    setPendingRemoval(null)
+    if (!client) return
+    const result = await removeFriendship(client, pendingRemoval.friendCode)
+    if (result.ok) {
+      toastManager.add({ title: '친구를 삭제했어요.', type: 'success' })
+      setReloadToken((t) => t + 1)
+    } else {
+      toastManager.add({ title: '친구 삭제에 실패했어요. 다시 시도해주세요.', type: 'error' })
+    }
+  }
 
   // RankingScreen's gate already guarantees `user` + a confirmed nickname by
   // the time this mounts — this effect only ever fetches the leaderboard
@@ -361,7 +380,7 @@ function OverallRankingPanel({ scope }: { scope: RankingScope }) {
           setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
           return
         }
-        const entries = result.entries.map((e) => ({ rank: e.rank, nickname: e.nickname, overallScore: e.overallScore, isMe: e.isMe }))
+        const entries = result.entries.map((e) => ({ rank: e.rank, nickname: e.nickname, overallScore: e.overallScore, isMe: e.isMe, friendCode: e.friendCode }))
         setState({ kind: 'ready', entries, myRank: entries.find((e) => e.isMe) ?? null })
       })
     } else {
@@ -372,9 +391,9 @@ function OverallRankingPanel({ scope }: { scope: RankingScope }) {
           setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
           return
         }
-        const entries = leaderboardResult.entries.map((e) => ({ rank: e.rank, nickname: e.nickname, overallScore: e.overallScore, isMe: false }))
+        const entries = leaderboardResult.entries.map((e) => ({ rank: e.rank, nickname: e.nickname, overallScore: e.overallScore, isMe: false, friendCode: null }))
         const myRank = leaderboardResult.myRank
-          ? { rank: leaderboardResult.myRank.rank, nickname: leaderboardResult.myRank.nickname, overallScore: leaderboardResult.myRank.overallScore, isMe: false }
+          ? { rank: leaderboardResult.myRank.rank, nickname: leaderboardResult.myRank.nickname, overallScore: leaderboardResult.myRank.overallScore, isMe: false, friendCode: null }
           : null
         setState({ kind: 'ready', entries, myRank })
       })
@@ -423,12 +442,26 @@ function OverallRankingPanel({ scope }: { scope: RankingScope }) {
             displayName={entry.nickname}
             isMe={entry.isMe}
             trailing={<span className="shrink-0 font-display text-sm font-extrabold text-foreground">{formatOverallScore(entry.overallScore)}</span>}
+            onRemove={
+              scope === 'friends' && !entry.isMe && entry.friendCode
+                ? () => setPendingRemoval({ friendCode: entry.friendCode as string, nickname: entry.nickname })
+                : undefined
+            }
           />
         ))
       )}
       <p className="mt-2 text-center text-[11px] text-muted-foreground">
         6개 능력치의 현재 평균으로 계산돼요. {scope === 'friends' ? '나와 친구만 표시돼요.' : '최대 100명까지 표시돼요.'}
       </p>
+      <ConfirmDialog
+        open={!!pendingRemoval}
+        onOpenChange={(open) => !open && setPendingRemoval(null)}
+        title="친구를 삭제할까요?"
+        description={`${pendingRemoval?.nickname ?? ''}님과의 친구 관계가 사라져요. 서로의 친구 랭킹에서도 사라져요.`}
+        confirmLabel="삭제"
+        cancelLabel="취소"
+        onConfirm={confirmRemoval}
+      />
     </div>
   )
 }
@@ -444,7 +477,7 @@ function OverallRankingPanel({ scope }: { scope: RankingScope }) {
  * now covers exactly one thing: whether the XP leaderboard RPC pair itself
  * succeeded.
  */
-type XpRankingRow = { rank: number; nickname: string; totalXp: number; isMe: boolean }
+type XpRankingRow = { rank: number; nickname: string; totalXp: number; isMe: boolean; friendCode: string | null }
 type XpPanelState =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
@@ -485,6 +518,22 @@ function XpRankingPanel({ scope }: { scope: RankingScope }) {
   const { user } = useAuth()
   const [state, setState] = useState<XpPanelState>({ kind: 'loading' })
   const [reloadToken, setReloadToken] = useState(0)
+  const toastManager = Toast.useToastManager()
+  const [pendingRemoval, setPendingRemoval] = useState<{ friendCode: string; nickname: string } | null>(null)
+
+  async function confirmRemoval() {
+    if (!pendingRemoval) return
+    const client = getSupabaseBrowserClient()
+    setPendingRemoval(null)
+    if (!client) return
+    const result = await removeFriendship(client, pendingRemoval.friendCode)
+    if (result.ok) {
+      toastManager.add({ title: '친구를 삭제했어요.', type: 'success' })
+      setReloadToken((t) => t + 1)
+    } else {
+      toastManager.add({ title: '친구 삭제에 실패했어요. 다시 시도해주세요.', type: 'error' })
+    }
+  }
 
   // RankingScreen's gate already guarantees `user` + a confirmed nickname by
   // the time this mounts — this effect only ever fetches the leaderboard
@@ -510,7 +559,7 @@ function XpRankingPanel({ scope }: { scope: RankingScope }) {
           setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
           return
         }
-        const entries = result.entries.map((e) => ({ rank: e.rank, nickname: e.nickname, totalXp: e.totalXp, isMe: e.isMe }))
+        const entries = result.entries.map((e) => ({ rank: e.rank, nickname: e.nickname, totalXp: e.totalXp, isMe: e.isMe, friendCode: e.friendCode }))
         setState({ kind: 'ready', entries, myRank: entries.find((e) => e.isMe) ?? null })
       })
     } else {
@@ -521,9 +570,9 @@ function XpRankingPanel({ scope }: { scope: RankingScope }) {
           setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
           return
         }
-        const entries = leaderboardResult.entries.map((e) => ({ rank: e.rank, nickname: e.nickname, totalXp: e.totalXp, isMe: false }))
+        const entries = leaderboardResult.entries.map((e) => ({ rank: e.rank, nickname: e.nickname, totalXp: e.totalXp, isMe: false, friendCode: null }))
         const myRank = leaderboardResult.myRank
-          ? { rank: leaderboardResult.myRank.rank, nickname: leaderboardResult.myRank.nickname, totalXp: leaderboardResult.myRank.totalXp, isMe: false }
+          ? { rank: leaderboardResult.myRank.rank, nickname: leaderboardResult.myRank.nickname, totalXp: leaderboardResult.myRank.totalXp, isMe: false, friendCode: null }
           : null
         setState({ kind: 'ready', entries, myRank })
       })
@@ -572,12 +621,26 @@ function XpRankingPanel({ scope }: { scope: RankingScope }) {
             displayName={entry.nickname}
             isMe={entry.isMe}
             trailing={<span className="shrink-0 font-display text-sm font-extrabold text-foreground">{entry.totalXp.toLocaleString()} XP</span>}
+            onRemove={
+              scope === 'friends' && !entry.isMe && entry.friendCode
+                ? () => setPendingRemoval({ friendCode: entry.friendCode as string, nickname: entry.nickname })
+                : undefined
+            }
           />
         ))
       )}
       <p className="mt-2 text-center text-[11px] text-muted-foreground">
         게임을 완료할 때마다 점수만큼 XP를 얻어요. {scope === 'friends' ? '나와 친구만 표시돼요.' : '최대 100명까지 표시돼요.'}
       </p>
+      <ConfirmDialog
+        open={!!pendingRemoval}
+        onOpenChange={(open) => !open && setPendingRemoval(null)}
+        title="친구를 삭제할까요?"
+        description={`${pendingRemoval?.nickname ?? ''}님과의 친구 관계가 사라져요. 서로의 친구 랭킹에서도 사라져요.`}
+        confirmLabel="삭제"
+        cancelLabel="취소"
+        onConfirm={confirmRemoval}
+      />
     </div>
   )
 }
@@ -592,7 +655,7 @@ function XpRankingPanel({ scope }: { scope: RankingScope }) {
  * (e.g. "285ms"/"92%") CompleteScreen and the old mock leaderboard already
  * used.
  */
-type GameRankingRow = { rank: number; nickname: string; recordValue: number; tiebreakValue: number | null; isMe: boolean }
+type GameRankingRow = { rank: number; nickname: string; recordValue: number; tiebreakValue: number | null; isMe: boolean; friendCode: string | null }
 type GamePanelState =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
@@ -605,6 +668,22 @@ function ByGameRankingPanel({ scope }: { scope: RankingScope }) {
   const [selectedDifficulty, setSelectedDifficulty] = useState<RankedDifficulty>('hard')
   const [state, setState] = useState<GamePanelState>({ kind: 'loading' })
   const [reloadToken, setReloadToken] = useState(0)
+  const toastManager = Toast.useToastManager()
+  const [pendingRemoval, setPendingRemoval] = useState<{ friendCode: string; nickname: string } | null>(null)
+
+  async function confirmRemoval() {
+    if (!pendingRemoval) return
+    const client = getSupabaseBrowserClient()
+    setPendingRemoval(null)
+    if (!client) return
+    const result = await removeFriendship(client, pendingRemoval.friendCode)
+    if (result.ok) {
+      toastManager.add({ title: '친구를 삭제했어요.', type: 'success' })
+      setReloadToken((t) => t + 1)
+    } else {
+      toastManager.add({ title: '친구 삭제에 실패했어요. 다시 시도해주세요.', type: 'error' })
+    }
+  }
 
   // RankingScreen's gate already guarantees `user` + a confirmed nickname by
   // the time this mounts — never fires while no game is selected yet, and
@@ -630,7 +709,7 @@ function ByGameRankingPanel({ scope }: { scope: RankingScope }) {
           setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
           return
         }
-        const entries = result.entries.map((e) => ({ rank: e.rank, nickname: e.nickname, recordValue: e.recordValue, tiebreakValue: e.tiebreakValue, isMe: e.isMe }))
+        const entries = result.entries.map((e) => ({ rank: e.rank, nickname: e.nickname, recordValue: e.recordValue, tiebreakValue: e.tiebreakValue, isMe: e.isMe, friendCode: e.friendCode }))
         setState({ kind: 'ready', entries, myRank: entries.find((e) => e.isMe) ?? null })
       })
     } else {
@@ -641,9 +720,9 @@ function ByGameRankingPanel({ scope }: { scope: RankingScope }) {
           setState({ kind: 'error', message: '랭킹을 불러오지 못했어요.' })
           return
         }
-        const entries = result.entries.map((e) => ({ rank: e.rank, nickname: e.nickname, recordValue: e.recordValue, tiebreakValue: e.tiebreakValue, isMe: false }))
+        const entries = result.entries.map((e) => ({ rank: e.rank, nickname: e.nickname, recordValue: e.recordValue, tiebreakValue: e.tiebreakValue, isMe: false, friendCode: null }))
         const myRank = result.myRank
-          ? { rank: result.myRank.rank, nickname: result.myRank.nickname, recordValue: result.myRank.recordValue, tiebreakValue: result.myRank.tiebreakValue, isMe: false }
+          ? { rank: result.myRank.rank, nickname: result.myRank.nickname, recordValue: result.myRank.recordValue, tiebreakValue: result.myRank.tiebreakValue, isMe: false, friendCode: null }
           : null
         setState({ kind: 'ready', entries, myRank })
       })
@@ -745,6 +824,11 @@ function ByGameRankingPanel({ scope }: { scope: RankingScope }) {
                         ? metricConfig.tiebreaker.format(entry.tiebreakValue)
                         : undefined
                     }
+                    onRemove={
+                      scope === 'friends' && !entry.isMe && entry.friendCode
+                        ? () => setPendingRemoval({ friendCode: entry.friendCode as string, nickname: entry.nickname })
+                        : undefined
+                    }
                   />
                 ))
               )}
@@ -757,6 +841,15 @@ function ByGameRankingPanel({ scope }: { scope: RankingScope }) {
         <p className="text-center text-[11px] text-muted-foreground">
           동일한 기록은 먼저 달성한 순서대로 순위가 결정돼요.
         </p>
+        <ConfirmDialog
+          open={!!pendingRemoval}
+          onOpenChange={(open) => !open && setPendingRemoval(null)}
+          title="친구를 삭제할까요?"
+          description={`${pendingRemoval?.nickname ?? ''}님과의 친구 관계가 사라져요. 서로의 친구 랭킹에서도 사라져요.`}
+          confirmLabel="삭제"
+          cancelLabel="취소"
+          onConfirm={confirmRemoval}
+        />
       </div>
     )
   }
@@ -813,19 +906,31 @@ function ByGameRankingPanel({ scope }: { scope: RankingScope }) {
   )
 }
 
-/** Shared row shape for all three ranking lists — `trailing` (a metric/XP figure) and `subtitle` (a tiebreaker line) are both optional so 종합 랭킹 can render rank+name only, matching "내부 점수는 노출하지 않음". */
+/**
+ * Shared row shape for all three ranking lists — `trailing` (a metric/XP
+ * figure) and `subtitle` (a tiebreaker line) are both optional so 종합
+ * 랭킹 can render rank+name only, matching "내부 점수는 노출하지 않음".
+ *
+ * Phase 3G-4 — `onRemove` is the ONLY new thing here: an optional minimal
+ * friend-removal affordance, never passed for global scope or for the
+ * caller's own row (see each panel's render call site) — this row itself
+ * has no opinion about confirmation dialogs or the actual remove_friendship
+ * call, it just renders the button when handed a handler.
+ */
 function RankRow({
   rank,
   displayName,
   isMe,
   subtitle,
   trailing,
+  onRemove,
 }: {
   rank: number
   displayName: string
   isMe: boolean
   subtitle?: string
   trailing?: ReactNode
+  onRemove?: () => void
 }) {
   return (
     <div
@@ -850,6 +955,16 @@ function RankRow({
         {subtitle && <p className="truncate text-[11px] text-muted-foreground">{subtitle}</p>}
       </div>
       {trailing}
+      {onRemove && (
+        <button
+          type="button"
+          aria-label={`${displayName} 친구 삭제`}
+          onClick={onRemove}
+          className="shrink-0 rounded-full p-1.5 text-muted-foreground hover:text-destructive"
+        >
+          <UserMinus size={16} strokeWidth={2.4} />
+        </button>
+      )}
     </div>
   )
 }
