@@ -27,6 +27,7 @@ import { EggScreen } from '@/components/brain-bet/screens/egg-screen'
 import { RevealScreen } from '@/components/brain-bet/screens/reveal-screen'
 import { SaveScreen } from '@/components/brain-bet/screens/save-screen'
 import { NamingScreen } from '@/components/brain-bet/screens/naming-screen'
+import { BirthdayScreen } from '@/components/brain-bet/screens/birthday-screen'
 import { RoomScreen } from '@/components/brain-bet/screens/room-screen'
 import { MissionScreen } from '@/components/brain-bet/screens/mission-screen'
 import { GrowScreen } from '@/components/brain-bet/screens/grow-screen'
@@ -179,6 +180,7 @@ type Phase =
   | 'reveal'
   | 'save'
   | 'naming'
+  | 'birthday'
   | 'room'
   | 'mystats'
   | 'ranking'
@@ -612,6 +614,7 @@ export function GameFlow() {
     phase === 'reveal' ||
     phase === 'save' ||
     phase === 'naming' ||
+    phase === 'birthday' ||
     (flowMode === 'first' && (phase === 'game' || phase === 'complete'))
 
   // Intro is always silent, no matter what the player previously chose in
@@ -2073,13 +2076,29 @@ export function GameFlow() {
               // The one genuinely first-ever Home entry — every other
               // setPhase('room') call site (stored-profile restore on mount,
               // post-login restore, returnToRoom nav) is a revisit, not a
-              // first arrival, so home_enter must fire only here.
+              // first arrival, so home_enter must fire only here. Left
+              // exactly as-is even though Room itself isn't next anymore
+              // (see below) — this still means "onboarding is finished,
+              // this user is headed to Room", which Phase 3I-1's Birthday
+              // beat doesn't change the meaning of.
               if (displayedPetProfile) {
                 trackEvent('home_enter', { statling_type: displayedPetProfile.id })
                 trackProductEvent('home_entered', { entry_type: 'first_time' })
               }
-              setPhase('room')
+              // Phase 3I-1 — Birthday/Profile beat, once, only for a
+              // brand-new pet (this onConfirm only ever runs the first time
+              // a pet is named — see BirthdayScreen's own doc comment for
+              // why no separate "already seen" flag is needed).
+              setPhase('birthday')
             }}
+          />
+        )}
+
+        {phase === 'birthday' && petRecord && (
+          <BirthdayScreen
+            statlingName={statlingName}
+            confirmedAtIso={petRecord.confirmedAt}
+            onContinue={() => setPhase('room')}
           />
         )}
 
