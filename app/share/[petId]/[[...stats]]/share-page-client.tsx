@@ -28,8 +28,9 @@ interface SharePageClientProps {
  * Public landing page for a Statling share link — the real page a link
  * preview card takes a visitor to when tapped, for both share surfaces this
  * route serves (see page.tsx's generateMetadata doc comment):
- *   - My Page's "공유 링크"/"친구에게 공유" (topStat/secondaryStat null): the
- *     original behavior, introducing whichever pet the URL names on its own.
+ *   - My Page's single "친구에게 공유하기" action (topStat/secondaryStat
+ *     null): introduces whichever pet the URL names, always carrying a
+ *     friend-invite `?ref=` (see this component's own doc comment below).
  *   - Character Reveal's "공유하기" (topStat/secondaryStat set): leads with
  *     the TOP 1/2 stats from that diagnosis, same character either way.
  * No account or server lookup involved either way — the character (and, for
@@ -42,15 +43,15 @@ interface SharePageClientProps {
  * the CTA reuses the exact same lib/pets/compatibility.ts calculation
  * Character Reveal already shows — no new algorithm, no server lookup.
  *
- * Phase 3G-4 — a friend-invite link (built only by MyPage's dedicated
- * "친구와 기록 비교하기" action, never by the general share above) adds
- * exactly one thing on top of all of this: a `?ref=<friend_code>` query
+ * Phase 3G-4 (Share/Friend Invite unification) — every link MyPage's
+ * "친구에게 공유하기" button generates carries a `?ref=<friend_code>` query
  * param, read here via useSearchParams (not a route param — resolve-share-
  * params.ts/generateMetadata/the OG image are untouched, since none of them
  * read the query string). When present, FriendInviteCta renders below the
- * existing dex CTA; when absent (every general share link, including every
- * one already in the wild), nothing here changes at all. Opening this page
- * — with or without `ref` — never creates a friendship by itself; that only
+ * existing dex CTA; when absent (any link shared before this change, or a
+ * link forwarded without its query string), nothing here changes at all —
+ * this route never required `ref` and still doesn't. Opening this page —
+ * with or without `ref` — never creates a friendship by itself; that only
  * ever happens from FriendInviteCta's own explicit button, and Dex
  * registration above stays fully independent of whichever way that goes.
  *
