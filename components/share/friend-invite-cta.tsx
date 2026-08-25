@@ -1,12 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Check, Users } from 'lucide-react'
 import { Toast } from '@base-ui/react/toast'
 import { AuthForm } from '@/components/brain-bet/auth/auth-form'
 import { ToyButton } from '@/components/brain-bet/toy-button'
 import { useAuth } from '@/lib/auth/auth-provider'
+import { trackEvent } from '@/lib/analytics/ga'
+import { trackProductEvent } from '@/lib/analytics/analytics'
 import { createFriendship } from '@/lib/friends/friend-connection'
 import { fetchFriendInvitePreview } from '@/lib/friends/friend-invite-preview'
 import { setPendingFriendCode } from '@/lib/friends/pending-friend-code'
@@ -15,6 +17,8 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 interface FriendInviteCtaProps {
   /** The `?ref=` query param value — the caller only renders this component when one is present. */
   friendCode: string
+  /** The species catalog id from the route (share-page-client.tsx's own `petId`) — the one identifying parameter friend_invite_opened is allowed to carry (see ga.ts's doc comment on that event). */
+  petId: string
 }
 
 type InviteState =
@@ -56,10 +60,12 @@ function friendlyError(message: string): string {
  *    whole page behind — see that effect's own doc comment). This component
  *    hands off rather than racing that effect with a second call.
  */
-export function FriendInviteCta({ friendCode }: FriendInviteCtaProps) {
+export function FriendInviteCta({ friendCode, petId }: FriendInviteCtaProps) {
   const { user } = useAuth()
   const toastManager = Toast.useToastManager()
   const [state, setState] = useState<InviteState>({ kind: 'loading' })
+  /** Phase 3G-5 — guards friend_invite_opened against StrictMode's dev double-invoke and any re-run of the effect below (e.g. if `friendCode` were ever to change on this same mount, which it never does in practice — the page unmounts/remounts on navigation instead). Same ref-guard idiom landing-experiment.tsx's own once-per-mount analytics event already uses. */
+  const hasFiredOpenedRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -75,11 +81,19 @@ export function FriendInviteCta({ friendCode }: FriendInviteCtaProps) {
         return
       }
       setState({ kind: 'ready', nickname: result.nickname })
+      // Fires only once the ref has been confirmed to resolve to a real
+      // inviter — never for an unknown/invalid ref, and never for a plain
+      // share link (this component doesn't mount at all without a `ref`).
+      if (!hasFiredOpenedRef.current) {
+        hasFiredOpenedRef.current = true
+        trackEvent('friend_invite_opened', { pet_id: petId })
+        trackProductEvent('friend_invite_opened', { pet_id: petId })
+      }
     })
     return () => {
       cancelled = true
     }
-  }, [friendCode])
+  }, [friendCode, petId])
 
   async function handleConnect() {
     if (state.kind !== 'ready' && state.kind !== 'error') return
@@ -101,6 +115,14 @@ export function FriendInviteCta({ friendCode }: FriendInviteCtaProps) {
     if (!result.ok) {
       setState({ kind: 'error', nickname, message: friendlyError(result.error) })
       return
+    }
+    // Only a genuinely NEW connection counts — re-clicking on an
+    // already-accepted invite (idempotent server-side) must never inflate
+    // this funnel metric. See lib/friends/friend-connection.ts's own doc
+    // comment on isNewConnection.
+    if (result.isNewConnection) {
+      trackEvent('friend_connected', { source: 'direct' })
+      trackProductEvent('friend_connected', { source: 'direct' })
     }
     toastManager.add({ title: result.nickname ? `${result.nickname}님과 친구가 되었어요!` : '친구가 되었어요!', type: 'success' })
     setState({ kind: 'success', nickname })

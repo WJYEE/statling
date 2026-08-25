@@ -113,6 +113,38 @@ export interface GAEventParams {
   bgm_play_mode_change: { play_mode: string }
   bgm_track_change: { track_id: string }
   my_status_view: { view_context: string }
+  /**
+   * Phase 3G-5 — fires only once a friend-invite share page
+   * (/share/[petId]?...&ref=<code>) has confirmed the `ref` actually
+   * resolves to a real inviter (see components/share/friend-invite-cta.tsx's
+   * own ready-state guard) — never for a plain share link, never for an
+   * unknown/invalid ref. `pet_id` is the species catalog id already sent by
+   * several existing events (e.g. `statling_reveal`'s `statling_type`) — not
+   * personal data. Never friend_code/ref/nickname/any identity.
+   */
+  friend_invite_opened: { pet_id: string }
+  /**
+   * Phase 3G-5 — fires only when create_friendship() reports a genuinely NEW
+   * connection (Phase 3G-5 Follow-up migration's `is_new_connection`), never
+   * for an idempotent re-accept of an already-existing friendship. `source`
+   * distinguishes the two call sites that can create one: an already
+   * signed-in user clicking the Friend CTA directly (`direct`), or a guest
+   * who logged in and had a pending invite resumed by game-flow.tsx's own
+   * effect (`resumed`) — see that effect's doc comment. No identity of
+   * either party is ever included.
+   */
+  friend_connected: { source: 'direct' | 'resumed' }
+  /**
+   * Phase 3G-5 — fires when the user actually selects the 친구 scope in
+   * Ranking (RankingScreen's own [전체|친구] selector), for whichever
+   * ranking_type they land on — never on a retry-button refetch, never
+   * repeatedly per render (see ranking-screen.tsx's own effect for the exact
+   * once-per-scope/tab-change guard). game_id/difficulty are only present
+   * for ranking_type: 'game', once a specific game+difficulty is actually
+   * selected — omitted (not sent empty) for 'overall'/'xp'. No friend_code,
+   * nickname, or per-friend identity ever included.
+   */
+  friend_ranking_viewed: { ranking_type: 'overall' | 'game' | 'xp'; game_id?: string; difficulty?: string }
 }
 
 /**

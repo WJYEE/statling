@@ -32,22 +32,26 @@ export async function getOrCreateMyFriendCode(client: SupabaseClient): Promise<F
 interface CreateFriendshipRpcRow {
   connected: boolean
   nickname: string | null
+  is_new_connection: boolean
 }
 
-export type CreateFriendshipResult = { ok: true; nickname: string | null } | { ok: false; error: string }
+export type CreateFriendshipResult = { ok: true; nickname: string | null; isNewConnection: boolean } | { ok: false; error: string }
 
 /**
  * B's explicit consent step — calls create_friendship(p_friend_code) with
  * the code from A's invite link. Idempotent server-side (already-friends is
  * a no-op success, not an error). `nickname` is the other party's display
  * name for a confirmation toast ("OO님과 친구가 되었어요!") — never a
- * user_id, which this RPC never returns.
+ * user_id, which this RPC never returns. `isNewConnection` (Phase 3G-5
+ * follow-up) is false for an idempotent re-accept of an existing
+ * friendship — callers use it to gate the `friend_connected` analytics
+ * event so a repeat accept is never double-counted as a new connection.
  */
 export async function createFriendship(client: SupabaseClient, friendCode: string): Promise<CreateFriendshipResult> {
   const { data, error } = await client.rpc('create_friendship', { p_friend_code: friendCode })
   if (error) return { ok: false, error: errorMessage(error) }
   const row = (data as CreateFriendshipRpcRow[] | null)?.[0]
-  return { ok: true, nickname: row?.nickname ?? null }
+  return { ok: true, nickname: row?.nickname ?? null, isNewConnection: row?.is_new_connection ?? false }
 }
 
 interface RemoveFriendshipRpcRow {

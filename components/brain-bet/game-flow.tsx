@@ -537,6 +537,13 @@ export function GameFlow() {
     if (!client) return
     createFriendship(client, pendingCode).then((result) => {
       if (result.ok) {
+        // Same isNewConnection gate as FriendInviteCta's direct-accept path
+        // — an idempotent resume of an already-existing friendship must
+        // never be double-counted here either.
+        if (result.isNewConnection) {
+          trackEvent('friend_connected', { source: 'resumed' })
+          trackProductEvent('friend_connected', { source: 'resumed' })
+        }
         toastManager.add({ title: result.nickname ? `${result.nickname}님과 친구가 되었어요!` : '친구가 되었어요!', type: 'success' })
       } else if (process.env.NODE_ENV !== 'production') {
         console.warn('[friend-invite] resumed create_friendship failed:', result.error)

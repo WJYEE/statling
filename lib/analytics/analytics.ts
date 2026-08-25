@@ -88,6 +88,18 @@ export interface ProductEventParams {
    * for the exact once-per-mount guard.
    */
   landing_experiment_viewed: { variant: 'A' | 'B' }
+  /**
+   * Phase 3G-5 — PostHog counterpart of ga.ts's `friend_invite_opened`, same
+   * choke point, same single `pet_id` (species catalog id, not personal
+   * data) parameter, same meaning. See that event's own doc comment for the
+   * full reasoning — deliberately kept identical across both platforms
+   * rather than diverging in shape or timing.
+   */
+  friend_invite_opened: { pet_id: string }
+  /** PostHog counterpart of ga.ts's `friend_connected` — same is_new_connection gate, same `source` values, same meaning. */
+  friend_connected: { source: 'direct' | 'resumed' }
+  /** PostHog counterpart of ga.ts's `friend_ranking_viewed` — same once-per-scope/tab-change choke point, same optional game_id/difficulty for ranking_type: 'game'. */
+  friend_ranking_viewed: { ranking_type: 'overall' | 'game' | 'xp'; game_id?: string; difficulty?: string }
 }
 
 /**

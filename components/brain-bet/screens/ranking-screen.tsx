@@ -13,6 +13,7 @@ import { GAME_POOL } from '@/lib/game/game-registry'
 import { getGameRankingMetricConfig } from '@/lib/ranking/game-ranking-metrics.config'
 import { useAuth } from '@/lib/auth/auth-provider'
 import { trackEvent } from '@/lib/analytics/ga'
+import { trackProductEvent } from '@/lib/analytics/analytics'
 import { getProfileNickname } from '@/lib/profile/nickname'
 import type { RankedDifficulty } from '@/lib/ranking/ranking-provider'
 import { fetchGameLeaderboard } from '@/lib/ranking/game-leaderboard'
@@ -114,6 +115,28 @@ export function RankingScreen({ statlingName }: RankingScreenProps) {
   useEffect(() => {
     trackEvent('ranking_view', { ranking_type: activeTab, period: 'all_time' })
   }, [activeTab])
+
+  /**
+   * Phase 3G-5 — friend_ranking_viewed for 종합/XP only; 게임별 fires its own
+   * copy from ByGameRankingPanel below, once a specific game+difficulty is
+   * actually selected (game_id/difficulty aren't known at this level, and
+   * "게임별 랭킹" tab alone doesn't mean a ranking is being viewed yet — the
+   * stat/game picker has to be navigated first). Keyed on [activeTab, scope]
+   * only — never on a panel's own reloadToken, so a "다시 시도" click can
+   * never re-fire this; matches the existing ranking_view effect's own
+   * once-per-tab-change choke point immediately above, just additionally
+   * gated to scope === 'friends'.
+   */
+  useEffect(() => {
+    if (scope !== 'friends') return
+    if (activeTab === 'overall') {
+      trackEvent('friend_ranking_viewed', { ranking_type: 'overall' })
+      trackProductEvent('friend_ranking_viewed', { ranking_type: 'overall' })
+    } else if (activeTab === 'xp') {
+      trackEvent('friend_ranking_viewed', { ranking_type: 'xp' })
+      trackProductEvent('friend_ranking_viewed', { ranking_type: 'xp' })
+    }
+  }, [activeTab, scope])
 
   // Common nickname gate — never fires the nickname read at all for a guest
   // (matches profiles_select_own's authenticated-only reach anyway).
@@ -732,6 +755,20 @@ function ByGameRankingPanel({ scope }: { scope: RankingScope }) {
       cancelled = true
     }
   }, [selectedGameId, selectedDifficulty, user, reloadToken, scope])
+
+  /**
+   * Phase 3G-5 — friend_ranking_viewed for 게임별, the counterpart to
+   * RankingScreen's own overall/xp firing above. Keyed on
+   * [scope, selectedGameId, selectedDifficulty] only — deliberately NOT
+   * reloadToken, so a "다시 시도" click on a fetch error never re-fires
+   * this; fires again on a genuine game or Hard<->Extreme change, which is
+   * a real new ranking being viewed.
+   */
+  useEffect(() => {
+    if (scope !== 'friends' || !selectedGameId) return
+    trackEvent('friend_ranking_viewed', { ranking_type: 'game', game_id: selectedGameId, difficulty: selectedDifficulty })
+    trackProductEvent('friend_ranking_viewed', { ranking_type: 'game', game_id: selectedGameId, difficulty: selectedDifficulty })
+  }, [scope, selectedGameId, selectedDifficulty])
 
   if (selectedStat && selectedGameId) {
     const game = GAME_POOL[selectedStat].find((g) => g.key === selectedGameId)

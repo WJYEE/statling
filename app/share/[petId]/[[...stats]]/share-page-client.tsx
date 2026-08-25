@@ -129,7 +129,7 @@ export function SharePageClient({ petId, topStat, secondaryStat }: SharePageClie
 
           {/* Only rendered when the link is a friend invite (see this file's
               own doc comment above) — never for a plain share link. */}
-          {friendCode && <FriendInviteCta friendCode={friendCode} />}
+          {friendCode && <FriendInviteCta friendCode={friendCode} petId={petId} />}
 
           {/* Extra info below the primary "내 도감에 기록하기" CTA, never above
               it — the CTA stays the first thing a visitor can act on. */}
