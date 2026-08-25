@@ -2,6 +2,7 @@ import { loadStoredPetProfile } from '@/lib/pets/pet-storage'
 import { loadPlayerSkillState } from '@/lib/game/player-skill-storage'
 import { loadXpState } from '@/lib/ranking/xp-ledger'
 import { loadAchievementState } from '@/lib/missions/achievement-storage'
+import { getNotifiedTierIds } from '@/lib/missions/achievement-notifications'
 import { loadDailyMissionState, ensureToday } from '@/lib/missions/daily-mission-storage'
 import { loadAttendanceState } from '@/lib/missions/attendance-storage'
 import { loadActivityCounters } from '@/lib/missions/activity-counters'
@@ -104,19 +105,31 @@ export function buildXpTotalsRow(userId: string, now: Date): XpTotalsRow {
 /** Exported for lib/sync/sync-dispatcher.ts (Phase 2D-2) — same pure row mapping reused for a single-domain continuous-sync push, not just the one-time snapshot below. */
 export function buildAchievementRows(userId: string): AchievementRow[] {
   const state = loadAchievementState()
+  // Login/restore regression fix — notified_at used to always be sent as
+  // null (see git history), which is exactly why a new device restoring
+  // unlockedTierIds from the server had no way to tell "already shown a
+  // toast for this" from "never notified yet" and replayed every past
+  // unlock's toast. lib/missions/achievement-notifications.ts's own
+  // notified-tracking set (a device-local dedupe, unrelated to unlock/claim
+  // bookkeeping) is now the source of truth for which tiers get a non-null
+  // notified_at here.
+  const notifiedTierIds = getNotifiedTierIds()
   // unlockedTierIds/claimedTierIds are two flat id arrays with no per-tier
   // timestamp anywhere in localStorage — state.updatedAt (one value for the
   // whole record) is the only real signal available, so every row below
-  // reuses it for both unlocked_at and (where claimed) claimed_at. This
-  // keeps the DB's `claimed_at >= unlocked_at` check satisfied (equal
-  // passes) but is not a genuine per-tier unlock/claim moment.
+  // reuses it for both unlocked_at and (where claimed/notified) claimed_at/
+  // notified_at. This keeps the DB's `claimed_at >= unlocked_at` check
+  // satisfied (equal passes) but is not a genuine per-tier unlock/claim/
+  // notify moment — every consumer of notified_at only ever null-checks it
+  // (see restore-local-snapshot.ts), never compares its exact value, so this
+  // stand-in timestamp is safe for that one purpose.
   const tierIds = Array.from(new Set([...state.unlockedTierIds, ...state.claimedTierIds]))
   return tierIds.map((tierId) => ({
     user_id: userId,
     tier_id: tierId,
     unlocked_at: state.updatedAt,
     claimed_at: state.claimedTierIds.includes(tierId) ? state.updatedAt : null,
-    notified_at: null,
+    notified_at: notifiedTierIds.has(tierId) ? state.updatedAt : null,
   }))
 }
 

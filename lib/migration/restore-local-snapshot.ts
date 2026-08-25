@@ -20,6 +20,7 @@ import {
   createDefaultAchievementState,
   type AchievementState,
 } from '@/lib/missions/achievement-storage'
+import { getNotifiedTierIds, restoreNotifiedTierIds } from '@/lib/missions/achievement-notifications'
 import {
   loadDailyMissionState,
   saveDailyMissionState,
@@ -216,6 +217,24 @@ function achievementStateFromServer(rows: ServerDataSnapshot['achievements']): A
     if (row.claimed_at) updatedAt = maxIso(updatedAt, row.claimed_at)
   }
   return { version: 1, unlockedTierIds, claimedTierIds, updatedAt }
+}
+
+/**
+ * Login/restore regression fix — tier ids whose achievements.notified_at is
+ * non-null, i.e. "this account has already been shown the unlock toast for
+ * this tier, on some device." A tier present in `rows` but with a null
+ * notified_at is deliberately EXCLUDED here (not just left at its current
+ * local value) — see restoreNotifiedTierIds's own doc comment for why a
+ * restore is a wholesale replace, not a merge.
+ */
+function notifiedTierIdsFromServer(rows: ServerDataSnapshot['achievements']): string[] {
+  return rows.filter((r) => r.notified_at !== null).map((r) => r.tier_id)
+}
+
+/** Bundles AchievementState with the separate notified-tracking set (lib/missions/achievement-notifications.ts) so the 'achievements' restore step's backup/restore/apply covers both as one unit — see that step's own comment in buildRestoreSteps. */
+interface AchievementDomainBackup {
+  state: AchievementState
+  notifiedTierIds: string[]
 }
 
 /**
@@ -426,12 +445,24 @@ function buildRestoreSteps(snapshot: ServerDataSnapshot, now: Date): RestoreStep
       saveXpState,
       () => saveXpState(xpStateFromServer(snapshot.xpTotals as NonNullable<ServerDataSnapshot['xpTotals']>)),
     ),
-    makeStep(
+    // Login/restore regression fix — bundles AchievementState with the
+    // separate local notified-tracking set (see AchievementDomainBackup) so
+    // both are backed up/restored/applied together as one atomic step: a
+    // rollback of this domain must undo the notified set too, not just
+    // unlockedTierIds/claimedTierIds, or a failed-and-rolled-back restore
+    // could leave the two halves of "achievements" state inconsistent.
+    makeStep<AchievementDomainBackup>(
       'achievements',
       true,
-      loadAchievementState,
-      saveAchievementState,
-      () => saveAchievementState(achievementStateFromServer(snapshot.achievements)),
+      () => ({ state: loadAchievementState(), notifiedTierIds: Array.from(getNotifiedTierIds()) }),
+      (backup) => {
+        saveAchievementState(backup.state)
+        restoreNotifiedTierIds(backup.notifiedTierIds)
+      },
+      () => {
+        saveAchievementState(achievementStateFromServer(snapshot.achievements))
+        restoreNotifiedTierIds(notifiedTierIdsFromServer(snapshot.achievements))
+      },
     ),
     makeStep(
       'daily_missions',

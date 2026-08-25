@@ -57,6 +57,19 @@ export function isAchievementNotified(tierId: string): boolean {
   return loadNotifiedTierIds().has(tierId)
 }
 
+/**
+ * Login/restore regression fix — the full current notified set, for two
+ * cross-module readers that need more than a single-tier check:
+ * lib/migration/build-local-snapshot.ts#buildAchievementRows (to populate
+ * achievements.notified_at per tier on sync) and, transitively, whoever backs
+ * up this domain before a restore (lib/migration/restore-local-snapshot.ts).
+ * Callers must treat the result as read-only — mutate via
+ * markAchievementNotified/restoreNotifiedTierIds only.
+ */
+export function getNotifiedTierIds(): Set<string> {
+  return loadNotifiedTierIds()
+}
+
 export function markAchievementNotified(tierId: string): void {
   if (typeof window === 'undefined') return
   const ids = loadNotifiedTierIds()
@@ -66,5 +79,28 @@ export function markAchievementNotified(tierId: string): void {
     window.localStorage.setItem(NOTIFIED_STORAGE_KEY, JSON.stringify([...ids]))
   } catch {
     // Storage unavailable — the in-memory toast still fired this session, which is what matters most.
+  }
+}
+
+/**
+ * Login/restore regression fix — restore-only wholesale REPLACE of the local
+ * notified set, used exclusively by lib/migration/restore-local-snapshot.ts
+ * to seed this device with exactly the tier ids whose server-side
+ * achievements.notified_at is non-null. Deliberately not built on top of
+ * markAchievementNotified's incremental add: a restore means "the server is
+ * the source of truth for what this account has already been shown," so a
+ * tier NOT in `tierIds` here must end up NOT notified locally either (e.g. a
+ * tier this account unlocked on another device but was never actually shown
+ * a toast for yet) — an incremental add could never remove a stale local
+ * entry. Never fires a toast and never touches AchievementState
+ * (unlockedTierIds/claimedTierIds) — purely the "have I shown this toast"
+ * bookkeeping this file already owns.
+ */
+export function restoreNotifiedTierIds(tierIds: readonly string[]): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(NOTIFIED_STORAGE_KEY, JSON.stringify([...new Set(tierIds)]))
+  } catch {
+    // Storage unavailable — same best-effort posture as markAchievementNotified.
   }
 }

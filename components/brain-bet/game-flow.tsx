@@ -663,6 +663,11 @@ export function GameFlow() {
       if (isIntroPhaseRef.current) return
       if (isAchievementNotified(tier.tierId)) return
       markAchievementNotified(tier.tierId)
+      // Login/restore regression fix — pushes the now-notified tier's
+      // achievements.notified_at up so a future restore on another device
+      // never replays this toast. Debounced/no-op-for-guest same as every
+      // other scheduleSync call site — see lib/sync/sync-dispatcher.ts.
+      scheduleSync('achievements')
       toastManager.add({ title: `업적 달성! ${tier.title}`, type: 'success', timeout: ACHIEVEMENT_TOAST_TIMEOUT_MS })
     })
   }, [toastManager])
@@ -694,6 +699,8 @@ export function GameFlow() {
         window.setTimeout(() => {
           if (isAchievementNotified(tierId)) return
           markAchievementNotified(tierId)
+          // Same reasoning as the subscribeToAchievementUnlocks call site above.
+          scheduleSync('achievements')
           const tier = findAchievementTier(tierId)
           if (tier) toastManager.add({ title: `업적 달성! ${tier.title}`, type: 'success', timeout: ACHIEVEMENT_TOAST_TIMEOUT_MS })
         }, delay),
