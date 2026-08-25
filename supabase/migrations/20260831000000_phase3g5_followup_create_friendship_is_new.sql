@@ -29,10 +29,33 @@
 -- object, not a new column on any table. `connected`/`nickname` keep their
 -- exact original meaning and values — this is purely additive.
 --
--- Idempotency: `create or replace function` is safe to re-run.
+-- -----------------------------------------------------------------------------
+-- DROP + CREATE, not CREATE OR REPLACE — confirmed against a real apply
+-- attempt, not assumed
+-- -----------------------------------------------------------------------------
+-- `create or replace function` cannot change a function's OUT-parameter list
+-- (`returns table(...)` defines exactly that), only its body — this is
+-- standard, documented PostgreSQL behavior, not specific to this schema.
+-- Confirmed by a real apply attempt against this project's production
+-- database, which failed with `42P13: cannot change return type of existing
+-- function`. So this migration DROPs the old 2-column create_friendship and
+-- CREATEs the 3-column version in its place, in one statement block.
+-- Verified safe to drop: create_friendship is called only via PostgREST RPC
+-- from the client (lib/friends/friend-connection.ts) — never referenced by
+-- any view/trigger/other function in this schema (RPC calls aren't a
+-- pg_depend relationship at all; PostgREST resolves them by name/arg-types
+-- at runtime, not through a SQL-level dependency), so there is nothing for
+-- DROP to cascade into. `revoke`/`grant` are reissued below since dropping a
+-- function drops its privilege grants along with it.
+--
+-- Idempotency: this whole block (DROP, if it exists, + CREATE) is safe to
+-- re-run — `drop function if exists` tolerates a from-scratch database where
+-- this function was never created at all.
 -- =============================================================================
 
-create or replace function public.create_friendship(p_friend_code text)
+drop function if exists public.create_friendship(text);
+
+create function public.create_friendship(p_friend_code text)
 returns table(connected boolean, nickname text, is_new_connection boolean)
 language plpgsql
 security definer
@@ -89,9 +112,9 @@ $$;
 comment on function public.create_friendship(text) is
   'Phase 3G-2 (Follow-up: reports is_new_connection) — SECURITY DEFINER. Resolves p_friend_code to its owning account, rejects an unknown code or a self-friend attempt, then inserts the canonicalized (user_id_a < user_id_b) friendships row (idempotent — already-friends is a no-op success, is_new_connection: false). Returns only connected/nickname/is_new_connection; the other party''s raw user_id is never part of the output.';
 
--- Grants/revokes are unchanged from the original migration (still in effect,
--- CREATE OR REPLACE FUNCTION doesn't reset them) — repeated here only for
--- explicitness/idempotency, not because anything actually needs to change.
+-- Grants must be reissued here — DROP FUNCTION removes any privilege grants
+-- on the dropped object along with it (unlike CREATE OR REPLACE, which
+-- preserves them). Same values as the original migration.
 revoke all on function public.create_friendship(text) from public;
 revoke all on function public.create_friendship(text) from anon;
 grant execute on function public.create_friendship(text) to authenticated;
