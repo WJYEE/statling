@@ -53,6 +53,18 @@ interface SharePageClientProps {
  * — with or without `ref` — never creates a friendship by itself; that only
  * ever happens from FriendInviteCta's own explicit button, and Dex
  * registration above stays fully independent of whichever way that goes.
+ *
+ * Phase 3H-1 — `petId` here is always the internal catalog id, resolved by
+ * page.tsx from either the new public `slug` or a legacy internal id before
+ * this component ever mounts (see lib/pets/pet-profile.ts's
+ * getPetProfileByPublicUrlId). No redirect from a legacy `/share/{id}` link
+ * to its `/share/{slug}` canonical form: this route also carries `ref` and
+ * arbitrary UTM query params that a redirect would have to thread through
+ * perfectly to avoid silently breaking Friend Invite/attribution on every
+ * already-shared link, for a purely cosmetic URL upgrade with no user-facing
+ * benefit — generateMetadata's `alternates.canonical`/`openGraph.url`
+ * already point crawlers at the slug form, which covers the real SEO case
+ * without that risk. A legacy link therefore just resolves normally, forever.
  */
 export function SharePageClient({ petId, topStat, secondaryStat }: SharePageClientProps) {
   const pet = getPetProfileById(petId)

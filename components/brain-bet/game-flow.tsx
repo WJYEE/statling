@@ -398,6 +398,7 @@ export function GameFlow() {
     activeTesterFolder
       ? {
           id: `tester-${activeTesterFolder.folderId}`,
+          slug: `tester-${activeTesterFolder.folderId}`,
           name: activeTesterFolder.displayName,
           imageSrc: activeTesterFolder.assets.idle,
           primaryStat: 'reaction',

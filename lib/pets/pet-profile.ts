@@ -12,8 +12,18 @@ import { buildCharacterStateFolder } from '@/lib/character-state-assets'
 export type StatVector = Record<StatId, number>
 
 export interface PetProfile {
-  /** Real directory name under public/assets/statling/characters, e.g. '01_치즈털실냥이' — doubles as the catalog id and the CharacterStateFolder folderId. */
+  /** Real directory name under public/assets/statling/characters, e.g. '01_치즈털실냥이' — doubles as the catalog id and the CharacterStateFolder folderId. Never exposed in a public Share URL as of Phase 3H-1 — see `slug`. */
   id: string
+  /**
+   * Phase 3H-1 — stable, URL-safe public identifier used ONLY in Share URLs
+   * (`/share/{slug}`), never as a lookup key anywhere else in the app (Dex,
+   * Ranking, Supabase, analytics `pet_id` all keep using `id`, untouched).
+   * Lowercase ASCII, hyphen-separated, human-readable, unique across the
+   * catalog (enforced below at module load). Treated as a stable identifier
+   * once shared — do not change an existing pet's slug, since every
+   * already-shared link encodes it permanently.
+   */
+  slug: string
   /** Display name shown on the reveal screen (folder name without the numeric prefix). */
   name: string
   /** Real file path under public/assets/statling/characters — the folder's 01_idle.png, resolved through buildCharacterStateFolder. */
@@ -48,6 +58,8 @@ function buildStatVector(primaryStat: StatId, secondaryStat: StatId): StatVector
 
 interface CharacterDef {
   id: string
+  /** Phase 3H-1 — see PetProfile.slug's doc comment. Hand-picked per pet (not derived from `name`), since a mechanical Korean->English transliteration would be neither readable nor stable. */
+  slug: string
   name: string
   primaryStat: StatId
   secondaryStat: StatId
@@ -61,40 +73,41 @@ interface CharacterDef {
  * covered exactly once, so findCharacterByStats always resolves.
  */
 const CHARACTER_DEFS: CharacterDef[] = [
-  { id: '01_치즈털실냥이', name: '치즈털실냥이', primaryStat: 'reaction', secondaryStat: 'spatial', tagline: '실뭉치를 쫓아다니는 민첩한 몸놀림과 균형감각을 가졌어요.' },
-  { id: '02_플로봇', name: '플로봇', primaryStat: 'judgment', secondaryStat: 'reasoning', tagline: '기계적인 연산으로 논리정연하게 결론을 내려요.' },
-  { id: '03_잎사귀양', name: '잎사귀양', primaryStat: 'focus', secondaryStat: 'memory', tagline: '무리를 따라가며 익힌 습관을 오래오래 기억해요.' },
-  { id: '04_상처도치', name: '상처도치', primaryStat: 'judgment', secondaryStat: 'focus', tagline: '위협 앞에서는 신중하게 방어 태세부터 갖춰요.' },
-  { id: '05_알삐약이', name: '알삐약이', primaryStat: 'memory', secondaryStat: 'reaction', tagline: '갓 부화한 순간의 기억과 반사반응이 또렷해요.' },
-  { id: '06_초록스카프수달', name: '초록스카프수달', primaryStat: 'reaction', secondaryStat: 'focus', tagline: '도구를 다루는 손놀림이 재빠르고 몰입도 잘해요.' },
-  { id: '07_별사막여우', name: '별사막여우', primaryStat: 'reasoning', secondaryStat: 'judgment', tagline: '별빛을 읽어 상황을 추론하고 결정을 내려요.' },
-  { id: '08_바다고래', name: '바다고래', primaryStat: 'spatial', secondaryStat: 'memory', tagline: '긴 이동 경로를 기억하며 넓은 바다를 항해해요.' },
-  { id: '09_동글이유령', name: '동글이유령', primaryStat: 'reasoning', secondaryStat: 'memory', tagline: '과거의 기억을 단서로 삼아 추리를 즐겨요.' },
-  { id: '10_반짝벌', name: '반짝벌', primaryStat: 'spatial', secondaryStat: 'focus', tagline: '꽃의 위치를 파악하며 집중해서 날아다녀요.' },
-  { id: '11_하트덕', name: '하트덕', primaryStat: 'reaction', secondaryStat: 'memory', tagline: '재빠르게 자맥질하면서도 귀소본능은 잊지 않아요.' },
-  { id: '12_분홍학', name: '분홍학', primaryStat: 'spatial', secondaryStat: 'reaction', tagline: '외다리로 균형을 잡으며 순간적으로 반응해요.' },
-  { id: '13_나뭇잎여우', name: '나뭇잎여우', primaryStat: 'judgment', secondaryStat: 'spatial', tagline: '은신처를 고르고 지형을 파악하는 눈썰미가 있어요.' },
-  { id: '14_새싹코알라', name: '새싹코알라', primaryStat: 'focus', secondaryStat: 'spatial', tagline: '나뭇가지 위에서 균형을 잡으며 느긋하게 집중해요.' },
-  { id: '15_물끄럼개미핥기', name: '물끄럼개미핥기', primaryStat: 'focus', secondaryStat: 'judgment', tagline: '굴 팔 위치를 판단하며 끈질기게 집중해요.' },
-  { id: '16_균형다람쥐', name: '균형다람쥐', primaryStat: 'spatial', secondaryStat: 'judgment', tagline: '저울처럼 균형을 잡으며 신중하게 판단해요.' },
-  { id: '17_포동동곰', name: '포동동곰', primaryStat: 'memory', secondaryStat: 'judgment', tagline: '경험이 쌓여야 비로소 판단을 내리는 편이에요.' },
-  { id: '18_지식토끼', name: '지식토끼', primaryStat: 'reasoning', secondaryStat: 'focus', tagline: '책을 읽으며 추론력과 몰입을 함께 다져요.' },
-  { id: '19_우주멍멍이', name: '우주멍멍이', primaryStat: 'memory', secondaryStat: 'reasoning', tagline: '지식을 기억하고 추론하는 높은 지능을 가졌어요.' },
-  { id: '20_스카프강쥐', name: '스카프강쥐', primaryStat: 'reaction', secondaryStat: 'judgment', tagline: '활발하게 반응하면서도 눈치가 빨라요.' },
-  { id: '21_동글거북', name: '동글거북', primaryStat: 'memory', secondaryStat: 'focus', tagline: '오래 살아온 만큼 지혜롭고, 책을 읽을 땐 차분해요.' },
-  { id: '22_붕어빵아홀로틀', name: '붕어빵아홀로틀', primaryStat: 'memory', secondaryStat: 'spatial', tagline: '서식지를 기억하고 물속 방향감각도 뛰어나요.' },
-  { id: '23_잎라쿤', name: '잎라쿤', primaryStat: 'judgment', secondaryStat: 'memory', tagline: '먹이 저장 장소를 기억해뒀다가 판단에 활용해요.' },
-  { id: '24_꽃사막여우', name: '꽃사막여우', primaryStat: 'reasoning', secondaryStat: 'spatial', tagline: '사막에서 길을 추론해가며 찾아내요.' },
-  { id: '25_치즈생쥐', name: '치즈생쥐', primaryStat: 'reaction', secondaryStat: 'reasoning', tagline: '재빠른 몸놀림으로 보물찾기하듯 추리해요.' },
-  { id: '26_눈송이늑대', name: '눈송이늑대', primaryStat: 'judgment', secondaryStat: 'reaction', tagline: '무리 사냥 중에도 순간적으로 판단하고 반응해요.' },
-  { id: '27_겨울펭귄', name: '겨울펭귄', primaryStat: 'focus', secondaryStat: 'reasoning', tagline: '낚시에 몰입하며 전략적으로 생각해요.' },
-  { id: '28_귤카피바라', name: '귤카피바라', primaryStat: 'focus', secondaryStat: 'reaction', tagline: '평온해 보여도 위협 앞에선 순식간에 움직여요.' },
-  { id: '29_무지개유니콘', name: '무지개유니콘', primaryStat: 'reasoning', secondaryStat: 'reaction', tagline: '마법 같은 직관과 순간적인 반응을 지녔어요.' },
-  { id: '30_꽃다발공룡', name: '꽃다발공룡', primaryStat: 'spatial', secondaryStat: 'reasoning', tagline: '계절과 방향을 읽어 개화 시기를 추론해요.' },
+  { id: '01_치즈털실냥이', slug: 'cheese-cat', name: '치즈털실냥이', primaryStat: 'reaction', secondaryStat: 'spatial', tagline: '실뭉치를 쫓아다니는 민첩한 몸놀림과 균형감각을 가졌어요.' },
+  { id: '02_플로봇', slug: 'flow-bot', name: '플로봇', primaryStat: 'judgment', secondaryStat: 'reasoning', tagline: '기계적인 연산으로 논리정연하게 결론을 내려요.' },
+  { id: '03_잎사귀양', slug: 'leaf-sheep', name: '잎사귀양', primaryStat: 'focus', secondaryStat: 'memory', tagline: '무리를 따라가며 익힌 습관을 오래오래 기억해요.' },
+  { id: '04_상처도치', slug: 'scar-hedgehog', name: '상처도치', primaryStat: 'judgment', secondaryStat: 'focus', tagline: '위협 앞에서는 신중하게 방어 태세부터 갖춰요.' },
+  { id: '05_알삐약이', slug: 'egg-chick', name: '알삐약이', primaryStat: 'memory', secondaryStat: 'reaction', tagline: '갓 부화한 순간의 기억과 반사반응이 또렷해요.' },
+  { id: '06_초록스카프수달', slug: 'green-scarf-otter', name: '초록스카프수달', primaryStat: 'reaction', secondaryStat: 'focus', tagline: '도구를 다루는 손놀림이 재빠르고 몰입도 잘해요.' },
+  { id: '07_별사막여우', slug: 'star-desert-fox', name: '별사막여우', primaryStat: 'reasoning', secondaryStat: 'judgment', tagline: '별빛을 읽어 상황을 추론하고 결정을 내려요.' },
+  { id: '08_바다고래', slug: 'ocean-whale', name: '바다고래', primaryStat: 'spatial', secondaryStat: 'memory', tagline: '긴 이동 경로를 기억하며 넓은 바다를 항해해요.' },
+  { id: '09_동글이유령', slug: 'round-ghost', name: '동글이유령', primaryStat: 'reasoning', secondaryStat: 'memory', tagline: '과거의 기억을 단서로 삼아 추리를 즐겨요.' },
+  { id: '10_반짝벌', slug: 'sparkle-bee', name: '반짝벌', primaryStat: 'spatial', secondaryStat: 'focus', tagline: '꽃의 위치를 파악하며 집중해서 날아다녀요.' },
+  { id: '11_하트덕', slug: 'heart-duck', name: '하트덕', primaryStat: 'reaction', secondaryStat: 'memory', tagline: '재빠르게 자맥질하면서도 귀소본능은 잊지 않아요.' },
+  { id: '12_분홍학', slug: 'pink-crane', name: '분홍학', primaryStat: 'spatial', secondaryStat: 'reaction', tagline: '외다리로 균형을 잡으며 순간적으로 반응해요.' },
+  { id: '13_나뭇잎여우', slug: 'leaf-fox', name: '나뭇잎여우', primaryStat: 'judgment', secondaryStat: 'spatial', tagline: '은신처를 고르고 지형을 파악하는 눈썰미가 있어요.' },
+  { id: '14_새싹코알라', slug: 'sprout-koala', name: '새싹코알라', primaryStat: 'focus', secondaryStat: 'spatial', tagline: '나뭇가지 위에서 균형을 잡으며 느긋하게 집중해요.' },
+  { id: '15_물끄럼개미핥기', slug: 'gaze-anteater', name: '물끄럼개미핥기', primaryStat: 'focus', secondaryStat: 'judgment', tagline: '굴 팔 위치를 판단하며 끈질기게 집중해요.' },
+  { id: '16_균형다람쥐', slug: 'balance-squirrel', name: '균형다람쥐', primaryStat: 'spatial', secondaryStat: 'judgment', tagline: '저울처럼 균형을 잡으며 신중하게 판단해요.' },
+  { id: '17_포동동곰', slug: 'chubby-bear', name: '포동동곰', primaryStat: 'memory', secondaryStat: 'judgment', tagline: '경험이 쌓여야 비로소 판단을 내리는 편이에요.' },
+  { id: '18_지식토끼', slug: 'knowledge-rabbit', name: '지식토끼', primaryStat: 'reasoning', secondaryStat: 'focus', tagline: '책을 읽으며 추론력과 몰입을 함께 다져요.' },
+  { id: '19_우주멍멍이', slug: 'space-dog', name: '우주멍멍이', primaryStat: 'memory', secondaryStat: 'reasoning', tagline: '지식을 기억하고 추론하는 높은 지능을 가졌어요.' },
+  { id: '20_스카프강쥐', slug: 'scarf-puppy', name: '스카프강쥐', primaryStat: 'reaction', secondaryStat: 'judgment', tagline: '활발하게 반응하면서도 눈치가 빨라요.' },
+  { id: '21_동글거북', slug: 'round-turtle', name: '동글거북', primaryStat: 'memory', secondaryStat: 'focus', tagline: '오래 살아온 만큼 지혜롭고, 책을 읽을 땐 차분해요.' },
+  { id: '22_붕어빵아홀로틀', slug: 'bread-axolotl', name: '붕어빵아홀로틀', primaryStat: 'memory', secondaryStat: 'spatial', tagline: '서식지를 기억하고 물속 방향감각도 뛰어나요.' },
+  { id: '23_잎라쿤', slug: 'leaf-raccoon', name: '잎라쿤', primaryStat: 'judgment', secondaryStat: 'memory', tagline: '먹이 저장 장소를 기억해뒀다가 판단에 활용해요.' },
+  { id: '24_꽃사막여우', slug: 'flower-desert-fox', name: '꽃사막여우', primaryStat: 'reasoning', secondaryStat: 'spatial', tagline: '사막에서 길을 추론해가며 찾아내요.' },
+  { id: '25_치즈생쥐', slug: 'cheese-mouse', name: '치즈생쥐', primaryStat: 'reaction', secondaryStat: 'reasoning', tagline: '재빠른 몸놀림으로 보물찾기하듯 추리해요.' },
+  { id: '26_눈송이늑대', slug: 'snow-wolf', name: '눈송이늑대', primaryStat: 'judgment', secondaryStat: 'reaction', tagline: '무리 사냥 중에도 순간적으로 판단하고 반응해요.' },
+  { id: '27_겨울펭귄', slug: 'winter-penguin', name: '겨울펭귄', primaryStat: 'focus', secondaryStat: 'reasoning', tagline: '낚시에 몰입하며 전략적으로 생각해요.' },
+  { id: '28_귤카피바라', slug: 'tangerine-capybara', name: '귤카피바라', primaryStat: 'focus', secondaryStat: 'reaction', tagline: '평온해 보여도 위협 앞에선 순식간에 움직여요.' },
+  { id: '29_무지개유니콘', slug: 'rainbow-unicorn', name: '무지개유니콘', primaryStat: 'reasoning', secondaryStat: 'reaction', tagline: '마법 같은 직관과 순간적인 반응을 지녔어요.' },
+  { id: '30_꽃다발공룡', slug: 'bouquet-dino', name: '꽃다발공룡', primaryStat: 'spatial', secondaryStat: 'reasoning', tagline: '계절과 방향을 읽어 개화 시기를 추론해요.' },
 ]
 
 export const CHARACTER_CATALOG: PetProfile[] = CHARACTER_DEFS.map((def) => ({
   id: def.id,
+  slug: def.slug,
   name: def.name,
   imageSrc: buildCharacterStateFolder(def.id, def.name).assets.idle,
   primaryStat: def.primaryStat,
@@ -103,8 +116,44 @@ export const CHARACTER_CATALOG: PetProfile[] = CHARACTER_DEFS.map((def) => ({
   tagline: def.tagline,
 }))
 
+// Phase 3H-1 — structural guarantee that no two catalog entries ever share a
+// public slug (see PetProfile.slug's doc comment on why this must be
+// unique): runs once at module load, throws immediately if the static
+// roster above is ever edited into a collision, rather than letting two
+// pets silently alias the same Share URL.
+{
+  const seenSlugs = new Set<string>()
+  for (const pet of CHARACTER_CATALOG) {
+    if (seenSlugs.has(pet.slug)) {
+      throw new Error(`lib/pets/pet-profile.ts: duplicate public slug "${pet.slug}" (pet id "${pet.id}")`)
+    }
+    seenSlugs.add(pet.slug)
+  }
+}
+
 export function getPetProfileById(id: string): PetProfile | undefined {
   return CHARACTER_CATALOG.find((pet) => pet.id === id)
+}
+
+/** Phase 3H-1 — the inverse of `slug`'s catalog lookup, for any caller that already has a resolved PetProfile and needs its public URL segment (e.g. buildShareUrl callers). */
+export function getPetProfileBySlug(slug: string): PetProfile | undefined {
+  return CHARACTER_CATALOG.find((pet) => pet.slug === slug)
+}
+
+/**
+ * Phase 3H-1 — the one resolver a public Share URL's raw route segment
+ * should go through. Tries the stable public `slug` first (every link
+ * generated from now on), then falls back to the legacy internal `id` (every
+ * link already shared before this Phase used it directly as the URL
+ * segment) — so a pre-existing link keeps resolving forever, and neither
+ * form ever collides with the other (slugs are lowercase ASCII/hyphen,
+ * internal ids are numeric-prefixed Korean, disjoint by construction).
+ * Returns undefined for neither — callers already handle a missing
+ * PetProfile as "invalid link", the same case an unrecognized id produced
+ * before this Phase.
+ */
+export function getPetProfileByPublicUrlId(raw: string): PetProfile | undefined {
+  return getPetProfileBySlug(raw) ?? getPetProfileById(raw)
 }
 
 /** The one character whose (primaryStat, secondaryStat) exactly matches the given pair — always resolves, since the 30-character roster covers all 6x5 combinations. Falls back to the catalog's first entry only as a defensive guard against a corrupt/incomplete roster, never expected to trigger in practice. */

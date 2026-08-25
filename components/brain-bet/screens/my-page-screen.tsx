@@ -111,8 +111,8 @@ export function MyPageScreen({ statlingName, topStat, secondaryStat, petProfile,
             // Same "친구 도감 등록" invite link the old standalone copy-link
             // button used to share on its own, before this action absorbed it —
             // the one existing structure this feature can hook a future friend
-            // system into.
-            url: buildShareUrl(`${window.location.origin}/share/${encodeURIComponent(petProfile.id)}`, SHARE_CONTEXT),
+            // system into. Phase 3H-1: public slug, not the internal petId.
+            url: buildShareUrl(`${window.location.origin}/share/${encodeURIComponent(petProfile.slug)}`, SHARE_CONTEXT),
           }
         : { title: '', text: '', url: '' }, // unreachable — the buttons below only render when petProfile is set
     saveName: statlingName,
@@ -139,7 +139,8 @@ export function MyPageScreen({ statlingName, topStat, secondaryStat, petProfile,
         ? {
             title: buildFriendInviteTitle(),
             text: buildFriendInviteText({ statlingName, characterName: petProfile.name, level: petCareLevel }),
-            url: buildFriendInviteUrl(`${window.location.origin}/share/${encodeURIComponent(petProfile.id)}`, SHARE_CONTEXT, friendCode),
+            // Phase 3H-1: public slug, not the internal petId (see reveal-screen.tsx's sibling comment above).
+            url: buildFriendInviteUrl(`${window.location.origin}/share/${encodeURIComponent(petProfile.slug)}`, SHARE_CONTEXT, friendCode),
           }
         : { title: '', text: '', url: '' }, // unreachable — handleFriendInviteClick never opens the preview before friendCode resolves
     saveName: statlingName,

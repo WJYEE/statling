@@ -5,7 +5,15 @@ function isStatId(value: string): value is StatId {
 }
 
 export interface ResolvedShareParams {
-  petId: string
+  /**
+   * Phase 3H-1 — the raw route segment, decoded but NOT yet resolved to a
+   * catalog pet: it may be a public slug (`ocean-whale`), a legacy internal
+   * id (`08_바다고래`), or invalid. Callers must resolve this through
+   * lib/pets/pet-profile.ts's getPetProfileByPublicUrlId before treating it
+   * as an internal petId — this file only parses the URL's shape, it has no
+   * catalog knowledge of its own.
+   */
+  rawPetId: string
   /**
    * Present only when the URL carries exactly 2 distinct, valid StatIds as
    * extra path segments (`/share/{petId}/{topStat}/{secondaryStat}`) — the
@@ -26,13 +34,14 @@ export interface ResolvedShareParams {
  * shape from Next and must agree on what counts as a valid Character Reveal
  * link.
  */
-export function resolveShareParams(rawPetId: string, stats: string[] | undefined): ResolvedShareParams {
-  // Next hands the dynamic segment through un-decoded — every catalog id is
-  // non-ASCII (see lib/pets/pet-profile.ts), so this decode is required.
-  const petId = decodeURIComponent(rawPetId)
+export function resolveShareParams(routeSegment: string, stats: string[] | undefined): ResolvedShareParams {
+  // Next hands the dynamic segment through un-decoded — legacy catalog ids
+  // are non-ASCII (see lib/pets/pet-profile.ts), so this decode is required;
+  // a public slug is plain ASCII and passes through decodeURIComponent unchanged.
+  const rawPetId = decodeURIComponent(routeSegment)
 
   if (stats?.length === 2 && isStatId(stats[0]) && isStatId(stats[1]) && stats[0] !== stats[1]) {
-    return { petId, topStat: stats[0], secondaryStat: stats[1] }
+    return { rawPetId, topStat: stats[0], secondaryStat: stats[1] }
   }
-  return { petId, topStat: null, secondaryStat: null }
+  return { rawPetId, topStat: null, secondaryStat: null }
 }

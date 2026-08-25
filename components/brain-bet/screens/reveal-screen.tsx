@@ -76,9 +76,10 @@ export function RevealScreen({
       // Real per-result landing page (see app/share/[petId]/[[...stats]]/)
       // — carries TOP1/TOP2 as extra path segments so both the link
       // preview card and the page itself can headline the same 2 stats,
-      // rather than sharing a generic site-root URL.
+      // rather than sharing a generic site-root URL. Phase 3H-1: uses the
+      // public slug, never the internal petId (see pet-profile.ts).
       url: buildShareUrl(
-        `${window.location.origin}/share/${encodeURIComponent(petProfile.id)}/${topStat}/${secondaryStat}`,
+        `${window.location.origin}/share/${encodeURIComponent(petProfile.slug)}/${topStat}/${secondaryStat}`,
         SHARE_CONTEXT,
       ),
     }),
