@@ -295,6 +295,18 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
         {'현재 데코는 Statling이 기본 또는 눈 깜빡임 상태일 때만 표시돼요.\n다른 행동 중에는 잠시 보이지 않을 수 있어요.'}
       </p>
 
+      {/* Same fix/reasoning as room-screen.tsx's ROOM_CANVAS_MAX_DIMENSION
+          and theme-screen.tsx's own RoomCanvas usage: DecoCanvas's editable
+          branch is `aspect-square w-full` with no ceiling tied to viewport
+          HEIGHT, so on a short-but-wide viewport it can grow tall enough to
+          push the character (centered inside it) into NavRail's fixed
+          bottom band. This screen stacks the most content above its canvas
+          of the three (header + beta notice + 방 꾸미기/도감 buttons + two
+          instruction paragraphs — empirically ~350px tall on a <640px-wide
+          viewport, ~299px at/above it), so its own mobile/desktop budgets
+          are the largest of the three; both were checked against
+          CHARACTER_BOX_SIZE's 270px desktop max so the canvas never shrinks
+          small enough to clip the character against its own edge instead. */}
       <DecoCanvas
         items={draftDeco.items}
         editable
@@ -302,7 +314,7 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
         onSelectItem={setSelectedInstanceId}
         onDeselectItem={() => setSelectedInstanceId(null)}
         onChangeItem={updateItem}
-        className="mt-3 toy-border toy-shadow-lg"
+        className="mt-3 toy-border toy-shadow-lg max-w-[calc(100dvh-465px)] max-h-[calc(100dvh-465px)] sm:max-w-[calc(100dvh-420px)] sm:max-h-[calc(100dvh-420px)]"
         statlingSlot={statlingSlot}
         characterSize={CHARACTER_BOX_SIZE}
         anchors={anchors}

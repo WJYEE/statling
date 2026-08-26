@@ -296,6 +296,26 @@ export function ThemeScreen({ topStat, petProfile, onDirtyChange }: ThemeScreenP
         </div>
       )}
 
+      {/* Same fix as room-screen.tsx's own RoomCanvas usage (see that file's
+          ROOM_CANVAS_MAX_DIMENSION doc comment for the full mechanism this
+          screen shares: aspect-square + w-full alone has no ceiling tied to
+          viewport HEIGHT, letting the canvas — and the character positioned
+          inside it — grow tall enough on a short-but-wide viewport to
+          overlap NavRail's fixed bottom band). This screen's own header
+          (title + description + beta notice) sits above the canvas at a
+          different height than room-screen.tsx's (empirically ~241px on a
+          <640px-wide viewport vs ~206px at/above it, both before the canvas
+          even starts), so it needs its own reserved budget rather than
+          reusing Room's 220px — reused as max-w AND max-h together so the
+          canvas shrinks as a true square (see the same reasoning in
+          room-screen.tsx), split mobile/desktop via `sm:` (matching this
+          screen's own max-w-70/max-w-none convention elsewhere) so the
+          desktop tier can be smaller (206px header) without over-reserving
+          on mobile (241px header) and vice versa — a single flat value
+          can't satisfy both without either overlapping NavRail on mobile or
+          shrinking the canvas below CHARACTER_BOX_SIZE's 270px desktop max
+          (which would clip the character against the canvas's own edge
+          instead — confirmed by the arithmetic, not just theory). */}
       <RoomCanvas
         backgroundAsset={backgroundAsset}
         items={draftState.items}
@@ -304,7 +324,7 @@ export function ThemeScreen({ topStat, petProfile, onDirtyChange }: ThemeScreenP
         onSelectItem={setSelectedInstanceId}
         onDeselectItem={() => setSelectedInstanceId(null)}
         onChangeItem={updateItem}
-        className="toy-border toy-shadow-lg"
+        className="toy-border toy-shadow-lg max-w-[calc(100dvh-360px)] max-h-[calc(100dvh-360px)] sm:max-w-[calc(100dvh-320px)] sm:max-h-[calc(100dvh-320px)]"
         statlingSlot={
           petProfile ? (
             <AssetImage src={petProfile.imageSrc} alt={petProfile.name} size={CHARACTER_BOX_SIZE} />
