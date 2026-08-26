@@ -11,6 +11,21 @@ interface TalkQuestionCardProps {
   onChoose: (choice: TalkChoice) => void
   onSubmitFreeText: (text: string) => void
   onClose: () => void
+  /**
+   * Same value room-screen.tsx passes to RoomCanvas's own `style` as
+   * `maxWidth`/`maxHeight` (its ROOM_CANVAS_MAX_DIMENSION, see that file) —
+   * this card is an absolutely-positioned sibling of RoomCanvas inside the
+   * SAME wrapper div, not a child of RoomCanvas itself, so it doesn't
+   * automatically shrink when RoomCanvas's own max-width/max-height budget
+   * shrinks the canvas on a short-but-wide desktop viewport. Without this,
+   * the card still spans the wrapper's full (unshrunk) width — up to 728px —
+   * while the canvas underneath it can be far narrower (e.g. 500px at
+   * 1280x720), so the card visually overflows past both edges of the room
+   * art and swallows most of the character instead of reading as a panel
+   * attached to it. Passing the identical formula here keeps the two in
+   * lockstep at every viewport without duplicating any magic number.
+   */
+  maxWidth?: string
 }
 
 /**
@@ -35,12 +50,20 @@ interface TalkQuestionCardProps {
  * and clipped a 4-choice follow-up question; a viewport-relative cap sizes
  * off the actual screen instead, comfortably fitting up to a handful of
  * choices while still acting as a real ceiling for an unusually long list.
+ *
+ * Width: `inset-x-0` + `mx-auto` + the `maxWidth` prop (not the fixed
+ * `inset-x-2`/`sm:inset-x-3` this used before) — see maxWidth's doc comment
+ * above for why a fixed inset from the wrapper's edges isn't enough once
+ * RoomCanvas itself can be narrower than that wrapper.
  */
-export function TalkQuestionCard({ question, onChoose, onSubmitFreeText, onClose }: TalkQuestionCardProps) {
+export function TalkQuestionCard({ question, onChoose, onSubmitFreeText, onClose, maxWidth }: TalkQuestionCardProps) {
   const [freeText, setFreeText] = useState('')
 
   return (
-    <div className="animate-pop-in absolute inset-x-2 bottom-2 z-[60] flex max-h-[70dvh] flex-col gap-2.5 overflow-y-auto rounded-2xl bg-card/95 px-4 py-3.5 toy-border toy-shadow-sm backdrop-blur-sm sm:inset-x-3 sm:bottom-3">
+    <div
+      className="animate-pop-in absolute inset-x-0 bottom-2 z-[60] mx-auto flex w-full max-h-[70dvh] flex-col gap-2.5 overflow-y-auto rounded-2xl bg-card/95 px-4 py-3.5 toy-border toy-shadow-sm backdrop-blur-sm sm:bottom-3"
+      style={maxWidth ? { maxWidth } : undefined}
+    >
       <div className="flex items-center justify-end">
         <button
           type="button"

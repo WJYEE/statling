@@ -666,6 +666,7 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
             onChoose={talk.chooseAnswer}
             onSubmitFreeText={talk.submitFreeText}
             onClose={talk.cancelQuestion}
+            maxWidth={ROOM_CANVAS_MAX_DIMENSION}
           />
         )}
       </div>
