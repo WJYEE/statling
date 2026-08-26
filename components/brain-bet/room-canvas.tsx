@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, type ReactNode } from 'react'
+import { useRef, type CSSProperties, type ReactNode } from 'react'
 import { ROOM_ASSETS, type RoomAsset } from '@/lib/room-assets'
 import { STATLING_SHADOW_Z_INDEX, STATLING_Z_INDEX } from '@/lib/room/room-layout'
 import type { RoomItem } from '@/lib/room/room-state'
@@ -19,6 +19,17 @@ interface RoomCanvasProps {
   onDeselectItem?: () => void
   onChangeItem?: (instanceId: string, patch: Partial<RoomItem>) => void
   className?: string
+  /**
+   * Applied directly to this root element — the one that actually carries
+   * `aspect-square`/`w-full` — so a caller-supplied `maxWidth`/`maxHeight`
+   * pair clamps both dimensions together instead of merely clipping an
+   * already-full-size square via an ancestor's overflow-hidden (aspect-ratio
+   * alone only derives a size from an AUTO dimension — with width already
+   * definite via `w-full`, a max-height by itself just squashes the box
+   * into a non-square rectangle). See room-screen.tsx's
+   * `ROOM_CANVAS_MAX_DIMENSION` for why this exists.
+   */
+  style?: CSSProperties
 }
 
 /**
@@ -39,6 +50,7 @@ export function RoomCanvas({
   onDeselectItem,
   onChangeItem,
   className,
+  style,
 }: RoomCanvasProps) {
   const stageRef = useRef<HTMLDivElement>(null)
 
@@ -54,6 +66,7 @@ export function RoomCanvas({
       // e.g. max-w-70 below the sm breakpoint — and therefore isn't
       // reliably a fixed fraction of the viewport the way vw assumes).
       className={cn('relative aspect-square w-full overflow-hidden rounded-3xl bg-card @container', className)}
+      style={style}
       onClick={(event) => {
         if (editable && event.target === event.currentTarget) onDeselectItem?.()
       }}

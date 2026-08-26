@@ -54,6 +54,41 @@ const SHOW_GIFT_QA = process.env.NODE_ENV === 'development' || process.env.NEXT_
 /** The gift-pending speech bubble's fixed text — shown for as long as `isGiftReady` stays true (see `speech` below), distinct from the bottom "Statling을 눌러 선물을 받아보세요!" banner (that one explains WHAT to do; this one is just the Statling "talking"). */
 const GIFT_READY_SPEECH = '선물이야!'
 
+/**
+ * The Room canvas is `aspect-square w-full` (see the wrapper below) — its
+ * size is driven purely by available WIDTH, with no ceiling tied to
+ * viewport HEIGHT. On any viewport at/above the `sm` breakpoint the canvas
+ * is only capped by this page's own `max-w-3xl` container (effectively
+ * ~728px square), completely independent of how tall the viewport actually
+ * is. On a short-but-wide viewport (a laptop window sized to ~1280x720, for
+ * example) that 728px-tall square — and the Statling positioned within it
+ * at STATLING_Z_INDEX (lib/room/room-layout.ts), which outranks NavRail's
+ * z-20 — ends up geometrically overlapping the fixed bottom NavRail,
+ * visually covering its tabs and intercepting their clicks.
+ *
+ * This reserves room BELOW the canvas for NavRail's own rendered height
+ * (~86.5px empirically, kept generous here for cross-locale/font-metric
+ * safety) plus a safe gap, and the canvas's own top offset within this
+ * screen (header + mood line + margins, ~108px empirically stable across
+ * every width at/above `sm`) — so this budget, applied as BOTH `max-width`
+ * AND `max-height` on the canvas below, keeps its bottom edge above
+ * NavRail on every viewport, not just the ones spot-checked in QA.
+ *
+ * Both properties matter, not just max-height: the canvas's width comes
+ * from an explicit `w-full` (100% of its container), and `aspect-ratio`
+ * only derives a size from an AUTO dimension — with width already
+ * definite, a max-height alone just squashes the box into a short
+ * rectangle (confirmed empirically: 728x580, no longer square) rather than
+ * shrinking width to match, which would let its `object-cover` background
+ * crop exactly the "잘리거나 왜곡되지 않는 정사각형" the aspect-square choice
+ * further down was meant to guarantee. Capping width to the same budget
+ * keeps both dimensions tied to whichever is smaller — the container's own
+ * width cap (`max-w-70` on mobile, `max-w-none` from `sm` up, unchanged)
+ * or this viewport-height-derived one — so the canvas only ever shrinks as
+ * a true square, on viewports short enough to actually need it.
+ */
+const ROOM_CANVAS_MAX_DIMENSION = 'calc(100dvh - 220px)'
+
 interface RoomScreenProps {
   statlingName: string
   /** Initial Assessment's TOP 1 stat (see game-flow.tsx's `topStat` — frozen at pet assignment via petRecord.topStat, never recomputed from live/Free-Play-shifted `finals`). */
@@ -586,6 +621,7 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
           items={roomState.items}
           editable={false}
           className="toy-border toy-shadow-lg"
+          style={{ maxWidth: ROOM_CANVAS_MAX_DIMENSION, maxHeight: ROOM_CANVAS_MAX_DIMENSION }}
           statlingSlot={
             <PetMoodView
               petProfile={petProfile}
