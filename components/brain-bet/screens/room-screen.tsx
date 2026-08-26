@@ -620,7 +620,7 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
           backgroundAsset={backgroundAsset}
           items={roomState.items}
           editable={false}
-          className="toy-border toy-shadow-lg"
+          className="mx-auto toy-border toy-shadow-lg"
           style={{ maxWidth: ROOM_CANVAS_MAX_DIMENSION, maxHeight: ROOM_CANVAS_MAX_DIMENSION }}
           statlingSlot={
             <PetMoodView

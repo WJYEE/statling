@@ -315,7 +315,13 @@ export function ThemeScreen({ topStat, petProfile, onDirtyChange }: ThemeScreenP
           can't satisfy both without either overlapping NavRail on mobile or
           shrinking the canvas below CHARACTER_BOX_SIZE's 270px desktop max
           (which would clip the character against the canvas's own edge
-          instead — confirmed by the arithmetic, not just theory). */}
+          instead — confirmed by the arithmetic, not just theory).
+
+          `mx-auto` — same fix as statling-screen.tsx's DecoCanvas: this
+          screen's root is also a flex column, so once max-w/max-h shrink
+          the canvas below the column's full width it needs its own
+          centering or it sits flush-left with the freed width dumped as
+          dead space on the right instead of split evenly. */}
       <RoomCanvas
         backgroundAsset={backgroundAsset}
         items={draftState.items}
@@ -324,7 +330,7 @@ export function ThemeScreen({ topStat, petProfile, onDirtyChange }: ThemeScreenP
         onSelectItem={setSelectedInstanceId}
         onDeselectItem={() => setSelectedInstanceId(null)}
         onChangeItem={updateItem}
-        className="toy-border toy-shadow-lg max-w-[calc(100dvh-360px)] max-h-[calc(100dvh-360px)] sm:max-w-[calc(100dvh-320px)] sm:max-h-[calc(100dvh-320px)]"
+        className="mx-auto toy-border toy-shadow-lg max-w-[calc(100dvh-360px)] max-h-[calc(100dvh-360px)] sm:max-w-[calc(100dvh-320px)] sm:max-h-[calc(100dvh-320px)]"
         statlingSlot={
           petProfile ? (
             <AssetImage src={petProfile.imageSrc} alt={petProfile.name} size={CHARACTER_BOX_SIZE} />

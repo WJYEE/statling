@@ -301,12 +301,22 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
           HEIGHT, so on a short-but-wide viewport it can grow tall enough to
           push the character (centered inside it) into NavRail's fixed
           bottom band. This screen stacks the most content above its canvas
-          of the three (header + beta notice + 방 꾸미기/도감 buttons + two
+          of the three (header + beta notice + 방 꾸미기/도감 버튼 + two
           instruction paragraphs — empirically ~350px tall on a <640px-wide
           viewport, ~299px at/above it), so its own mobile/desktop budgets
           are the largest of the three; both were checked against
           CHARACTER_BOX_SIZE's 270px desktop max so the canvas never shrinks
-          small enough to clip the character against its own edge instead. */}
+          small enough to clip the character against its own edge instead.
+
+          `mx-auto` matters just as much as the max-w/max-h pair above: this
+          screen's root is a flex column (`w-full max-w-3xl flex-col`), and
+          a flex item's cross-axis alignment defaults to flex-start once an
+          explicit width/max-width shrinks it below the container's full
+          width — margin:auto on a flex item absorbs the leftover space
+          instead, so it re-centers instead of sitting flush against the
+          left edge with the entire freed-up width dumped as dead space on
+          the right (confirmed empirically: 0px gap left / 248px gap right
+          without this, at 1440x900). */}
       <DecoCanvas
         items={draftDeco.items}
         editable
@@ -314,7 +324,7 @@ export function StatlingScreen({ statlingName, topStat, petProfile, onDirtyChang
         onSelectItem={setSelectedInstanceId}
         onDeselectItem={() => setSelectedInstanceId(null)}
         onChangeItem={updateItem}
-        className="mt-3 toy-border toy-shadow-lg max-w-[calc(100dvh-465px)] max-h-[calc(100dvh-465px)] sm:max-w-[calc(100dvh-420px)] sm:max-h-[calc(100dvh-420px)]"
+        className="mx-auto mt-3 toy-border toy-shadow-lg max-w-[calc(100dvh-465px)] max-h-[calc(100dvh-465px)] sm:max-w-[calc(100dvh-420px)] sm:max-h-[calc(100dvh-420px)]"
         statlingSlot={statlingSlot}
         characterSize={CHARACTER_BOX_SIZE}
         anchors={anchors}
