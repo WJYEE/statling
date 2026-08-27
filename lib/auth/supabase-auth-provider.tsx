@@ -6,6 +6,7 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { AuthContext, type AuthContextValue, type AuthUser, type RestoreConflictInfo } from '@/lib/auth/auth-context'
 import { runSessionSync } from '@/lib/migration/session-sync'
 import { restoreLocalDataFromSnapshot } from '@/lib/migration/restore-local-snapshot'
+import { setLocalDataOwner } from '@/lib/pets/local-data-owner'
 import { registerSyncSession, markSyncReady, clearSyncSession } from '@/lib/sync/session-registry'
 import { loadLocalSyncUpdatedAt } from '@/lib/sync/sync-freshness'
 
@@ -200,6 +201,10 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
       const report = restoreLocalDataFromSnapshot(restoreConflict.snapshot)
       if (!report.ok) {
         devWarn('[session-sync] Case C "use server" restore failed/rolled back (local state preserved):', report.results)
+      } else {
+        // Cross-account contamination guard — local now reflects THIS
+        // account's server data. See local-data-owner.ts's own doc comment.
+        setLocalDataOwner(restoreConflict.snapshot.userId)
       }
       setRestoreConflict(null)
       // Phase 2D-2 — the conflict is now resolved one way or another, so

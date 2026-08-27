@@ -60,6 +60,7 @@ import {
   saveStoredPetProfile,
   type StoredPetProfile,
 } from '@/lib/pets/pet-storage'
+import { isLocalDataOwnedBy } from '@/lib/pets/local-data-owner'
 import { TESTER_CHARACTER_FOLDERS } from '@/lib/character-state-assets'
 import { findCharacterByStats, type PetProfile } from '@/lib/pets/pet-profile'
 import { generateMockFinals, type MockStatPreset } from '@/lib/game/mock-finals'
@@ -446,6 +447,20 @@ export function GameFlow() {
     if (!bootReady) return
     const stored = loadStoredPetProfile()
     if (!stored) return
+    // Cross-account contamination guard — this device's local pet may
+    // belong to a DIFFERENT account that was signed out here without
+    // clearing localStorage (logout never has — see
+    // supabase-auth-provider.tsx#signOut). Never show/restore-into-state
+    // another account's pet for the CURRENTLY authenticated user; clearing
+    // it here (rather than merely ignoring it) lets the post_login_auto
+    // effect below correctly treat this as a genuinely fresh device the
+    // instant this same commit finishes, and stops the foreign data from
+    // lingering to confuse a later check. See local-data-owner.ts's own doc
+    // comment for the full incident this closes.
+    if (user && !isLocalDataOwnedBy(user.id)) {
+      clearStoredPetProfile()
+      return
+    }
     if (stored.confirmed) {
       setFinals(stored.latestFinals)
       setPetRecord(stored)
@@ -461,7 +476,7 @@ export function GameFlow() {
     setFinals(stored.latestFinals)
     setPetRecord(stored)
     setPhase('reveal')
-  }, [bootReady])
+  }, [bootReady, user])
 
   /**
    * Phase 2C-2 — Case E fallback: a user who just authenticated (fresh

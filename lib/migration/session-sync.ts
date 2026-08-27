@@ -5,6 +5,7 @@ import { determineRestoreSituation, compareSyncFreshness } from '@/lib/migration
 import { triggerBackgroundMigration } from '@/lib/migration/trigger-background-migration'
 import { runSessionCatchupSync } from '@/lib/migration/session-catchup'
 import { loadStoredPetProfile, type StoredPetProfile } from '@/lib/pets/pet-storage'
+import { setLocalDataOwner } from '@/lib/pets/local-data-owner'
 import { loadLocalSyncUpdatedAt, setLocalSyncUpdatedAt } from '@/lib/sync/sync-freshness'
 import type { ServerDataSnapshot } from '@/lib/migration/snapshot-types'
 
@@ -172,11 +173,22 @@ async function runSessionSyncInner(client: SupabaseClient, localMarkerOverride?:
     // local state back to exactly what it was before this call — nothing
     // further to do here; the caller surfaces this via a dev warning only
     // (see supabase-auth-provider.tsx), same as a migration failure always has.
-    if (report.ok) alignLocalMarkerAfterRestore(snapshot.syncUpdatedAt)
+    if (report.ok) {
+      alignLocalMarkerAfterRestore(snapshot.syncUpdatedAt)
+      // Cross-account contamination guard — local now genuinely reflects
+      // THIS account's server data, so claim it (see local-data-owner.ts).
+      setLocalDataOwner(snapshot.userId)
+    }
     return { status: 'restored', report, viaFreshness: false }
   }
 
   if (situation.case === 'B') {
+    // Case B's own identity check (isSameConfirmedPet, in determineRestoreSituation)
+    // already proved this device's local pet matches THIS account's server
+    // pet, regardless of which freshness branch below actually runs — safe
+    // to claim ownership unconditionally here rather than duplicating this
+    // call into all three outcomes.
+    setLocalDataOwner(snapshot.userId)
     // Phase 2B's migration is one-time only (gated by profiles.migrated_at,
     // never re-runs), so before Phase 2D-6 Follow-up the server row for an
     // already-matching pet reflected whatever this account's state was AT

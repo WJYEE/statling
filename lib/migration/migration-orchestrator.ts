@@ -3,6 +3,7 @@ import { buildLocalDataSnapshot } from '@/lib/migration/build-local-snapshot'
 import { writeLocalDataSnapshot, type SnapshotWriteReport } from '@/lib/migration/write-local-snapshot'
 import { getOrCreateDeviceId } from '@/lib/room/room-storage'
 import { loadStoredPetProfile } from '@/lib/pets/pet-storage'
+import { isLocalDataOwnedBy, setLocalDataOwner } from '@/lib/pets/local-data-owner'
 import { setLocalSyncUpdatedAt } from '@/lib/sync/sync-freshness'
 import { clearOutstandingDomainFailures } from '@/lib/sync/sync-dispatcher'
 
@@ -33,6 +34,8 @@ export type MigrationResult =
   | { status: 'not_authenticated' }
   | { status: 'already_migrated'; userId: string; migratedAt: string }
   | { status: 'not_ready'; userId: string }
+  /** Cross-account contamination guard — this device's local pet data is marked as belonging to a DIFFERENT, already-authenticated account. Nothing was read or written; never retried automatically (see isLocalDataOwnedBy's own doc comment) — a genuinely new local pet for THIS user, once created, is unmarked and migrates normally. */
+  | { status: 'foreign_local_data'; userId: string }
   | { status: 'migrated'; userId: string; legacyDeviceId: string; migratedAt: string; writeReport: SnapshotWriteReport }
   | { status: 'failed'; userId: string; failures: MigrationFailure[] }
 
@@ -118,6 +121,19 @@ async function runLocalDataMigrationInner(client: SupabaseClient): Promise<Migra
     return { status: 'not_ready', userId: user.id }
   }
 
+  // Cross-account contamination guard — this device's local game state may
+  // belong to a DIFFERENT account that was signed out on this same device
+  // without clearing localStorage (logout never has — see
+  // supabase-auth-provider.tsx#signOut). Checked here, AFTER the
+  // already-migrated/not-ready checks above (both are cheap, order-neutral
+  // early-outs) and BEFORE the snapshot is ever built, so a foreign owner
+  // never even gets read into a snapshot, let alone written under this
+  // account's id. See lib/pets/local-data-owner.ts's own doc comment for the
+  // full incident this closes.
+  if (!isLocalDataOwnedBy(user.id)) {
+    return { status: 'foreign_local_data', userId: user.id }
+  }
+
   const snapshot = buildLocalDataSnapshot(user.id)
   const report = await writeLocalDataSnapshot(client, snapshot, user.id)
 
@@ -160,6 +176,10 @@ async function runLocalDataMigrationInner(client: SupabaseClient): Promise<Migra
   // account), but harmless and correct if it ever did.
   clearOutstandingDomainFailures()
   setLocalSyncUpdatedAt(migratedAt)
+  // Local and server now agree for THIS account — claims this device's local
+  // game state so a future logout -> different signup on the same device
+  // can never migrate it again (see local-data-owner.ts's own doc comment).
+  setLocalDataOwner(user.id)
   const { error: syncMarkerError } = await client.from('profiles').update({ sync_updated_at: migratedAt }).eq('id', user.id)
   if (syncMarkerError) {
     devWarn('[migration-orchestrator] sync_updated_at marker write failed after a successful migration (migrated_at is already set; will retry via the next continuous-sync push):', syncMarkerError.message)
