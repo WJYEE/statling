@@ -9,6 +9,7 @@ import { SpatialShapeView } from '@/components/brain-bet/games/spatial-shape'
 import { GameRuleReminder } from '@/components/brain-bet/games/shared/game-rule-reminder'
 import { FreePlayBadge } from '@/components/brain-bet/games/shared/free-play-badge'
 import { SkipTutorialButton } from '@/components/brain-bet/games/shared/skip-tutorial-button'
+import { LoginReturnLink } from '@/components/brain-bet/games/shared/login-return-link'
 import { STATS } from '@/lib/brain-bet'
 import {
   SPATIAL_FEEDBACK_MS,
@@ -51,6 +52,8 @@ interface SpatialGameProps {
    * for Free Play.
    */
   avoidShapeIds?: ReadonlySet<string>
+  /** Set only for a guest in Initial Assessment (mode === 'first' && no user) — see LoginReturnLink's own doc comment. Omitted for everyone else. */
+  onGoToLogin?: () => void
 }
 
 interface LastOutcome {
@@ -84,7 +87,7 @@ type QuestionOutcome = { kind: 'option'; optionIndex: number } | { kind: 'timeou
  * the time it fires. `hasResolvedRef` additionally guarantees a question is
  * resolved exactly once even if a timeout and a click land back-to-back.
  */
-export function SpatialGame({ index, mode, difficulty, onComplete, onBack, avoidShapeIds }: SpatialGameProps) {
+export function SpatialGame({ index, mode, difficulty, onComplete, onBack, avoidShapeIds, onGoToLogin }: SpatialGameProps) {
   const stat = STATS.spatial
   const { play } = useSound()
 
@@ -265,7 +268,8 @@ export function SpatialGame({ index, mode, difficulty, onComplete, onBack, avoid
     <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-3 sm:py-6">
       <header className="flex flex-col gap-2">
         {mode === 'first' && (
-          <div className="flex justify-end">
+          <div className={cn('flex items-center', onGoToLogin ? 'justify-between' : 'justify-end')}>
+            {onGoToLogin && <LoginReturnLink onClick={onGoToLogin} />}
             <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-1 text-[10px] font-bold text-secondary-foreground toy-border">
               <Save size={11} strokeWidth={2.6} />
               자동 저장 중

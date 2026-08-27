@@ -6,6 +6,7 @@ import { Logo } from '@/components/brain-bet/logo'
 import { ProgressTrack } from '@/components/brain-bet/progress-track'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { FreePlayBadge } from '@/components/brain-bet/games/shared/free-play-badge'
+import { LoginReturnLink } from '@/components/brain-bet/games/shared/login-return-link'
 import { STATS } from '@/lib/brain-bet'
 import {
   REACTION_DECOY_FLASH_MS,
@@ -39,6 +40,8 @@ interface ReactionGameProps {
     gameScore: number
   }) => void
   onBack: () => void
+  /** Set only for a guest in Initial Assessment (mode === 'first' && no user) — see LoginReturnLink's own doc comment. Omitted for everyone else. */
+  onGoToLogin?: () => void
 }
 
 function randomDelay() {
@@ -98,7 +101,7 @@ export function recordFeedbackSubline(feedback: RecordFeedback): string {
  * Starts are excluded from that count and retried, but every attempt
  * (including false starts) is kept for the trial log.
  */
-export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: ReactionGameProps) {
+export function ReactionGame({ index, mode, difficulty, onComplete, onBack, onGoToLogin }: ReactionGameProps) {
   const stat = STATS.reaction
   const { play } = useSound()
   const realTrials = useMemo(() => getReactionRealTrials(mode, difficulty), [mode, difficulty])
@@ -304,7 +307,8 @@ export function ReactionGame({ index, mode, difficulty, onComplete, onBack }: Re
     <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-6">
       <header className="flex flex-col gap-2">
         {mode === 'first' && (
-          <div className="flex justify-end">
+          <div className={cn('flex items-center', onGoToLogin ? 'justify-between' : 'justify-end')}>
+            {onGoToLogin && <LoginReturnLink onClick={onGoToLogin} />}
             <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-1 text-[10px] font-bold text-secondary-foreground toy-border">
               <Save size={11} strokeWidth={2.6} />
               자동 저장 중

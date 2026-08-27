@@ -9,6 +9,7 @@ import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { GameRuleReminder } from '@/components/brain-bet/games/shared/game-rule-reminder'
 import { FreePlayBadge } from '@/components/brain-bet/games/shared/free-play-badge'
 import { SkipTutorialButton } from '@/components/brain-bet/games/shared/skip-tutorial-button'
+import { LoginReturnLink } from '@/components/brain-bet/games/shared/login-return-link'
 import { STATS } from '@/lib/brain-bet'
 import {
   MEMORY_CLICK_FEEDBACK_MS,
@@ -45,6 +46,8 @@ interface MemoryGameProps {
     gameScore: number
   }) => void
   onBack: () => void
+  /** Set only for a guest in Initial Assessment (mode === 'first' && no user) — see LoginReturnLink's own doc comment. Omitted for everyone else. */
+  onGoToLogin?: () => void
 }
 
 const INSTRUCTION_TEXT = '분홍색으로 깜빡이는 타일의 위치를 기억해보세요.'
@@ -58,7 +61,7 @@ const INSTRUCTION_TEXT = '분홍색으로 깜빡이는 타일의 위치를 기�
  * discarded) then MEMORY_REAL_ROUNDS fixed-difficulty rounds; wrong/incomplete
  * rounds never end the session early (no Life system).
  */
-export function MemoryGame({ index, mode, difficulty: gameDifficulty, onComplete, onBack }: MemoryGameProps) {
+export function MemoryGame({ index, mode, difficulty: gameDifficulty, onComplete, onBack, onGoToLogin }: MemoryGameProps) {
   const stat = STATS.memory
   const { play } = useSound()
 
@@ -262,7 +265,8 @@ export function MemoryGame({ index, mode, difficulty: gameDifficulty, onComplete
     <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-4 sm:py-6">
       <header className="flex flex-col gap-2">
         {mode === 'first' && (
-          <div className="flex justify-end">
+          <div className={cn('flex items-center', onGoToLogin ? 'justify-between' : 'justify-end')}>
+            {onGoToLogin && <LoginReturnLink onClick={onGoToLogin} />}
             <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-1 text-[10px] font-bold text-secondary-foreground toy-border">
               <Save size={11} strokeWidth={2.6} />
               자동 저장 중

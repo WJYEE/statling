@@ -1912,6 +1912,17 @@ export function GameFlow() {
   const currentBestRaw = statStatus[activeStatId].current?.raw ?? null
   const currentBestScore = statStatus[activeStatId].current?.gameScore ?? null
 
+  /**
+   * Guest-only "← 로그인 화면으로 돌아가기" link shown on each classic
+   * Initial-Assessment game's header (see LoginReturnLink). `undefined` for
+   * everyone else — a logged-in user going through First Play (e.g. signed
+   * up before playing, see post_login_auto) or anyone in Free Play/재도전
+   * never sees it. Navigates via the existing goToLogin (setPhase('login')),
+   * never browser history back, so it can't disturb an in-progress guest
+   * run any more than tapping the same link from Landing already would.
+   */
+  const guestAssessmentLoginLink = flowMode === 'first' && !user ? goToLogin : undefined
+
   // key forces a fresh mount per step so transitions/animations replay
   const stepKey = `${phase}-${activeStatId}-${flowMode}-${activeGameKey}`
 
@@ -2002,25 +2013,25 @@ export function GameFlow() {
             activeGameKey === 'reaction-dodge-run' ? (
               <DodgeObstacleGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onDodgeObstacleComplete} onBack={exitFreePlayGame} />
             ) : (
-              <ReactionGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onReactionComplete} onBack={exitFreePlayGame} />
+              <ReactionGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onReactionComplete} onBack={exitFreePlayGame} onGoToLogin={guestAssessmentLoginLink} />
             )
           ) : activeStatId === 'memory' ? (
             activeGameKey === 'memory-story-recall' ? (
               <StoryMemoryGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onStoryMemoryComplete} onBack={exitFreePlayGame} />
             ) : (
-              <MemoryGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onMemoryComplete} onBack={exitFreePlayGame} />
+              <MemoryGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onMemoryComplete} onBack={exitFreePlayGame} onGoToLogin={guestAssessmentLoginLink} />
             )
           ) : activeStatId === 'focus' ? (
             activeGameKey === 'focus-color-target' ? (
               <ColorTargetGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onColorTargetComplete} onBack={exitFreePlayGame} />
             ) : (
-              <FocusGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onFocusComplete} onBack={exitFreePlayGame} />
+              <FocusGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onFocusComplete} onBack={exitFreePlayGame} onGoToLogin={guestAssessmentLoginLink} />
             )
           ) : activeStatId === 'judgment' ? (
             activeGameKey === 'decision-best-choice' ? (
               <BestChoiceGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onBestChoiceComplete} onBack={exitFreePlayGame} />
             ) : (
-              <JudgmentGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onJudgmentComplete} onBack={exitFreePlayGame} />
+              <JudgmentGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onJudgmentComplete} onBack={exitFreePlayGame} onGoToLogin={guestAssessmentLoginLink} />
             )
           ) : activeStatId === 'spatial' ? (
             activeGameKey === 'spatial-fit-puzzle' ? (
@@ -2033,12 +2044,13 @@ export function GameFlow() {
                 onComplete={onSpatialComplete}
                 onBack={exitFreePlayGame}
                 avoidShapeIds={spatialFirstAttemptShapeIdsRef.current ?? undefined}
+                onGoToLogin={guestAssessmentLoginLink}
               />
             )
           ) : activeGameKey === 'reasoning-number-pattern' ? (
             <NumberPatternGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onNumberPatternComplete} onBack={exitFreePlayGame} />
           ) : (
-            <ReasoningGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onReasoningComplete} onBack={exitFreePlayGame} />
+            <ReasoningGame index={index} mode={flowMode} difficulty={activeDifficulty} onComplete={onReasoningComplete} onBack={exitFreePlayGame} onGoToLogin={guestAssessmentLoginLink} />
           ))}
 
         {phase === 'complete' && lastResult && (

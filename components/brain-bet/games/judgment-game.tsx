@@ -10,6 +10,7 @@ import { JudgmentSymbolView } from '@/components/brain-bet/games/judgment-symbol
 import { GameRuleReminder } from '@/components/brain-bet/games/shared/game-rule-reminder'
 import { FreePlayBadge } from '@/components/brain-bet/games/shared/free-play-badge'
 import { SkipTutorialButton } from '@/components/brain-bet/games/shared/skip-tutorial-button'
+import { LoginReturnLink } from '@/components/brain-bet/games/shared/login-return-link'
 import { STATS } from '@/lib/brain-bet'
 import {
   JUDGMENT_BLOCK_EXIT_MS,
@@ -99,6 +100,8 @@ interface JudgmentGameProps {
     gameScore: number
   }) => void
   onBack: () => void
+  /** Set only for a guest in Initial Assessment (mode === 'first' && no user) — see LoginReturnLink's own doc comment. Omitted for everyone else. */
+  onGoToLogin?: () => void
 }
 
 /** Per-rule "last mapping used" memory — lets a rule's re-shuffle avoid repeating its own previous permutation even though the other rule always plays in between. */
@@ -338,7 +341,7 @@ function buildTutorialBlocks(forcedRuleId: JudgmentRuleId | null, forcedMapping:
  * (Left/Right) all session. The whole session runs against one global
  * JUDGMENT_GAME_DURATION_MS timer, unaffected by tier.
  */
-export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: JudgmentGameProps) {
+export function JudgmentGame({ index, mode, difficulty, onComplete, onBack, onGoToLogin }: JudgmentGameProps) {
   const stat = STATS.judgment
   const { play } = useSound()
 
@@ -693,7 +696,8 @@ export function JudgmentGame({ index, mode, difficulty, onComplete, onBack }: Ju
     <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-4 py-6 sm:px-5">
       <header className="flex flex-col gap-2">
         {mode === 'first' && (
-          <div className="flex justify-end">
+          <div className={cn('flex items-center', onGoToLogin ? 'justify-between' : 'justify-end')}>
+            {onGoToLogin && <LoginReturnLink onClick={onGoToLogin} />}
             <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-1 text-[10px] font-bold text-secondary-foreground toy-border">
               <Save size={11} strokeWidth={2.6} />
               자동 저장 중
