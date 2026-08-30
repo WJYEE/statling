@@ -1,9 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Toast } from '@base-ui/react/toast'
 import { Check, CheckCircle2, ChevronDown, MessageCircleHeart, Pencil } from 'lucide-react'
-import { loadFeedbackRecord, upsertFeedbackRecord } from '@/lib/feedback/feedback-storage'
+import {
+  loadFeedbackRecord,
+  loadFeedbackRecordRemote,
+  migrateLocalFeedbackToRemote,
+  upsertFeedbackRecord,
+  upsertFeedbackRecordRemote,
+} from '@/lib/feedback/feedback-storage'
+import { useAuth } from '@/lib/auth/auth-provider'
+import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { trackEvent } from '@/lib/analytics/ga'
 import {
   emptyFeedbackDraft,
@@ -157,6 +165,12 @@ interface FeedbackSectionProps {
  */
 export function FeedbackSection({ petProfile, className = 'mt-6' }: FeedbackSectionProps) {
   const toastManager = Toast.useToastManager()
+  const { user } = useAuth()
+  // Local record first paint — correct as-is for a guest, and for a signed-in
+  // user it's only a placeholder until the mount effect below resolves the
+  // server record (never shown as "yours" if it turns out to belong to a
+  // different, previously-signed-out account on this device — see that
+  // effect's foreign_local_data branch).
   const [existingRecord, setExistingRecord] = useState<FeedbackRecord | null>(() => loadFeedbackRecord())
   const [draft, setDraft] = useState<FeedbackDraft>(() => {
     const existing = loadFeedbackRecord()
@@ -172,6 +186,49 @@ export function FeedbackSection({ petProfile, className = 'mt-6' }: FeedbackSect
   const missingRequired =
     !draft.satisfaction || draft.favoritePart.length === 0 || draft.improvementArea.length === 0 || !draft.returnIntent
 
+  // Phase 3J-1 — signed-in reconciliation: the server record (if any) is
+  // authoritative and replaces the local-only placeholder above; if there is
+  // no server record yet, a genuinely-owned local one (see
+  // migrateLocalFeedbackToRemote's own doc comment for the cross-account
+  // guard) is migrated up once. A foreign local record (this device's
+  // leftover from a DIFFERENT, now-logged-out account) is never shown or
+  // touched — the form resets to blank rather than prefilling from it.
+  useEffect(() => {
+    if (!user) return
+    const client = getSupabaseBrowserClient()
+    if (!client) return
+    let cancelled = false
+
+    async function reconcile() {
+      const remote = await loadFeedbackRecordRemote(client!, user!.id)
+      if (cancelled) return
+      if (remote) {
+        setExistingRecord(remote)
+        setDraft(draftFromRecord(remote))
+        return
+      }
+      const migration = await migrateLocalFeedbackToRemote(client!, user!.id)
+      if (cancelled) return
+      if (migration.record) {
+        // 'migrated' or 'already_on_server' (e.g. a concurrent tab just wrote one) — both carry the authoritative record.
+        setExistingRecord(migration.record)
+        setDraft(draftFromRecord(migration.record))
+        return
+      }
+      if (migration.status === 'foreign_local_data') {
+        setExistingRecord(null)
+        setDraft(emptyFeedbackDraft())
+      }
+      // 'no_local' / 'failed': nothing to change — stays blank/local as-is.
+    }
+
+    void reconcile()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-run only when the signed-in account itself changes, not on every render
+  }, [user?.id])
+
   function updateField<K extends keyof FeedbackDraft>(key: K, value: FeedbackDraft[K]) {
     setDraft((prev) => ({ ...prev, [key]: value }))
   }
@@ -185,7 +242,7 @@ export function FeedbackSection({ petProfile, className = 'mt-6' }: FeedbackSect
     }
     setIsSubmitting(true)
     try {
-      const saved = upsertFeedbackRecord({
+      const answers = {
         satisfaction: draft.satisfaction as SatisfactionValue,
         favoritePart: draft.favoritePart,
         favoritePartOtherText: draft.favoritePartOtherText,
@@ -197,7 +254,10 @@ export function FeedbackSection({ petProfile, className = 'mt-6' }: FeedbackSect
         comment: draft.comment,
         statlingId: petProfile?.id ?? null,
         statlingName: petProfile?.name ?? null,
-      })
+      }
+      const client = user ? getSupabaseBrowserClient() : null
+      const saved =
+        user && client ? await upsertFeedbackRecordRemote(client, user.id, answers, existingRecord) : upsertFeedbackRecord(answers)
       setExistingRecord(saved)
       setJustSubmitted(true)
       toastManager.add({ title: isEditingExisting ? '의견을 수정했어요!' : '소중한 의견 감사해요!', type: 'success' })

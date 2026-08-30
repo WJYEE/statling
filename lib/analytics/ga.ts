@@ -145,6 +145,24 @@ export interface GAEventParams {
    * nickname, or per-friend identity ever included.
    */
   friend_ranking_viewed: { ranking_type: 'overall' | 'game' | 'xp'; game_id?: string; difficulty?: string }
+  /**
+   * Phase 3J-2 — BirthdayScreen mount (the mandatory birth_date/gender step
+   * between Naming and Room). Fires once per real screen entry (empty-deps
+   * effect, same convention as statling_reveal) — a funnel-entry signal
+   * only, never the actual birth_date/gender/email/nickname/uuid values (see
+   * that component's own doc comment). No params by design: the point is
+   * step-entry vs. step-completion counting, not per-field breakdown.
+   */
+  profile_setup_view: Record<string, never>
+  /**
+   * Phase 3J-2 — fires once, right before BirthdayScreen's onContinue() is
+   * actually called (every real exit path: guest skip, both fields left
+   * blank, or a save attempt that didn't hit a client-side validation
+   * error) — never on a validation failure, since that path returns before
+   * reaching this call. No params — same PII exclusion as profile_setup_view
+   * above.
+   */
+  profile_setup_complete: Record<string, never>
 }
 
 /**

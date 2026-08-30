@@ -100,6 +100,10 @@ export interface ProductEventParams {
   friend_connected: { source: 'direct' | 'resumed' }
   /** PostHog counterpart of ga.ts's `friend_ranking_viewed` — same once-per-scope/tab-change choke point, same optional game_id/difficulty for ranking_type: 'game'. */
   friend_ranking_viewed: { ranking_type: 'overall' | 'game' | 'xp'; game_id?: string; difficulty?: string }
+  /** PostHog counterpart of ga.ts's `profile_setup_view` — same once-per-mount choke point (BirthdayScreen), same no-PII/no-params shape. */
+  profile_setup_viewed: Record<string, never>
+  /** PostHog counterpart of ga.ts's `profile_setup_complete` — same choke point (right before onContinue(), never on a validation failure), same no-PII/no-params shape. */
+  profile_setup_completed: Record<string, never>
 }
 
 /**

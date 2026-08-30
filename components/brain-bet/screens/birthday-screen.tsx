@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Toast } from '@base-ui/react/toast'
 import { Logo } from '@/components/brain-bet/logo'
 import { ToyButton } from '@/components/brain-bet/toy-button'
@@ -9,6 +9,8 @@ import { cn } from '@/lib/utils'
 import { GENDER_OPTIONS, validateBirthDate, updateProfileBirthday, type Gender, type BirthDateValidationError } from '@/lib/profile/birthday'
 import { useAuth } from '@/lib/auth/auth-provider'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
+import { trackEvent } from '@/lib/analytics/ga'
+import { trackProductEvent } from '@/lib/analytics/analytics'
 
 const GENDER_LABEL: Record<Gender, string> = {
   female: '여성',
@@ -62,13 +64,30 @@ export function BirthdayScreen({ statlingName, confirmedAtIso, onContinue }: Bir
   const birthdayLabel = toLocalDateKey(confirmedAt).replace(/-/g, '.')
   const todayKey = toLocalDateKey(new Date())
 
+  // Phase 3J-2 — mandatory-step funnel entry, once per real mount (empty
+  // deps, same convention as reveal-screen.tsx's statling_reveal). No
+  // params: see profile_setup_view's own doc comment in lib/analytics/ga.ts
+  // for why (birth_date/gender/email/nickname/uuid must never appear here).
+  useEffect(() => {
+    trackEvent('profile_setup_view', {})
+    trackProductEvent('profile_setup_viewed', {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per mount only
+  }, [])
+
+  /** Fires profile_setup_complete once, then actually advances — every real exit path below (guest skip, both fields blank, or a successful/best-effort save) routes through this instead of calling onContinue() directly, so a client-side validation failure (which returns before ever reaching this) can never fire it. */
+  function completeAndContinue() {
+    trackEvent('profile_setup_complete', {})
+    trackProductEvent('profile_setup_completed', {})
+    onContinue()
+  }
+
   async function handleContinue() {
     if (saving) return
 
     // Not signed in: nothing to save (see this component's own doc comment)
     // — the birthday moment above still applies, just move on.
     if (!user) {
-      onContinue()
+      completeAndContinue()
       return
     }
 
@@ -84,7 +103,7 @@ export function BirthdayScreen({ statlingName, confirmedAtIso, onContinue }: Bir
 
     // Both fields blank: nothing to write, no need to touch the network.
     if (validatedBirthDate === null && gender === null) {
-      onContinue()
+      completeAndContinue()
       return
     }
 
@@ -100,7 +119,7 @@ export function BirthdayScreen({ statlingName, confirmedAtIso, onContinue }: Bir
     setSaving(false)
     // Never blocks on a save failure — both fields are optional by design,
     // so losing this one write is not worth trapping the user here.
-    onContinue()
+    completeAndContinue()
   }
 
   return (
