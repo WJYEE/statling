@@ -151,7 +151,7 @@ export function buildDailyMissionRows(userId: string, now: Date): DailyMissionRo
   }))
 }
 
-function buildAttendanceRow(userId: string): AttendanceRow {
+export function buildAttendanceRow(userId: string): AttendanceRow {
   const state = loadAttendanceState()
   return {
     user_id: userId,

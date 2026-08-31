@@ -1,10 +1,12 @@
 'use client'
 
+import { useEffect } from 'react'
 import { ArrowLeft, Sparkles } from 'lucide-react'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { PLAY_ORDER, STATS, type StatId } from '@/lib/brain-bet'
 import type { StatStatusMap } from '@/lib/game/types'
 import { cn } from '@/lib/utils'
+import { trackProductEvent } from '@/lib/analytics/analytics'
 
 interface GrowScreenProps {
   statStatus: StatStatusMap
@@ -13,8 +15,23 @@ interface GrowScreenProps {
   onBack: () => void
 }
 
-/** Free Play game selection ("성장시키기"). No recommendation rule/XP math yet — see lib/room.ts. */
+/**
+ * Free Play game selection ("성장시키기"). No recommendation rule/XP math yet
+ * — see lib/room.ts.
+ *
+ * Phase 3J-3 — grow_screen_viewed closes the ANALYTICS_GAP_AUDIT.md P1 gap
+ * for Free Play's step-1 exposure (same once-per-mount convention as
+ * save_screen_viewed/profile_setup_view). The stat pick itself
+ * (grow_stat_selected) fires from game-flow.tsx's selectFreePlayGame, not
+ * here — same split SaveScreen uses (view lives with the screen, the
+ * transition's own tracking lives where the transition is decided).
+ */
 export function GrowScreen({ statStatus, recommendedStat, onSelect, onBack }: GrowScreenProps) {
+  useEffect(() => {
+    trackProductEvent('grow_screen_viewed', {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per mount only
+  }, [])
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col px-5 pb-10 pt-8">
       <header className="flex items-center gap-3">

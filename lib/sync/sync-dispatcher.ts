@@ -19,6 +19,7 @@ import {
   buildDecoPlacementItemRows,
   buildRoomInventoryRows,
   buildDecoInventoryRows,
+  buildAttendanceRow,
 } from '@/lib/migration/build-local-snapshot'
 import {
   writePetRow,
@@ -37,6 +38,7 @@ import {
   writeDecoPlacementItemsRpc,
   writeRoomInventory,
   writeDecoInventory,
+  writeAttendanceRow,
 } from '@/lib/migration/write-local-snapshot'
 
 /**
@@ -85,6 +87,7 @@ export type SyncDomain =
   | 'deco_placement_items'
   | 'room_inventory'
   | 'deco_inventory'
+  | 'attendance'
 
 /**
  * Phase 2D-6 Follow-up — `_account_marker` is NOT one of the 18 migration
@@ -255,6 +258,18 @@ async function pushDomain(domain: InternalSyncTarget, client: SupabaseClient, us
       if (!result.ok) devWarn('[sync-dispatcher] deco_inventory sync failed (local state unaffected):', result.error)
       return result.ok
     }
+    case 'attendance': {
+      // Phase 3J-3 — closes the ANALYTICS_GAP_AUDIT.md P0 gap: attendance
+      // was only ever written once, by the initial migration batch, and
+      // never touched again by continuous sync (see mission-tracker.ts's
+      // trackDailyVisit, the only local writer, for where this is now
+      // scheduled). Reuses the exact same row-mapping/write path the
+      // one-time migration batch already uses — no new upsert shape.
+      const row = buildAttendanceRow(userId)
+      const result = await writeAttendanceRow(client, row, userId)
+      if (!result.ok) devWarn('[sync-dispatcher] attendance sync failed (local state unaffected):', result.error)
+      return result.ok
+    }
   }
 }
 
@@ -303,6 +318,13 @@ const DEBOUNCE_MS: Record<InternalSyncTarget, number> = {
   deco_placement_items: 0,
   room_inventory: 0,
   deco_inventory: 0,
+  // Phase 3J-3 — recordDailyVisit (attendance-storage.ts) is already a pure
+  // no-op reducer for a same-day repeat visit (returns the identical
+  // reference, checked at the one call site before scheduleSync ever runs),
+  // so this can only ever fire at most once per local calendar day per
+  // device — no debounce needed, same reasoning as the five Phase 2D-5
+  // domains above.
+  attendance: 0,
   // Phase 2D-6 Follow-up — longer than every real domain's own window
   // (pet_care_state's 8s is the longest) so that, in the common case, the
   // individual domain pushes a burst of local activity triggers have already

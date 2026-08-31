@@ -83,6 +83,7 @@ import { generateSessionId } from '@/lib/game/id'
 import { trackEvent, RELEASE_STAGE } from '@/lib/analytics/ga'
 import { trackProductEvent } from '@/lib/analytics/analytics'
 import type { GameDifficulty } from '@/lib/game/difficulty'
+import { isDifficultyUnlocked } from '@/lib/game/difficulty-unlock'
 import {
   computeCurrentStats,
   getAllRepresentativeRecords,
@@ -803,7 +804,8 @@ export function GameFlow() {
     metrics: Record<string, number>,
     isPersonalBest: boolean,
   ) {
-    const { state, applied } = recordMiniGameCompletion(loadPlayerSkillState(), {
+    const priorSkillState = loadPlayerSkillState()
+    const { state, applied } = recordMiniGameCompletion(priorSkillState, {
       completionId: currentAttemptIdRef.current,
       gameId: activeGameKey,
       statCategory,
@@ -815,6 +817,27 @@ export function GameFlow() {
     })
     if (applied) {
       savePlayerSkillState(state)
+      // Phase 3J-3 — tier_unlocked, fired exactly once ever per (game,
+      // tier): compares this exact game's unlock status for the next tier
+      // up, read from the real persisted best-score state, immediately
+      // before vs. immediately after this write. Since a stored best score
+      // only ever increases (recordMiniGameCompletion) and the unlock check
+      // is a pure threshold read of it (lib/game/difficulty-unlock.ts), the
+      // locked->unlocked transition can only ever be observed here once —
+      // no separate "already notified" flag needed (ANALYTICS_GAP_AUDIT.md
+      // P1: reviewed the existing persistence structure instead of adding
+      // one). Every later re-completion of this same game/difficulty (or
+      // just reopening the difficulty-select screen) reads unlocked on both
+      // sides of the comparison and correctly stays silent.
+      const nextTier: GameDifficulty | null =
+        activeDifficulty === 'normal' ? 'hard' : activeDifficulty === 'hard' ? 'extreme' : null
+      if (nextTier) {
+        const wasUnlocked = isDifficultyUnlocked(priorSkillState, activeGameKey, nextTier)
+        const isUnlockedNow = isDifficultyUnlocked(state, activeGameKey, nextTier)
+        if (!wasUnlocked && isUnlockedNow) {
+          trackProductEvent('tier_unlocked', { game_id: activeGameKey, ability: statCategory, tier: nextTier })
+        }
+      }
       // Phase 2D-3 — pushes the FULL current gameDifficultyBestRecords
       // collection (not just this one game/difficulty), matching Phase 2B's
       // own whole-state write shape (see write-local-snapshot.ts's
@@ -1730,6 +1753,7 @@ export function GameFlow() {
     setActiveStatId(statId)
     setFlowMode('free')
     setFreePlayResumeGameKey(null) // fresh entry — GrowGameScreen starts at its game-list step, not a leftover game
+    trackProductEvent('grow_stat_selected', { ability: statId })
     setPhase('grow-game')
   }
 
@@ -1755,6 +1779,18 @@ export function GameFlow() {
    * back button at all).
    */
   const exitFreePlayGame = () => {
+    // Phase 3J-3 — the one fully reliable abandonment signal this app has
+    // (ANALYTICS_GAP_AUDIT.md P1): an explicit in-game back button, never a
+    // retry (retries go through recordSkillCompletion's own
+    // completion_result:'retry' path instead — see this function's own doc
+    // comment above). Assessment (mode 'first') deliberately gets no
+    // equivalent event: it has no back button at all (every mini-game
+    // conditionally renders FreePlayBadge only for mode==='free' — see e.g.
+    // reaction-game.tsx), so there is no explicit, reliable exit signal to
+    // hook there; a tab-close/crash is not synthesized into one either (see
+    // the Phase 3J-3 report for why start-vs-complete stays the safer
+    // inferred proxy for Assessment specifically).
+    trackProductEvent('game_abandoned', { game_id: activeGameKey, ability: activeStatId, difficulty: activeDifficulty, mode: 'free_play' })
     setFreePlayResumeGameKey(activeGameKey)
     setPhase('grow-game')
   }
@@ -2144,22 +2180,15 @@ export function GameFlow() {
                 const supabase = getSupabaseBrowserClient()
                 if (supabase) triggerBackgroundMigration(supabase)
               }
-              // The one genuinely first-ever Home entry — every other
-              // setPhase('room') call site (stored-profile restore on mount,
-              // post-login restore, returnToRoom nav) is a revisit, not a
-              // first arrival, so home_enter must fire only here. Left
-              // exactly as-is even though Room itself isn't next anymore
-              // (see below) — this still means "onboarding is finished,
-              // this user is headed to Room", which Phase 3I-1's Birthday
-              // beat doesn't change the meaning of.
-              if (displayedPetProfile) {
-                trackEvent('home_enter', { statling_type: displayedPetProfile.id })
-                trackProductEvent('home_entered', { entry_type: 'first_time' })
-              }
               // Phase 3I-1 — Birthday/Profile beat, once, only for a
               // brand-new pet (this onConfirm only ever runs the first time
               // a pet is named — see BirthdayScreen's own doc comment for
-              // why no separate "already seen" flag is needed).
+              // why no separate "already seen" flag is needed). home_enter
+              // does NOT fire here (see BirthdayScreen's onContinue below) —
+              // Profile Setup is a mandatory step before Room, so firing the
+              // activation event at naming-confirm time would count a user
+              // as "activated" before they've actually reached Home,
+              // distorting the funnel (Phase 3J-3 fix).
               setPhase('birthday')
             }}
           />
@@ -2169,7 +2198,22 @@ export function GameFlow() {
           <BirthdayScreen
             statlingName={statlingName}
             confirmedAtIso={petRecord.confirmedAt}
-            onContinue={() => setPhase('room')}
+            onContinue={() => {
+              // Phase 3J-3 — the one genuinely first-ever Home entry now
+              // fires exactly here, once Profile Setup (mandatory before
+              // Room) is actually done and Room is the very next screen —
+              // previously fired at naming-confirm time, one full screen
+              // too early (see ANALYTICS_GAP_AUDIT.md's home_enter timing
+              // finding). Every other setPhase('room') call site
+              // (stored-profile restore on mount, post-login restore,
+              // returnToRoom nav) is a revisit, not a first arrival, so
+              // home_enter must still fire only here.
+              if (displayedPetProfile) {
+                trackEvent('home_enter', { statling_type: displayedPetProfile.id })
+                trackProductEvent('home_entered', { entry_type: 'first_time' })
+              }
+              setPhase('room')
+            }}
           />
         )}
 

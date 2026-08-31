@@ -230,9 +230,13 @@ export function trackDailyVisit(now: Date = new Date()): void {
   if (next !== attendance) {
     saveAttendanceState(next)
     saveDailyMissionState(recordDailyProgress(loadDailyMissionState(), 'daily-attendance', now, 1))
-    // Phase 2D-4 — attendance itself is NOT a continuous-sync domain this
-    // phase (out of the six requested), only the daily_missions bump above is.
     scheduleSync('daily_missions')
+    // Phase 3J-3 — attendance is now a continuous-sync domain too (was
+    // previously written only once, by the initial migration, then never
+    // updated again — see ANALYTICS_GAP_AUDIT.md §8/§14 P0). Inside this
+    // same `next !== attendance` guard, so a repeat same-day visit never
+    // schedules a redundant write.
+    scheduleSync('attendance')
   }
   evaluateSyncAchievements()
 }

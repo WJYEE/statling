@@ -30,6 +30,19 @@ function isValidEmailFormat(value: string): boolean {
 interface AuthFormProps {
   /** Called after a successful sign-in, or a sign-up that didn't need email confirmation. */
   onAuthenticated?: () => void
+  /**
+   * Phase 3J-3 — fires the moment the user actually attempts to continue
+   * (Google click, or a password submit that passed the client-side email-
+   * format guard) — before the network round-trip resolves, so it measures
+   * *intent* separately from success (already covered by sign_up/login).
+   * Deliberately optional and never called by AuthForm's own analytics:
+   * this component is shared by SaveScreen (the onboarding funnel this was
+   * built for) and MyPageScreen's guest account-linking card (a different
+   * context) — only SaveScreen passes this prop, so MyPage's usage stays
+   * completely untouched rather than polluting a different funnel with the
+   * same event name.
+   */
+  onContinueAttempt?: (method: 'google' | 'password') => void
   defaultMode?: 'signup' | 'signin'
   className?: string
 }
@@ -40,7 +53,7 @@ interface AuthFormProps {
  * both auth methods are required so users who don't want Google OAuth still
  * have a path in.
  */
-export function AuthForm({ onAuthenticated, defaultMode = 'signup', className }: AuthFormProps) {
+export function AuthForm({ onAuthenticated, onContinueAttempt, defaultMode = 'signup', className }: AuthFormProps) {
   const { signInWithGoogle, signInWithPassword, signUpWithPassword } = useAuth()
   const toastManager = Toast.useToastManager()
 
@@ -56,6 +69,7 @@ export function AuthForm({ onAuthenticated, defaultMode = 'signup', className }:
   }
 
   async function handleGoogle() {
+    onContinueAttempt?.('google')
     setSubmitting('google')
     setError(null)
     const result = await signInWithGoogle()
@@ -82,6 +96,7 @@ export function AuthForm({ onAuthenticated, defaultMode = 'signup', className }:
       return
     }
 
+    onContinueAttempt?.('password')
     setSubmitting('password')
     setError(null)
     const result = mode === 'signup' ? await signUpWithPassword(email, password) : await signInWithPassword(email, password)

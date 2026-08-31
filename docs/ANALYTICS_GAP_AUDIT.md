@@ -10,15 +10,17 @@
 
 Statling은 GA4 + PostHog + Supabase 3계층으로 측정 체계를 구축했고, 핵심 제품 루프(Assessment → Statling 생성 → Free Play → Ranking → Friend/Share)는 이벤트/DB 양쪽에서 상당히 촘촘하게 계측되어 있다. 그러나 전수 감사 결과, 다음 5가지 유형의 구조적 공백이 확인되었다.
 
-1. **핵심 전환 지표 자체가 왜곡될 수 있는 계측 누락** — Google OAuth 로그인/회원가입이 `sign_up`/`login` 이벤트에서 완전히 빠져 있어, 회원가입 전환율이 실제보다 낮게 보인다. 이건 "측정이 없다"가 아니라 "있는데 틀리게 해석될 수 있다"는 점에서 가장 위험한 유형이다.
-2. **Supabase 테이블이 히스토리처럼 보이지만 실제로는 스냅샷** — `xp_totals`, `pet_care_state`, `activity_counters`, `attendance`, `pets.latest_finals` 등은 "현재값"만 있고 "언제 얼마나 변했는지"는 재구성할 수 없다. 특히 `attendance`는 최초 로그인 마이그레이션 이후 아예 갱신이 끊겨(continuous sync 대상 아님), 재방문/출석 리텐션을 이 테이블로 계산하면 잘못된 결과가 나온다.
-3. **중도 이탈(abandonment)이 어디에서도 기록되지 않음** — Assessment 온보딩 중단, Free Play 게임 중도 포기, 화면 이탈 어느 것도 명시적 이벤트가 없다. `start`와 `complete`의 차이로 "추정"은 가능하지만, 재시도/중복 시작과 뒤섞여 신뢰도가 낮다.
-4. **비회원(guest) 피드백이 운영자에게 영구히 보이지 않을 수 있음** — 로그인하지 않은 사용자의 피드백(만족도 + 자유 텍스트)은 로컬에만 저장되고, 그 기기로 회원가입하지 않으면 Supabase에도 GA4/PostHog에도 전달되지 않는다.
-5. **획득 채널(Threads/Instagram/네이버블로그/티스토리) 구분이 운영자의 수작업에 의존** — 앱 내부 공유 버튼은 고정 UTM이 자동으로 붙지만, 운영자가 직접 홍보 글을 올릴 때 쓸 `buildCampaignUrl()`은 어떤 UI에도 연결되어 있지 않아 "잊으면 그냥 안 붙는다."
+1. **핵심 전환 지표 자체가 왜곡될 수 있는 계측 누락** — Google OAuth 로그인/회원가입이 `sign_up`/`login` 이벤트에서 완전히 빠져 있어, 회원가입 전환율이 실제보다 낮게 보인다. 이건 "측정이 없다"가 아니라 "있는데 틀리게 해석될 수 있다"는 점에서 가장 위험한 유형이다. **[RESOLVED — Phase 3J-3]** `supabase-auth-provider.tsx`에 `trackGoogleAuthIfApplicable` 추가. 상세는 §14 P0.
+2. **Supabase 테이블이 히스토리처럼 보이지만 실제로는 스냅샷** — `xp_totals`, `pet_care_state`, `activity_counters`, `attendance`, `pets.latest_finals` 등은 "현재값"만 있고 "언제 얼마나 변했는지"는 재구성할 수 없다. 특히 `attendance`는 최초 로그인 마이그레이션 이후 아예 갱신이 끊겨(continuous sync 대상 아님), 재방문/출석 리텐션을 이 테이블로 계산하면 잘못된 결과가 나온다. **[attendance만 RESOLVED — Phase 3J-3]** `attendance`를 `SyncDomain`에 추가해 continuous sync 대상으로 편입(실제 Supabase에 반영되어 재방문 시 `total_days`/`current_streak`가 갱신됨을 실측 확인). 다른 스냅샷 테이블(`xp_totals`/`pet_care_state`/`activity_counters`/`pets.latest_finals`)은 이번 Phase 범위 밖 — 여전히 스냅샷.
+3. **중도 이탈(abandonment)이 어디에서도 기록되지 않음** — Assessment 온보딩 중단, Free Play 게임 중도 포기, 화면 이탈 어느 것도 명시적 이벤트가 없다. `start`와 `complete`의 차이로 "추정"은 가능하지만, 재시도/중복 시작과 뒤섞여 신뢰도가 낮다. **[Free Play만 PARTIALLY RESOLVED — Phase 3J-3]** `game_abandoned`(PostHog) 추가 — 명시적 뒤로가기 버튼 클릭 시에만 발화, 신뢰도 높음. Assessment는 애초에 뒤로가기 UI 자체가 없어(각 미니게임이 `mode==='first'`일 때 `FreePlayBadge`를 렌더링하지 않음) 신뢰성 있는 explicit exit 신호가 없다고 판단, 의도적으로 미구현 — start-complete 기반 inferred abandonment 유지 권장(상세는 §14 P1, 완료 보고 §9).
+4. **비회원(guest) 피드백이 운영자에게 영구히 보이지 않을 수 있음** — 로그인하지 않은 사용자의 피드백(만족도 + 자유 텍스트)은 로컬에만 저장되고, 그 기기로 회원가입하지 않으면 Supabase에도 GA4/PostHog에도 전달되지 않는다. **[RESOLVED — Phase 3J-1, 이번 Phase 3J-3 이전에 이미 해결]** `feedback` 테이블(`20260901010000_phase3j1_feedback_table.sql`) + `lib/feedback/feedback-storage.ts` 서버 저장 로직 추가. 이번 Phase 3J-3에서는 변경하지 않았고, 이미 해결된 상태를 재확인만 함.
+5. **획득 채널(Threads/Instagram/네이버블로그/티스토리) 구분이 운영자의 수작업에 의존** — 앱 내부 공유 버튼은 고정 UTM이 자동으로 붙지만, 운영자가 직접 홍보 글을 올릴 때 쓸 `buildCampaignUrl()`은 어떤 UI에도 연결되어 있지 않아 "잊으면 그냥 안 붙는다." **[PARTIALLY RESOLVED — Phase 3J-3]** 코드/UI 변경 없음(요청에 따라 의도적으로 UI 미구현) — 채널별 권장 UTM 규칙만 문서화(완료 보고 §12).
 
-이 외에도 20여 개의 세부 공백을 §14에 P0~P3로 분류했다. 다행히 **PII 노출은 발견되지 않았다** — GA4/PostHog payload에는 이메일/실명/생일/성별/friend_code/원본 UUID가 들어가지 않도록 명시적으로 설계되어 있음을 코드 레벨에서 확인했다(§12).
+이 외에도 20여 개의 세부 공백을 §14에 P0~P3로 분류했다. 다행히 **PII 노출은 발견되지 않았다** — GA4/PostHog payload에는 이메일/실명/생일/성별/friend_code/원본 UUID가 들어가지 않도록 명시적으로 설계되어 있음을 코드 레벨에서 확인했다(§12). **Phase 3J-3에서 추가된 모든 이벤트도 동일 기준으로 재검사 완료 — PII 없음.**
 
 **부수적 발견**: 이번 조사에서 Supabase 테이블 수가 기존 문서들이 말하는 "20개"가 아니라 **21개**(Phase 1의 19개 + `friendships` + `feedback`)임을 확인했다. `feedback` 테이블(`20260901010000_phase3j1_feedback_table.sql`)이 가장 최근에 추가되어 기존 문서에 반영되지 않은 것으로 보인다.
+
+> **Phase 3J-3 후속 작업 (2026-08-31)**: 이 감사에서 식별된 P0/P1 항목 중 사용자 테스트 전 필수로 판단된 6개(§14 P0 2개, P1 4개)를 실제 코드/DB 기준으로 재검증 후 수정했다. 각 항목의 RESOLVED/PARTIALLY RESOLVED 표시와 실제 구현 내용은 §14의 해당 행, 그리고 이 작업의 별도 완료 보고를 참고. 감사 당시 기록은 전부 그대로 보존했다.
 
 ---
 
@@ -148,6 +150,18 @@ Screen/Modal 단위와 Click/Interaction 단위로 나눠 정리한다.
 
 **결론**: 앱 내부 공유 흐름의 acquisition 품질은 측정 가능하다. 그러나 **운영자가 직접 SNS에 올리는 홍보 게시물에 대해서는 코드가 아무것도 강제하지 않으므로, UTM을 빠뜨리면 채널 비교가 통째로 불가능해진다.**
 
+> **Phase 3J-3 — 권장 UTM 규칙 (코드/UI 변경 없음, `buildCampaignUrl()` 그대로 사용)**: 앱 내부 공유(`utm_source=statling_share`)와 절대 겹치지 않도록 운영자 채널별로 아래 값을 수동으로 지정해 `buildCampaignUrl({source, medium, campaign, content})`를 직접 호출해 링크를 생성한다.
+>
+> | 채널 | utm_source | utm_medium | utm_campaign | utm_content |
+> |---|---|---|---|---|
+> | Threads | `threads` | `social` | 홍보 시점별 캠페인명(예: `beta_launch_202609`) | 게시물별 식별자(예: `post1`, `profile_link`) |
+> | Instagram | `instagram` | `social` | 위와 동일 캠페인명 | `bio_link`, `story`, `post1` 등 |
+> | 네이버 블로그 | `naver_blog` | `referral` | 위와 동일 캠페인명 | 포스트 슬러그/식별자 |
+> | 티스토리 | `tistory` | `referral` | 위와 동일 캠페인명 | 포스트 슬러그/식별자 |
+> | 지인 공유(카카오톡/디스코드 등 운영자 개인 공유) | `personal_share`(또는 실제 채널명, 예: `kakaotalk`) | `referral` | 위와 동일 캠페인명 | `direct_share` |
+>
+> `utm_medium`은 GA4 기본 채널 그룹핑과 맞춰 소셜 플랫폼은 `social`, 블로그/메신저 등 링크형 유입은 `referral`로 통일했다. `utm_campaign`은 채널과 무관하게 "언제/어떤 홍보 활동인지"를 나타내는 값으로 채널 간 동일하게 사용해야 캠페인 단위 비교가 가능하다.
+
 ---
 
 ## 8. Supabase Data Quality Audit
@@ -257,9 +271,9 @@ GA4 Consent Mode는 구현되어 있지 않다 — 동의 배너/consent gating 
 
 | 문제 | 현재 상태 | 왜 문제인가 | 불가능해지는 분석 | 수정 방향 | 난이도 |
 |---|---|---|---|---|---|
-| Google OAuth 가입/로그인 미계측 | `sign_up`/`login`은 이메일/비밀번호 경로에서만 발화 | Google 로그인 비중이 크면 가입 전환율이 실제보다 크게 낮아 보여 **완전히 잘못된 결론**(예: "가입 전환이 낮다"→실은 안 세고 있을 뿐)으로 이어질 수 있음 | Auth Conversion Rate 전체 | `app/auth/callback/route.ts`에 이벤트 발화 추가 | Low |
-| `attendance` 테이블이 최초 마이그레이션 이후 갱신 안 됨 | continuous sync 대상 아님(`SyncDomain`에서 누락) | 이 테이블을 리텐션/출석 지표 소스로 쓰면 활성 사용자를 과소평가하는 **잘못된 데이터** | D1/D7/D30, 출석 스트릭 기반 모든 분석 | `attendance`를 sync-dispatcher의 지속 동기화 대상에 포함 | Medium |
-| 비회원 피드백이 회원가입 없이는 영구 소실 | localStorage에만 존재, 마이그레이션은 계정 생성 시 1회성 best-effort | 서비스 만족도의 상당 부분(비회원)이 표본에서 원천 배제되어 **생존자 편향된 피드백 데이터**가 됨 | Feedback 전체 대표성 | 비회원도 익명 feedback을 서버로 보내는 경로 검토(추가 인프라 필요, 별도 논의 필요) | Medium~High |
+| **[RESOLVED — Phase 3J-3]** Google OAuth 가입/로그인 미계측 | ~~`sign_up`/`login`은 이메일/비밀번호 경로에서만 발화~~ → `lib/auth/supabase-auth-provider.tsx`의 `trackGoogleAuthIfApplicable`이 `getSession()` 리로드 경로에서 발화(OAuth 리다이렉트 완료 후 최초 로드 시점 — `onAuthStateChange`의 `SIGNED_IN`이 아님, 실측으로 확인). `created_at`/`last_sign_in_at` 비교(10초 tolerance)로 신규/기존 판별, `sessionStorage` 마커(`statling.pendingGoogleOAuth.v1`)로 "방금 이 탭에서 Google OAuth를 시도했는지"만 판별해 무관한 재방문에서 오발화하지 않도록 함. GA4는 기존 `sign_up`/`login{method:'google'}` 그대로, PostHog는 신규 `signed_up`/`logged_in{method:'google'}` 추가. 실제 Google 계정으로 E2E 완주는 로컬 환경 제약(테스트 Google 계정 없음)으로 못 했음 — 메커니즘 자체(마커 설정/소비, provider 게이팅)는 실측 검증 완료. | Google 로그인 비중이 크면 가입 전환율이 실제보다 크게 낮아 보여 **완전히 잘못된 결론**(예: "가입 전환이 낮다"→실은 안 세고 있을 뿐)으로 이어질 수 있음 | Auth Conversion Rate 전체 | ~~`app/auth/callback/route.ts`에 이벤트 발화 추가~~ → 실제로는 서버 라우트가 아니라 클라이언트의 `getSession()` 리로드 경로에 추가(라우트 핸들러는 analytics를 발화할 수 없음) | Low |
+| **[RESOLVED — Phase 3J-3]** `attendance` 테이블이 최초 마이그레이션 이후 갱신 안 됨 | ~~continuous sync 대상 아님~~ → `lib/sync/sync-dispatcher.ts`의 `SyncDomain`에 `attendance` 추가, `lib/missions/mission-tracker.ts`의 `trackDailyVisit()`가 (기존에 이미 있던) "오늘 처음 방문했는지" 순수 reducer 가드 안에서 `scheduleSync('attendance')` 호출. 실제 Supabase에 새 계정으로 재방문 시나리오 3회(최초+reload 2회) 실행해 `total_days=1`(중복 증가 없음), `current_streak=1`, `last_visit_date` 정확히 반영됨을 REST로 직접 확인. | 이 테이블을 리텐션/출석 지표 소스로 쓰면 활성 사용자를 과소평가하는 **잘못된 데이터** | D1/D7/D30, 출석 스트릭 기반 모든 분석 | `attendance`를 sync-dispatcher의 지속 동기화 대상에 포함 | Medium |
+| **[RESOLVED — Phase 3J-1, 이번 Phase 이전]** 비회원 피드백이 회원가입 없이는 영구 소실 | localStorage에만 존재, 마이그레이션은 계정 생성 시 1회성 best-effort → `20260901010000_phase3j1_feedback_table.sql` + `lib/feedback/feedback-storage.ts`로 서버 저장 경로 추가됨(Phase 3J-3 시작 시점에 이미 완료된 상태, 이번 Phase에서는 변경하지 않음) | 서비스 만족도의 상당 부분(비회원)이 표본에서 원천 배제되어 **생존자 편향된 피드백 데이터**가 됨 | Feedback 전체 대표성 | 비회원도 익명 feedback을 서버로 보내는 경로 검토(추가 인프라 필요, 별도 논의 필요) | Medium~High |
 | GA4 Consent Mode 부재 | 동의 배너/consent gating 코드 없음 | 실사용자 홍보 전 개인정보 처리 관련 컴플라이언스 리스크(국내 서비스는 PIPA 고려 필요) — 이는 "잘못된 데이터"라기보다 서비스 운영 리스크이나 데이터 수집의 적법성 자체에 영향 | 없음(법적/신뢰 리스크) | 최소한의 쿠키/추적 고지 및 동의 UX 검토 | Medium |
 | `daily_missions`가 히스토리 테이블처럼 보이지만 오늘 데이터만 업로드 | `date_key` 컬럼이 있어 이력 테이블로 오인하기 쉬움 | 분석가가 이 테이블로 "과거 특정일 미션 달성률"을 조회하면 **결측을 0으로 오인**할 위험 | 일자별 미션 히스토리 | 문서화(테이블 코멘트/데이터 사전에 "오늘자만 유효" 명시) — 코드 변경 없이도 즉시 가능 | Low |
 
@@ -267,13 +281,13 @@ GA4 Consent Mode는 구현되어 있지 않다 — 동의 배너/consent gating 
 
 | 문제 | 현재 상태 | 왜 문제인가 | 불가능해지는 분석 | 수정 방향 | 난이도 |
 |---|---|---|---|---|---|
-| Assessment 온보딩 중도 이탈 미계측 | `introProgress`가 Supabase/analytics 어디에도 전달 안 됨 | 6게임 온보딩이 가장 긴 첫 경험인데 어디서 이탈하는지 전혀 모름 | Activation Funnel 세부 단계 | 스탯 전환 시점 또는 이탈 시(unmount/route change) 이벤트 추가 | Medium |
-| Free Play 게임 중도 포기 미계측 | `exitFreePlayGame`이 의도적으로 no-op | 게임 밸런스/난이도 조정의 핵심 신호 부재 | 게임별 completion rate, 이탈률 | `game_abandoned`류 이벤트 추가(unmount/뒤로가기 훅) | Medium |
-| Save 화면 노출/계속하기 클릭 미계측 | 스킵만 추적 | 가입 전환 퍼널의 분모(노출) 자체가 없어 전환율 계산 불가 | Auth Conversion Rate | 화면 mount 시 view 이벤트, 계속하기 클릭 이벤트 추가 | Low |
-| Grow/Grow-game 단계 전부 미계측 | 두 화면 모두 추적 코드 없음 | Free Play 진입 전 단계의 이탈/선택 패턴을 알 수 없음 | Free Play Participation Funnel 세부 단계 | 화면 진입/선택 이벤트 추가 | Low |
-| Hard/Extreme 해금 시점 이벤트 없음 | 해금은 클라이언트에서 조용히 계산될 뿐 이벤트화 안 됨 | "해금이 재방문을 유도하는가"라는 핵심 성장 가설 검증 불가 | 난이도 시스템의 재방문 기여도 | `tier_unlocked{game_id, tier}` 이벤트 추가 | Low |
-| 운영자 직접 홍보 링크에 UTM 강제 없음 | `buildCampaignUrl()`이 UI에 미연결 | Threads/Instagram/블로그 등 채널 비교가 통째로 불가능해질 위험 | Acquisition 채널 비교 | 프로세스 문서화 + 필요시 내부용 링크 생성 UI 추가 | Low |
-| `player_skill_records`가 시도 이력을 보존하지 않음 | (user, game, difficulty)당 최고기록 1행만 upsert | "반복 플레이로 실력이 느는가" 같은 핵심 게임 분석 질문에 Supabase로는 답 불가 | 스킬 향상 곡선, 세션 빈도 | PostHog 원시 이벤트에 의존(현재도 가능은 하나 취약) — 별도 이력 테이블은 P2로 후순위 검토 | Medium~High |
+| **[NOT RESOLVED — 의도적 보류, Phase 3J-3에서 재검토함]** Assessment 온보딩 중도 이탈 미계측 | `introProgress`가 Supabase/analytics 어디에도 전달 안 됨. Phase 3J-3에서 실제 코드(각 미니게임 컴포넌트, 예 `reaction-game.tsx`)를 조사한 결과, Assessment(`mode==='first'`)는 애초에 뒤로가기/exit UI 자체가 렌더링되지 않음(`mode==='first' ? <ProgressTrack .../> : <FreePlayBadge onBack={onBack} />` — Free Play에서만 `FreePlayBadge`가 렌더링됨). 신뢰성 있게 판별 가능한 explicit exit 신호가 구조적으로 없어, 무리한 이벤트 추가(beforeunload 등) 대신 미구현 유지 결정. | 6게임 온보딩이 가장 긴 첫 경험인데 어디서 이탈하는지 전혀 모름 | Activation Funnel 세부 단계 | **권장**: start-complete 기반 inferred abandonment 사용이 더 안전함(단, 재시도와 혼동될 수 있음을 유의). 향후 Assessment에도 명시적 exit UI가 추가되면 그때 이벤트도 추가 가능. | Medium |
+| **[RESOLVED — Phase 3J-3]** Free Play 게임 중도 포기 미계측 | ~~`exitFreePlayGame`이 의도적으로 no-op~~ → 분석 계측만 추가(게임 데이터 자체는 여전히 no-op, 의도된 설계 유지). `game-flow.tsx`의 `exitFreePlayGame`(Free Play 전용 명시적 뒤로가기 버튼)에서 PostHog `game_abandoned{game_id, ability, difficulty, mode:'free_play'}` 발화. 재시도(retry)는 별도 경로(`recordSkillCompletion`)라 혼동 없음. 실제 브라우저로 Grow→Free Play 시작→뒤로가기→난이도 화면 복귀까지 흐름 검증 완료(8/8 통과, console 에러 0건). | 게임 밸런스/난이도 조정의 핵심 신호 부재 | 게임별 completion rate, 이탈률 | `game_abandoned`류 이벤트 추가(unmount/뒤로가기 훅) | Medium |
+| **[RESOLVED — Phase 3J-3]** Save 화면 노출/계속하기 클릭 미계측 | ~~스킵만 추적~~ → `save-screen.tsx`에 mount 시 PostHog `save_screen_viewed` 추가, `AuthForm`에 신규 `onContinueAttempt` prop(Google 클릭 또는 클라이언트 검증 통과한 비밀번호 제출 시점, 네트워크 응답 전)을 SaveScreen에서만 연결해 `auth_continue_clicked{method}` 발화 — MyPage의 게스트 계정 연결 카드(같은 AuthForm 재사용)는 prop을 넘기지 않아 영향 없음. | 가입 전환 퍼널의 분모(노출) 자체가 없어 전환율 계산 불가 | Auth Conversion Rate | 화면 mount 시 view 이벤트, 계속하기 클릭 이벤트 추가 | Low |
+| **[RESOLVED — Phase 3J-3]** Grow/Grow-game 단계 전부 미계측 | ~~두 화면 모두 추적 코드 없음~~ → `grow-screen.tsx` mount 시 PostHog `grow_screen_viewed`, `game-flow.tsx`의 `selectFreePlayGame`(스탯 선택 시점)에서 `grow_stat_selected{ability}` 추가. Grow-game(게임/난이도 선택) 자체의 별도 view 이벤트는 추가하지 않음 — `grow_stat_selected`가 곧 그 화면 진입을 의미하고, 게임/난이도 확정 후 실제 시작은 기존 `game_started`/`free_play_start`로 이미 충분히 커버되어 중복 계측을 피함(요청받은 대로). | Free Play 진입 전 단계의 이탈/선택 패턴을 알 수 없음 | Free Play Participation Funnel 세부 단계 | 화면 진입/선택 이벤트 추가 | Low |
+| **[RESOLVED — Phase 3J-3]** Hard/Extreme 해금 시점 이벤트 없음 | ~~해금은 클라이언트에서 조용히 계산될 뿐 이벤트화 안 됨~~ → `game-flow.tsx`의 `recordSkillCompletion`에서 게임 완료로 `player_skill_records`를 쓰기 직전(before)과 직후(after) 상태로 `isDifficultyUnlocked()`를 비교, `false→true`로 전환되는 유일한 순간에만 PostHog `tier_unlocked{game_id, ability, tier}` 발화. 별도 "이미 알림함" 플래그 없이 기존 최고기록 persistence 구조(단조 증가)만으로 정확히 1회만 발화함을 코드 레벨로 보장(요청받은 대로 임시 flag 추가 없이 기존 구조 검토 후 구현) — 실제 임계값을 넘는 완료를 재현하는 라이브 테스트는 이번 QA에서 수행하지 않음(시간 제약), 로직은 코드 리뷰로 검증. | "해금이 재방문을 유도하는가"라는 핵심 성장 가설 검증 불가 | 난이도 시스템의 재방문 기여도 | `tier_unlocked{game_id, tier}` 이벤트 추가 | Low |
+| **[PARTIALLY RESOLVED — Phase 3J-3]** 운영자 직접 홍보 링크에 UTM 강제 없음 | `buildCampaignUrl()`이 UI에 미연결 — 요청에 따라 이번 Phase에서도 UI는 만들지 않음. 대신 Threads/Instagram/네이버블로그/티스토리/지인 공유 채널별 권장 `utm_source`/`utm_medium`/`utm_campaign`/`utm_content` 값을 문서화(완료 보고 §12 참고). | Threads/Instagram/블로그 등 채널 비교가 통째로 불가능해질 위험 | Acquisition 채널 비교 | 프로세스 문서화 + 필요시 내부용 링크 생성 UI 추가 | Low |
+| **[NOT RESOLVED — 이번 Phase 범위 밖]** `player_skill_records`가 시도 이력을 보존하지 않음 | (user, game, difficulty)당 최고기록 1행만 upsert | "반복 플레이로 실력이 느는가" 같은 핵심 게임 분석 질문에 Supabase로는 답 불가 | 스킬 향상 곡선, 세션 빈도 | PostHog 원시 이벤트에 의존(현재도 가능은 하나 취약) — 별도 이력 테이블은 P2로 후순위 검토 | Medium~High |
 
 ### P2 — 분석 가치는 높지만 당장 서비스 운영에는 지장 없음
 
@@ -323,17 +337,17 @@ GA4 Consent Mode는 구현되어 있지 않다 — 동의 배너/consent gating 
 과도한 계측 확장 없이, **실사용자 홍보 전 최소한으로 갖춰야 할 것**만 선별했다.
 
 ### MUST HAVE
-- Google OAuth 가입/로그인 이벤트 추가(§14 P0) — 안 하면 홍보 이후 가장 중요한 KPI인 가입 전환율 자체가 왜곡된다.
-- `attendance` 지속 동기화 반영, 또는 그 전까지는 **리텐션 지표를 PostHog `home_entered` 기준으로만 집계**한다는 원칙을 대시보드/분석 문서에 명문화.
-- 운영자가 SNS에 직접 게시할 모든 홍보 링크는 `buildCampaignUrl()` 또는 수동 UTM 부착을 거친다는 프로세스 확정(코드 없이도 즉시 가능).
-- 개인정보 처리/추적 관련 최소 고지 검토(현재 GA4가 동의 없이 무조건 발화) — 실사용자 대상 홍보 전 법무/컴플라이언스 확인 권장.
-- `daily_missions`/`achievements`의 스냅샷·부분 히스토리 한계를 데이터 분석 문서에 명시해, 향후 분석가가 이 테이블을 오독하지 않도록 한다.
+- [x] **RESOLVED (Phase 3J-3)** Google OAuth 가입/로그인 이벤트 추가(§14 P0) — 안 하면 홍보 이후 가장 중요한 KPI인 가입 전환율 자체가 왜곡된다.
+- [x] **RESOLVED (Phase 3J-3)** `attendance` 지속 동기화 반영. (구현 완료 — 더 이상 "PostHog `home_entered` 기준으로만 집계" 원칙에 의존하지 않아도 됨. 단, Phase 3J-3 이전에 마이그레이션된 기존 계정의 과거 공백 기간 자체는 소급 채워지지 않음 — 이 시점 이후 재방문부터 정확.)
+- [ ] **NOT RESOLVED** 운영자가 SNS에 직접 게시할 모든 홍보 링크는 `buildCampaignUrl()` 또는 수동 UTM 부착을 거친다는 프로세스 확정(코드 없이도 즉시 가능) — 이번 Phase 3J-3에서는 권장 UTM 값만 문서화(완료 보고 §12), 프로세스 확정/UI는 여전히 미비.
+- [ ] **NOT RESOLVED** 개인정보 처리/추적 관련 최소 고지 검토(현재 GA4가 동의 없이 무조건 발화) — 실사용자 대상 홍보 전 법무/컴플라이언스 확인 권장. 이번 Phase 범위 밖.
+- [ ] **NOT RESOLVED** `daily_missions`/`achievements`의 스냅샷·부분 히스토리 한계를 데이터 분석 문서에 명시해, 향후 분석가가 이 테이블을 오독하지 않도록 한다. 이번 Phase 범위 밖.
 
 ### SHOULD HAVE
-- Save 화면 view/계속하기 클릭 이벤트.
-- Assessment 이탈, Free Play 게임 abandon 이벤트.
-- `tier_unlocked` 이벤트.
-- Grow/Grow-game 화면 최소 view 이벤트.
+- [x] **RESOLVED (Phase 3J-3)** Save 화면 view/계속하기 클릭 이벤트.
+- [x] **Free Play만 RESOLVED (Phase 3J-3)** / Assessment는 **의도적 미구현** — Assessment 이탈, Free Play 게임 abandon 이벤트. (Assessment는 신뢰성 있는 explicit exit 신호가 구조적으로 없어 미구현 — §14 P1 참고)
+- [x] **RESOLVED (Phase 3J-3)** `tier_unlocked` 이벤트.
+- [x] **RESOLVED (Phase 3J-3)** Grow/Grow-game 화면 최소 view 이벤트.
 
 ### LATER
 - `player_skill_records` 시도 이력 별도 테이블화.

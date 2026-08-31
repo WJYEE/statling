@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, type ReactNode } from 'react'
-import type { Session, SupabaseClient } from '@supabase/supabase-js'
+import type { Session, SupabaseClient, User } from '@supabase/supabase-js'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { AuthContext, type AuthContextValue, type AuthUser, type RestoreConflictInfo } from '@/lib/auth/auth-context'
 import { runSessionSync } from '@/lib/migration/session-sync'
@@ -9,6 +9,8 @@ import { restoreLocalDataFromSnapshot } from '@/lib/migration/restore-local-snap
 import { setLocalDataOwner } from '@/lib/pets/local-data-owner'
 import { registerSyncSession, markSyncReady, clearSyncSession } from '@/lib/sync/session-registry'
 import { loadLocalSyncUpdatedAt } from '@/lib/sync/sync-freshness'
+import { trackEvent } from '@/lib/analytics/ga'
+import { trackProductEvent } from '@/lib/analytics/analytics'
 
 const NOT_CONFIGURED_ERROR = '로그인 기능이 아직 준비되지 않았어요. 잠시 후 다시 시도해주세요.'
 
@@ -35,6 +37,76 @@ function toAuthUser(session: Session | null): AuthUser | null {
 
 function devWarn(...args: unknown[]): void {
   if (process.env.NODE_ENV !== 'production') console.warn(...args)
+}
+
+/**
+ * Phase 3J-3 — a brand-new account's very first session has `created_at`
+ * and `last_sign_in_at` set to (essentially) the same instant by GoTrue;
+ * every later sign-in only advances `last_sign_in_at`, so the two values
+ * diverge from the 2nd sign-in onward. This is the standard way to tell a
+ * fresh signup from a returning login purely from the client-visible
+ * session — no extra Supabase query, no admin API, no guessing. A 10s
+ * tolerance absorbs normal request/redirect latency without ever risking
+ * misclassifying a real returning user as new (that gap only shrinks this
+ * small for an account created moments ago).
+ */
+function isFirstEverSession(user: User): boolean {
+  if (!user.last_sign_in_at) return true
+  const created = new Date(user.created_at).getTime()
+  const lastSignIn = new Date(user.last_sign_in_at).getTime()
+  return Math.abs(lastSignIn - created) < 10_000
+}
+
+/**
+ * Phase 3J-3 — closes the Google OAuth gap ANALYTICS_GAP_AUDIT.md flagged as
+ * P0: `sign_up`/`login` previously fired only from the email/password path
+ * (auth-form.tsx's handlePasswordSubmit), never for Google. Payload is
+ * method only — never email/name/provider user id/tokens (see this file's
+ * own privacy conventions, matching every other auth event in this app).
+ *
+ * Deliberately NOT gated on the `onAuthStateChange` SIGNED_IN event — verified
+ * empirically (temporary console instrumentation against this exact
+ * supabase-js version, both an in-page email/password signup and a reload
+ * of an already-authenticated session) that `SIGNED_IN` fires only for a
+ * same-page auth action; a fresh page load that already has a valid session
+ * (which is exactly what this app's Google flow produces: signInWithOAuth's
+ * hard redirect -> app/auth/callback/route.ts exchanges the code
+ * SERVER-SIDE -> NextResponse.redirect(origin), a full navigation back to a
+ * bare URL) instead emits `INITIAL_SESSION`. Gating this on SIGNED_IN would
+ * have been dead code — this always fires from the getSession() reload path
+ * below instead, which is what actually runs on that landing page load.
+ */
+function trackGoogleAuthIfApplicable(user: User): void {
+  if (user.app_metadata?.provider !== 'google') return
+  const isNew = isFirstEverSession(user)
+  trackEvent(isNew ? 'sign_up' : 'login', { method: 'google' })
+  trackProductEvent(isNew ? 'signed_up' : 'logged_in', { method: 'google' })
+}
+
+/**
+ * Phase 3J-3 — sessionStorage marker so trackGoogleAuthIfApplicable fires
+ * exactly on the ONE page load that's the direct return from THIS tab's own
+ * Google OAuth attempt, never on an unrelated later reload of the same
+ * already-Google-linked account (which would otherwise re-fire `login` on
+ * every refresh). Same sessionStorage-survives-a-hard-redirect technique
+ * lib/friends/pending-friend-code.ts already uses for the identical
+ * "signInWithOAuth navigates away and back" problem — tab-scoped by design
+ * (a different tab/window never sees it), self-cleaning if the flow is
+ * abandoned (sessionStorage dies with the tab), and consumed (removed) the
+ * moment it's read so a later reload never sees it again.
+ */
+const PENDING_OAUTH_KEY = 'statling.pendingGoogleOAuth.v1'
+
+function markPendingGoogleOAuth(): void {
+  if (typeof window === 'undefined') return
+  window.sessionStorage.setItem(PENDING_OAUTH_KEY, '1')
+}
+
+function consumePendingGoogleOAuth(): boolean {
+  if (typeof window === 'undefined') return false
+  const pending = window.sessionStorage.getItem(PENDING_OAUTH_KEY) === '1'
+  if (pending) window.sessionStorage.removeItem(PENDING_OAUTH_KEY)
+  return pending
 }
 
 /**
@@ -156,6 +228,11 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
       setUser(toAuthUser(data.session))
       setLoading(false)
       if (data.session?.user) {
+        // Phase 3J-3 — this is the page load that actually runs right after
+        // a Google OAuth redirect returns (see trackGoogleAuthIfApplicable's
+        // own doc comment) — consumePendingGoogleOAuth() only ever returns
+        // true on that one load, never on an unrelated later reload.
+        if (consumePendingGoogleOAuth()) trackGoogleAuthIfApplicable(data.session.user)
         // Reload path — pass the pre-captured marker (see localMarkerAtReload's own comment above).
         syncSession(supabase, data.session.user.id, localMarkerAtReload)
       } else {
@@ -224,10 +301,20 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
 
     async signInWithGoogle() {
       if (!supabase) return { error: NOT_CONFIGURED_ERROR }
+      // Phase 3J-3 — set right before the hard redirect starts (see
+      // trackGoogleAuthIfApplicable's doc comment for why this is the only
+      // reliable way to know, once the app reloads back at /auth/callback's
+      // redirect target, that THIS load is the direct return from an OAuth
+      // attempt rather than an unrelated reload of an already-linked
+      // account). Cleared again below if signInWithOAuth itself fails
+      // before ever redirecting, so a stale marker never lingers into some
+      // later, unrelated session on this tab.
+      markPendingGoogleOAuth()
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo: `${window.location.origin}/auth/callback` },
       })
+      if (error) consumePendingGoogleOAuth()
       return { error: error ? translateAuthError(error.message) : null }
     },
 

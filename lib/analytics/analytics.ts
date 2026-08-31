@@ -35,6 +35,52 @@ export interface ProductEventParams {
    * funnel information. See the Phase 3A-2 report for this reasoning.
    */
   auth_choice_made: { choice: 'skip' }
+  /**
+   * Phase 3J-3 — SaveScreen's own exposure event, the denominator
+   * ANALYTICS_GAP_AUDIT.md flagged as missing for the signup conversion
+   * rate. Fires once per real SaveScreen mount, no params (nothing about
+   * this screen's content varies per user).
+   */
+  save_screen_viewed: Record<string, never>
+  /**
+   * Phase 3J-3 — fires the instant the user attempts to continue (Google
+   * click, or a password submit that passed client-side validation) —
+   * BEFORE the network round-trip resolves, so it measures intent
+   * separately from the eventual sign_up/login success signal. `method`
+   * mirrors sign_up/login's own field for easy joining.
+   */
+  auth_continue_clicked: { method: 'google' | 'password' }
+  /**
+   * Phase 3J-3 — Free Play's own step-1 exposure event
+   * (ANALYTICS_GAP_AUDIT.md P1: Grow/Grow-game were both completely blind).
+   * Fires once per real GrowScreen mount. Step 3 (game/difficulty picked,
+   * game actually started) is already fully covered by the existing
+   * `game_started`/GA4 `free_play_start` — deliberately NOT duplicated here.
+   */
+  grow_screen_viewed: Record<string, never>
+  /** Phase 3J-3 — Free Play step 2: which ability the player is about to browse games for (GrowScreen -> GrowGameScreen transition). `ability` matches ga.ts's own `free_play_start.ability` field name. */
+  grow_stat_selected: { ability: string }
+  /**
+   * Phase 3J-3 — closes the ANALYTICS_GAP_AUDIT.md P1 "no abandonment
+   * signal" gap for Free Play specifically (see game-flow.tsx's
+   * exitFreePlayGame for why this is deliberately Free-Play-only, never
+   * synthesized for Assessment). Fires ONLY on an explicit in-game back
+   * button — never a retry, never inferred from a timeout/unload. Same
+   * field shape as `game_started` (mode is always 'free_play' here, kept
+   * anyway so this joins directly against that event without a lookup).
+   */
+  game_abandoned: { game_id: string; ability: string; difficulty: string; mode: 'free_play' }
+  /**
+   * Phase 3J-3 — fires exactly once ever per (game_id, tier): the moment a
+   * game completion pushes that game's stored best score across the
+   * Hard/Extreme unlock threshold (lib/game/difficulty-unlock.ts) for the
+   * FIRST time — never on a later replay/reopen once already unlocked. See
+   * game-flow.tsx's recordSkillCompletion for the before/after comparison
+   * that guarantees the single-fire property without a separate persisted
+   * flag. PostHog-only by design (this task's own scope) — not duplicated
+   * to GA4.
+   */
+  tier_unlocked: { game_id: string; ability: string; tier: 'hard' | 'extreme' }
   /** Onboarding funnel step 5 — NamingScreen's onConfirm. Never the actual name string — length only (see the Phase 3A-2 report's privacy section). */
   naming_completed: { name_length: number }
   /**
@@ -104,6 +150,20 @@ export interface ProductEventParams {
   profile_setup_viewed: Record<string, never>
   /** PostHog counterpart of ga.ts's `profile_setup_complete` — same choke point (right before onContinue(), never on a validation failure), same no-PII/no-params shape. */
   profile_setup_completed: Record<string, never>
+  /**
+   * Phase 3J-3 — Google OAuth's first-ever session, the PostHog counterpart
+   * of ga.ts's `sign_up{method:'google'}`. Scoped to `method:'google'` only
+   * (not a general `{method:string}`) — the existing email/password path
+   * still fires GA4-only from auth-form.tsx, untouched; this event exists
+   * purely to close the OAuth gap, not to retroactively unify auth taxonomy
+   * across both platforms. See supabase-auth-provider.tsx's own doc comment
+   * for how "first-ever session" is detected (created_at vs
+   * last_sign_in_at) — never a guess, never PII (no email/name/provider
+   * user id/tokens).
+   */
+  signed_up: { method: 'google' }
+  /** PostHog counterpart of ga.ts's `login{method:'google'}` — same choke point as signed_up above, fires instead of it for a returning Google user. */
+  logged_in: { method: 'google' }
 }
 
 /**
