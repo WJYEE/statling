@@ -38,3 +38,9 @@ export function saveRoomCareState(state: RoomCareState): void {
   if (typeof window === 'undefined') return
   window.localStorage.setItem(roomCareStorageKey(getOrCreateDeviceId()), JSON.stringify(state))
 }
+
+/** Cross-account contamination fix — see lib/pets/reset-foreign-account-state.ts. Wipes this device's room cleanliness state; only ever called when it's just been confirmed to belong to a DIFFERENT, now-signed-out account. */
+export function clearRoomCareState(): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(roomCareStorageKey(getOrCreateDeviceId()))
+}

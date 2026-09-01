@@ -58,6 +58,23 @@ function saveFeedbackRecord(record: FeedbackRecord): void {
   window.localStorage.setItem(feedbackStorageKey(getOrCreateDeviceId()), JSON.stringify(record))
 }
 
+/**
+ * Cross-account contamination fix — see lib/pets/reset-foreign-account-state.ts.
+ * Without this, resetting lib/pets/local-data-owner.ts's marker back to
+ * "unclaimed" for a newly detected foreign device would (correctly) unblock
+ * the NEXT account's own game state, but would ALSO make
+ * migrateLocalFeedbackToRemote's OWN isLocalDataOwnedBy check above pass for
+ * whatever feedback record the PREVIOUS account left behind — the exact
+ * device-scoped-key leak this file's module doc comment already warns about
+ * for reads, now closed for the marker-reset path too. Only ever called
+ * when this device's local data has just been confirmed to belong to a
+ * DIFFERENT, now-signed-out account.
+ */
+export function clearFeedbackRecord(): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(feedbackStorageKey(getOrCreateDeviceId()))
+}
+
 export interface FeedbackAnswers {
   satisfaction: SatisfactionValue
   favoritePart: FavoritePartValue[]

@@ -43,6 +43,12 @@ export function saveDailyMissionState(state: DailyMissionState): void {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
 }
 
+/** Cross-account contamination fix — see lib/pets/reset-foreign-account-state.ts. Wipes today's mission progress/claims; only ever called when it's just been confirmed to belong to a DIFFERENT, now-signed-out account. */
+export function clearDailyMissionState(): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(STORAGE_KEY)
+}
+
 /** Resets progress/claimed to empty the moment `now`'s local date no longer matches the stored one — every mutator below runs this first so a stale day's leftovers never leak into today. */
 export function ensureToday(state: DailyMissionState, now: Date): DailyMissionState {
   const today = localDateKey(now)

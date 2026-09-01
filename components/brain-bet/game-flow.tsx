@@ -61,6 +61,7 @@ import {
   type StoredPetProfile,
 } from '@/lib/pets/pet-storage'
 import { isLocalDataOwnedBy } from '@/lib/pets/local-data-owner'
+import { resetForeignAccountOwnedLocalState } from '@/lib/pets/reset-foreign-account-state'
 import { TESTER_CHARACTER_FOLDERS } from '@/lib/character-state-assets'
 import { findCharacterByStats, type PetProfile } from '@/lib/pets/pet-profile'
 import { generateMockFinals, type MockStatPreset } from '@/lib/game/mock-finals'
@@ -448,18 +449,23 @@ export function GameFlow() {
     if (!bootReady) return
     const stored = loadStoredPetProfile()
     if (!stored) return
-    // Cross-account contamination guard — this device's local pet may
+    // Cross-account contamination guard — this device's local state (pet,
+    // XP/level, skill records, missions, achievements, room/deco, ...) may
     // belong to a DIFFERENT account that was signed out here without
     // clearing localStorage (logout never has — see
     // supabase-auth-provider.tsx#signOut). Never show/restore-into-state
-    // another account's pet for the CURRENTLY authenticated user; clearing
-    // it here (rather than merely ignoring it) lets the post_login_auto
-    // effect below correctly treat this as a genuinely fresh device the
-    // instant this same commit finishes, and stops the foreign data from
-    // lingering to confuse a later check. See local-data-owner.ts's own doc
-    // comment for the full incident this closes.
+    // another account's data for the CURRENTLY authenticated user; wiping
+    // every account-owned domain here (rather than only the pet profile —
+    // see lib/pets/reset-foreign-account-state.ts for the full list and why
+    // each one needs this) lets the post_login_auto effect below correctly
+    // treat this as a genuinely fresh device the instant this same commit
+    // finishes, and stops the foreign data from lingering to confuse a
+    // later check OR getting picked up by continuous sync
+    // (lib/sync/sync-dispatcher.ts) and written into this account's own
+    // Supabase row. See local-data-owner.ts's own doc comment for the full
+    // incident this originally closed for the pet profile alone.
     if (user && !isLocalDataOwnedBy(user.id)) {
-      clearStoredPetProfile()
+      resetForeignAccountOwnedLocalState()
       return
     }
     if (stored.confirmed) {

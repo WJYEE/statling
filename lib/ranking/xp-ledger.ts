@@ -79,6 +79,12 @@ export function saveXpState(state: XpState): void {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
 }
 
+/** Cross-account contamination fix — see lib/pets/reset-foreign-account-state.ts. Wipes this device's XP ledger; only ever called when it's just been confirmed to belong to a DIFFERENT, now-signed-out account. */
+export function clearXpState(): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(STORAGE_KEY)
+}
+
 /** Pure reducer: applies the weekly rollover first (so a completion right after a week boundary starts the new week's tally from 0, not a stale carry-over), then adds `amount` to both totals. */
 export function addXp(state: XpState, amount: number, now: Date = new Date()): XpState {
   const rolled = rollOverIfNewWeek(state, now)

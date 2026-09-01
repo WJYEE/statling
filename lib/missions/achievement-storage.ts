@@ -63,3 +63,9 @@ export function saveAchievementState(state: AchievementState): void {
   if (typeof window === 'undefined') return
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
 }
+
+/** Cross-account contamination fix — see lib/pets/reset-foreign-account-state.ts. Wipes this device's unlock/claim record; only ever called when it's just been confirmed to belong to a DIFFERENT, now-signed-out account. */
+export function clearAchievementState(): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(STORAGE_KEY)
+}

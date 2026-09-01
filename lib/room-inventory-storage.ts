@@ -55,6 +55,12 @@ export function saveRoomInventoryState(state: RoomInventoryState): void {
   window.localStorage.setItem(roomInventoryStorageKey(getOrCreateDeviceId()), JSON.stringify(state))
 }
 
+/** Cross-account contamination fix — see lib/pets/reset-foreign-account-state.ts. Wipes this device's Room Decoration unlocks; only ever called when it's just been confirmed to belong to a DIFFERENT, now-signed-out account. */
+export function clearRoomInventoryState(): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(roomInventoryStorageKey(getOrCreateDeviceId()))
+}
+
 /** Adds `roomAssetId` to the inventory (idempotent — granting the same reward twice, e.g. a re-evaluation race or the reconciliation pass in mission-tracker.ts, never duplicates it). Returns a new state; caller is responsible for persisting it. */
 export function grantRoomReward(state: RoomInventoryState, roomAssetId: string): RoomInventoryState {
   if (state.unlockedIds.includes(roomAssetId)) return state

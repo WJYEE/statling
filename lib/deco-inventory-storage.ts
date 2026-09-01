@@ -54,6 +54,12 @@ export function saveDecoInventoryState(state: DecoInventoryState): void {
   window.localStorage.setItem(decoInventoryStorageKey(getOrCreateDeviceId()), JSON.stringify(state))
 }
 
+/** Cross-account contamination fix — see lib/pets/reset-foreign-account-state.ts. Wipes this device's Statling Decoration unlocks; only ever called when it's just been confirmed to belong to a DIFFERENT, now-signed-out account. */
+export function clearDecoInventoryState(): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(decoInventoryStorageKey(getOrCreateDeviceId()))
+}
+
 /** Adds `decoId` to the inventory (idempotent — claiming the same gift twice, e.g. a double-tap race, never duplicates it). Returns a new state; caller is responsible for persisting it. */
 export function grantDecoReward(state: DecoInventoryState, decoId: string): DecoInventoryState {
   if (state.unlockedIds.includes(decoId)) return state

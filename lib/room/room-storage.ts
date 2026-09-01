@@ -111,3 +111,9 @@ export function saveRoomState(state: RoomState): RoomState {
   window.localStorage.setItem(roomStorageKey(getOrCreateDeviceId()), JSON.stringify(toSave))
   return toSave
 }
+
+/** Cross-account contamination fix — see lib/pets/reset-foreign-account-state.ts. Wipes this device's room layout (background + placed items); only ever called when it's just been confirmed to belong to a DIFFERENT, now-signed-out account. Deliberately does NOT touch DEVICE_ID_KEY — the device identity itself must survive so every other device-scoped key stays addressable. */
+export function clearSavedRoomState(): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(roomStorageKey(getOrCreateDeviceId()))
+}

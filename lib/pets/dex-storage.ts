@@ -40,6 +40,12 @@ export function saveDex(dex: DexRecord): void {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(dex))
 }
 
+/** Cross-account contamination fix — see lib/pets/reset-foreign-account-state.ts. Wipes this device's "만나본 Statling" collection; only ever called when it's just been confirmed to belong to a DIFFERENT, now-signed-out account. */
+export function clearDex(): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(STORAGE_KEY)
+}
+
 /** Adds one character id if not already present. No-op (returns the same list) if already met. */
 export function addMetPet(petId: string): DexRecord {
   const current = loadDex()

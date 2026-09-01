@@ -115,3 +115,9 @@ export function saveDecoPlacementState(state: DecoPlacementState): DecoPlacement
   window.localStorage.setItem(decoStorageKey(getOrCreateDeviceId()), JSON.stringify(toSave))
   return toSave
 }
+
+/** Cross-account contamination fix — see lib/pets/reset-foreign-account-state.ts. Wipes this device's placed-deco layout; only ever called when it's just been confirmed to belong to a DIFFERENT, now-signed-out account. */
+export function clearDecoPlacementState(): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(decoStorageKey(getOrCreateDeviceId()))
+}
