@@ -71,4 +71,47 @@ export function initPostHog(): void {
   window.posthog = posthog
 }
 
+/**
+ * distinct_ids we've already called posthog.createPersonProfile() for, so a
+ * repeated call for the SAME anonymous/identified id (e.g. restarting
+ * Assessment, or resumeIntro after start() already ran this session) is a
+ * no-op. Keyed by distinct_id rather than a single "already created"
+ * boolean specifically so this survives posthog.reset(): reset() rotates
+ * PostHog onto a brand-new anonymous distinct_id, which won't be in this
+ * set yet, so the next real Assessment start correctly creates a profile
+ * for that new id too. A Set (not "last id") also means switching between
+ * distinct_ids — e.g. two different guest sessions sharing a tab — never
+ * false-negatives into skipping a real new id.
+ */
+const createdPersonProfileFor = new Set<string>()
+
+/**
+ * With person_profiles: 'identified_only' (see initPostHog), an anonymous
+ * visitor's events are recorded with $process_person_profile: false and
+ * never attach to a Person — including any later posthog.identify() after
+ * signup, which can only merge events captured *after* the anonymous
+ * distinct_id was promoted. Landing-only guests should stay exactly this
+ * lightweight (no Person created), but once someone actually starts (or
+ * resumes) Assessment we want that guest's activity (assessment_started,
+ * game_started, game_completed, ...) to be linkable to the Person that
+ * identify() creates if/when they sign up later — so call this once, right
+ * before that Assessment run's own events fire, to opt the current
+ * distinct_id into person processing from that point on.
+ *
+ * Guarded by distinct_id (see createdPersonProfileFor above), not a plain
+ * boolean — a plain "already called" flag would stay true forever, even
+ * after posthog.reset() rotates onto a fresh anonymous id for a new guest
+ * session, silently skipping that new id's profile creation. This function
+ * never touches identify()/reset() themselves and never sets any person
+ * property — it only flips how already-anonymous events for the current id
+ * are processed going forward, so no PII is involved.
+ */
+export function ensurePersonProfileCreated(): void {
+  if (!isPostHogEnabled || typeof window === 'undefined') return
+  const distinctId = posthog.get_distinct_id()
+  if (!distinctId || createdPersonProfileFor.has(distinctId)) return
+  createdPersonProfileFor.add(distinctId)
+  posthog.createPersonProfile()
+}
+
 export { posthog }

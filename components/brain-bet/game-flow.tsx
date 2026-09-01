@@ -83,6 +83,7 @@ import { detectDevice } from '@/lib/game/device'
 import { generateSessionId } from '@/lib/game/id'
 import { trackEvent, RELEASE_STAGE } from '@/lib/analytics/ga'
 import { trackProductEvent } from '@/lib/analytics/analytics'
+import { ensurePersonProfileCreated } from '@/lib/analytics/posthog'
 import type { GameDifficulty } from '@/lib/game/difficulty'
 import { isDifficultyUnlocked } from '@/lib/game/difficulty-unlock'
 import {
@@ -957,6 +958,10 @@ export function GameFlow() {
 
   /** Fresh Intro run — first-ever visit, or "처음부터 다시 하기" from Landing (restartIntro). Always starts a brand-new checkpoint (see startNewIntroProgress). entrySource identifies which of this function's 3 real call sites triggered the run, purely for assessment_started's PostHog property — no effect on behavior. */
   const start = (entrySource: 'landing' | 'restart' | 'post_login_auto') => {
+    // Must run before the events below so this run's own assessment_started
+    // (and everything after it) is captured with person processing on —
+    // see ensurePersonProfileCreated's doc comment for why.
+    ensurePersonProfileCreated()
     trackEvent('assessment_start', { release_stage: RELEASE_STAGE })
     trackProductEvent('assessment_started', { entry_source: entrySource, auth_state: user ? 'member' : 'guest' })
     setIndex(0)
@@ -976,6 +981,10 @@ export function GameFlow() {
   /** "이어서 하기" — rebuilds `finals` from the checkpoint's completed stats (see IntroCompletedGame) and jumps straight to the next not-yet-played stat. The in-progress game itself is never restored — only fully completed games count, per spec. */
   const resumeIntro = () => {
     if (!introResume) return
+    // Resuming a mid-Assessment checkpoint is a second real entry point into
+    // Assessment activity that never calls start() — same reasoning as
+    // there, see ensurePersonProfileCreated's doc comment.
+    ensurePersonProfileCreated()
     const restoredFinals = emptyFinals()
     for (const g of introResume.completedGames) restoredFinals[g.statId] = g.gameScore
     const nextIndex = introResume.completedGames.length
