@@ -15,6 +15,7 @@ export const RELEASE_STAGE = process.env.NODE_ENV === 'production' ? 'production
 declare global {
   interface Window {
     gtag?: (...args: unknown[]) => void
+    dataLayer?: unknown[]
   }
 }
 
@@ -64,7 +65,16 @@ export interface GAEventParams {
   assessment_complete: { top_ability: string; second_ability: string }
   egg_hatch_start: { top_ability: string; second_ability: string }
   statling_reveal: { statling_type: string; top_ability: string; second_ability: string }
-  home_enter: { statling_type: string }
+  /**
+   * Fires on every arrival at Room, not just the first ever one —
+   * entry_type distinguishes a brand-new pet's very first Home entry
+   * ('first_time', fired right after Profile Setup) from every later
+   * revisit ('returning', fired by the bootReady restore effect for an
+   * already-confirmed, already-named pet). Mirrors PostHog's
+   * home_entered{entry_type}, which already covers both cases — this
+   * closes the gap where 'returning' only reached PostHog before.
+   */
+  home_enter: { statling_type: string; entry_type: 'first_time' | 'returning' }
   free_play_start: { game_name: string; ability: string; difficulty: string }
   free_play_complete: { game_name: string; ability: string; difficulty: string; score: number; xp_earned: number }
   pet_action: { action_type: string }
@@ -167,12 +177,36 @@ export interface GAEventParams {
 
 /**
  * Fires a GA4 event through the gtag() global <GoogleAnalytics/> sets up —
- * a silent no-op if GA isn't enabled (no NEXT_PUBLIC_GA_MEASUREMENT_ID) or
- * gtag hasn't loaded yet (e.g. a click in the first instant after paint,
- * before the afterInteractive script runs), so call sites never need their
- * own isGAEnabled/typeof-window guard.
+ * a silent no-op only if GA isn't enabled (no NEXT_PUBLIC_GA_MEASUREMENT_ID)
+ * or this runs on the server, so call sites never need their own
+ * isGAEnabled/typeof-window guard.
+ *
+ * If window.gtag isn't a function yet (<GoogleAnalytics/>'s
+ * strategy="afterInteractive" scripts haven't run yet — this used to mean
+ * the hit was dropped entirely, e.g. a screen that mounts very early after
+ * a fresh page load such as a post-OAuth-redirect restore, see
+ * ANALYTICS_GAP_AUDIT.md), install the exact same minimal shim that
+ * script's own inline snippet defines (dataLayer.push(arguments)) and call
+ * that instead. This is Google's own documented pattern for queueing gtag
+ * calls before gtag.js has loaded — the library drains the whole dataLayer
+ * array once it's ready, so an event queued here is still correctly
+ * attributed, never dropped. No duplicate send risk: this function only
+ * ever calls window.gtag(...) once per invocation, whichever form it is.
+ * Harmless if <GoogleAnalytics/>'s own inline script then runs moments
+ * later — a top-level `function gtag(){...}` declaration in a classic
+ * script unconditionally reassigns window.gtag, but that later shim is
+ * functionally identical, and the actual gtag('js', ...)/gtag('config', ...)
+ * bootstrap calls only ever happen there, exactly once either way.
  */
 export function trackEvent<K extends keyof GAEventParams>(name: K, params: GAEventParams[K]): void {
-  if (typeof window === 'undefined' || typeof window.gtag !== 'function') return
+  if (typeof window === 'undefined' || !isGAEnabled) return
+  if (typeof window.gtag !== 'function') {
+    const dataLayer = (window.dataLayer = window.dataLayer || [])
+    window.gtag = window.gtag || function gtag() {
+      // eslint-disable-next-line prefer-rest-params -- must push the real
+      // `arguments` object, matching gtag.js's own documented shim exactly.
+      dataLayer.push(arguments)
+    }
+  }
   window.gtag('event', name, params)
 }

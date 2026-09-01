@@ -474,6 +474,16 @@ export function GameFlow() {
       setPetRecord(stored)
       if (stored.statlingName) {
         setStatlingName(stored.statlingName)
+        // GA4 counterpart of home_entered{returning} below — previously
+        // missing entirely (see ANALYTICS_GAP_AUDIT.md's home_enter/
+        // home_entered asymmetry finding). Resolved directly from `stored`,
+        // not the displayedPetProfile/petRecord state above, since
+        // setPetRecord(stored) hasn't re-rendered yet at this point in the
+        // same effect.
+        const returningPetProfile = resolveCurrentPetProfile(stored)
+        if (returningPetProfile) {
+          trackEvent('home_enter', { statling_type: returningPetProfile.id, entry_type: 'returning' })
+        }
         trackProductEvent('home_entered', { entry_type: 'returning' })
         setPhase('room')
       } else {
@@ -2224,7 +2234,7 @@ export function GameFlow() {
               // returnToRoom nav) is a revisit, not a first arrival, so
               // home_enter must still fire only here.
               if (displayedPetProfile) {
-                trackEvent('home_enter', { statling_type: displayedPetProfile.id })
+                trackEvent('home_enter', { statling_type: displayedPetProfile.id, entry_type: 'first_time' })
                 trackProductEvent('home_entered', { entry_type: 'first_time' })
               }
               setPhase('room')
