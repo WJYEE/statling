@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Lock, Mail } from 'lucide-react'
 import { Toast } from '@base-ui/react/toast'
 import { ToyButton } from '@/components/brain-bet/toy-button'
@@ -60,8 +60,38 @@ export function AuthForm({ onAuthenticated, onContinueAttempt, defaultMode = 'si
   const [mode, setMode] = useState<'signup' | 'signin'>(defaultMode)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [submitting, setSubmitting] = useState<'google' | 'password' | null>(null)
+  // Deliberately two independent flags, not one shared `submitting` union —
+  // Google's redirect-based flow and the email/password request have no
+  // reason to gate each other's button, and a previous shared-state version
+  // of this let a stuck Google loading state also block email/password
+  // sign-up entirely (see the pageshow effect below for why Google's alone
+  // can get stuck in the first place).
+  const [googleSubmitting, setGoogleSubmitting] = useState(false)
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // signInWithGoogle() below is a same-tab, full-page redirect to Google —
+  // not a popup — so the only way this component sees the user "come back"
+  // after cancelling/failing on Google's own consent screen without ever
+  // reaching app/auth/callback/route.ts's redirect-back-to-origin (which
+  // would remount this component fresh with googleSubmitting already false)
+  // is the browser restoring THIS SAME pre-navigation page instance from
+  // the back/forward cache (bfcache) — e.g. the user presses Back, or some
+  // browsers restore bfcache automatically when Google's page itself
+  // navigates back. A bfcache restore resumes the exact in-memory React
+  // state from the instant navigation started, so googleSubmitting would
+  // otherwise stay stuck at true forever with no further code ever running
+  // to clear it. `pageshow` with `persisted: true` is the standard, lifecycle
+  // -accurate signal for exactly this case (not a timeout — it only fires
+  // on an actual bfcache restore). Harmless on a normal fresh mount too:
+  // `persisted` is false there, and googleSubmitting already starts false.
+  useEffect(() => {
+    function handlePageShow(event: PageTransitionEvent) {
+      if (event.persisted) setGoogleSubmitting(false)
+    }
+    window.addEventListener('pageshow', handlePageShow)
+    return () => window.removeEventListener('pageshow', handlePageShow)
+  }, [])
 
   function switchMode(next: 'signup' | 'signin') {
     setMode(next)
@@ -69,23 +99,27 @@ export function AuthForm({ onAuthenticated, onContinueAttempt, defaultMode = 'si
   }
 
   async function handleGoogle() {
+    if (googleSubmitting) return
     onContinueAttempt?.('google')
-    setSubmitting('google')
+    setGoogleSubmitting(true)
     setError(null)
     const result = await signInWithGoogle()
     if (result.error) {
       setError(result.error)
-      setSubmitting(null)
+      setGoogleSubmitting(false)
     }
     // On success the browser navigates away to Google — there's no
     // same-page moment to confirm sign_up/login from here (that would need
     // instrumenting app/auth/callback/route.ts once Google OAuth actually
     // completes end-to-end, which the active auth backend doesn't yet).
+    // googleSubmitting intentionally stays true here: either the redirect
+    // actually happens (this component is about to unmount) or it doesn't
+    // and the pageshow handler above is what's responsible for recovering.
   }
 
   async function handlePasswordSubmit(event: FormEvent) {
     event.preventDefault()
-    if (!email || !password || submitting) return
+    if (!email || !password || passwordSubmitting) return
 
     // Catches the "aa@aaaa"-shaped case before it ever reaches Supabase —
     // same copy translateAuthError (lib/auth/supabase-auth-provider.tsx)
@@ -97,10 +131,10 @@ export function AuthForm({ onAuthenticated, onContinueAttempt, defaultMode = 'si
     }
 
     onContinueAttempt?.('password')
-    setSubmitting('password')
+    setPasswordSubmitting(true)
     setError(null)
     const result = mode === 'signup' ? await signUpWithPassword(email, password) : await signInWithPassword(email, password)
-    setSubmitting(null)
+    setPasswordSubmitting(false)
 
     if (result.error) {
       setError(result.error)
@@ -134,8 +168,8 @@ export function AuthForm({ onAuthenticated, onContinueAttempt, defaultMode = 'si
         </button>
       </div>
 
-      <ToyButton className="w-full" onClick={handleGoogle} disabled={submitting !== null}>
-        {submitting === 'google' ? '이동하는 중...' : 'Google로 계속하기'}
+      <ToyButton className="w-full" onClick={handleGoogle} disabled={googleSubmitting}>
+        {googleSubmitting ? '이동하는 중...' : 'Google로 계속하기'}
       </ToyButton>
 
       <div className="flex items-center gap-3 py-3 text-xs font-semibold text-muted-foreground">
@@ -173,8 +207,8 @@ export function AuthForm({ onAuthenticated, onContinueAttempt, defaultMode = 'si
 
         {error && <p className="text-xs font-semibold text-destructive">{error}</p>}
 
-        <ToyButton type="submit" variant="secondary" className="w-full" disabled={submitting !== null}>
-          {submitting === 'password' ? '처리 중...' : mode === 'signup' ? '이메일로 가입하기' : '이메일로 로그인하기'}
+        <ToyButton type="submit" variant="secondary" className="w-full" disabled={passwordSubmitting}>
+          {passwordSubmitting ? '처리 중...' : mode === 'signup' ? '이메일로 가입하기' : '이메일로 로그인하기'}
         </ToyButton>
       </form>
     </div>
