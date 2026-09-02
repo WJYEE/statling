@@ -89,13 +89,20 @@ export const REACTION_SCORE_WEIGHTS = {
 
 /**
  * medianReactionMs가 이 값 이하면 만점, 이 값 이상이면 speedScore 0점.
- * 200ms는 생리학적 한계(~150ms)가 아니라 "집중하면 실제로 도달 가능한
- * 상위권" 수준으로 잡은 절대 기준값이다 — 이 프로젝트는 서버/집계 데이터가
- * 없어 다른 유저 대비 상대 백분위를 계산할 방법이 아직 없으므로(참고:
- * BaseGameResult.final은 실제 퍼센타일이 생기기 전까지 항상 undefined),
- * 지금은 절대 기준으로 대신한다. 실제 플레이 데이터가 쌓이면 재조정.
+ * Normalized Score Calibration Audit(2026-09) 이후 200ms → 250ms로 완화 —
+ * 200ms는 Assessment(3회) 같은 소표본 median 기준으로는 상위 1% 수준의
+ * 초인적 반응속도를 요구해, "충분히 뛰어난 플레이는 100점 달성 가능"이라는
+ * calibration 목표(§5 of the audit)와 맞지 않았다. 250ms는 생리학적 한계
+ * (~150ms)가 아니라 "충분히 빠르게 집중한 플레이"가 현실적으로 도달 가능한
+ * 절대 기준값이다 — 이 프로젝트는 서버/집계 데이터가 없어 다른 유저 대비
+ * 상대 백분위를 계산할 방법이 아직 없으므로(참고: BaseGameResult.final은
+ * 실제 퍼센타일이 생기기 전까지 항상 undefined), 지금은 절대 기준으로
+ * 대신한다. WORST_MS(500)는 그대로 유지 — 실제 플레이 데이터가 쌓이면
+ * 재조정. 랭킹은 이 정규화와 무관하게 medianReactionMs raw 값을 그대로
+ * 사용하므로(lib/ranking/game-ranking-metrics.config.ts), 이 상수 변경은
+ * 랭킹 정렬/변별력에 영향을 주지 않는다.
  */
-export const REACTION_SPEED_BEST_MS = 200
+export const REACTION_SPEED_BEST_MS = 250
 export const REACTION_SPEED_WORST_MS = 500
 
 /** `inputType` (see lib/game/device.ts#detectDevice) normalizes the measured ms for touch's inherent input latency before scoring — never applied to the raw displayed record. */

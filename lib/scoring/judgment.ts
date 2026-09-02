@@ -75,23 +75,43 @@ export function summarizeJudgmentTrials(trials: JudgmentTrial[], elapsedMs: numb
 
 /**
  * Judgment Time Attack Score — see lib/config/judgment.config.ts for the full
- * weight rationale. overallAccuracy dominates (60%), switchAccuracy and
- * conflictAccuracy (Judgment's two signature sub-skills) each get 15%, and
- * throughput (correctBlocks normalized against a realistic session range)
- * gets the smallest share (10%) since it's ranked last in the stated
- * priority. Note: switchAccuracy/conflictAccuracy read 0 when their trial set
- * is empty (e.g. an extremely slow session that never reaches a rule switch)
- * — worth watching during testing since that's a real edge case, not just a
- * safe default.
+ * weight rationale. overallAccuracy dominates (70% base), switchAccuracy and
+ * conflictAccuracy (Judgment's two signature sub-skills) each get 10% base,
+ * and throughput (correctBlocks normalized against a realistic session
+ * range) gets the smallest share (10%, never redistributed) since it's
+ * ranked last in the stated priority.
+ *
+ * Normalized Score Calibration Audit(2026-09) — a session can genuinely have
+ * zero switch and/or zero conflict trials (not "the player got them all
+ * wrong," but "this metric never had anything to measure"): Assessment's
+ * forced-single-rule session (judgment-game.tsx#buildFixedRuleBlocks) never
+ * generates either, and even a real Free Play session could in principle end
+ * before its first rule switch. Scoring an unmeasured metric as 0 would
+ * silently cap the achievable score below 100 for a reason that has nothing
+ * to do with how well the player actually did. This is a general,
+ * denominator-driven rule, not an Assessment-specific branch: whichever of
+ * switchWeight/conflictWeight belongs to a trial type this session has ZERO
+ * of gets folded into accuracyWeight instead, so the weights always sum to
+ * the same 100 total regardless of which trial types this particular session
+ * happened to contain. throughputWeight is never redistributed — throughput
+ * is always measurable (a session that processes nothing legitimately scores
+ * 0 there, that's a real result, not a missing metric).
  */
 export function calculateJudgmentScore(summary: JudgmentRawSummary): number {
   const { accuracyWeight, switchWeight, conflictWeight, throughputWeight } = JUDGMENT_SCORE_WEIGHTS
   const throughputScore = normalizeUpward(summary.correctBlocks, JUDGMENT_THROUGHPUT_MIN_BLOCKS, JUDGMENT_THROUGHPUT_MAX_BLOCKS)
 
+  const hasSwitchTrials = summary.switchTrials > 0
+  const hasConflictTrials = summary.conflictTrials > 0
+  const effectiveAccuracyWeight =
+    accuracyWeight + (hasSwitchTrials ? 0 : switchWeight) + (hasConflictTrials ? 0 : conflictWeight)
+  const effectiveSwitchWeight = hasSwitchTrials ? switchWeight : 0
+  const effectiveConflictWeight = hasConflictTrials ? conflictWeight : 0
+
   return clampScore(
-    summary.overallAccuracy * accuracyWeight +
-      summary.switchAccuracy * switchWeight +
-      summary.conflictAccuracy * conflictWeight +
+    summary.overallAccuracy * effectiveAccuracyWeight +
+      summary.switchAccuracy * effectiveSwitchWeight +
+      summary.conflictAccuracy * effectiveConflictWeight +
       throughputScore * throughputWeight,
   )
 }

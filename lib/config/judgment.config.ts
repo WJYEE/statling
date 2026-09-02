@@ -194,8 +194,24 @@ export function getSegmentConfig(
 }
 
 /**
- * Judgment Game Score — normalizedScore = overallAccuracy 60% + switchAccuracy
- * 15% + conflictAccuracy 15% + throughput 10%, clampScore 0-100.
+ * Judgment Game Score — base weights normalizedScore = overallAccuracy 70% +
+ * switchAccuracy 10% + conflictAccuracy 10% + throughput 10%, clampScore
+ * 0-100. These are the weights when a session actually contains BOTH switch
+ * and conflict trials (real Free Play sessions past segment 0) — see
+ * calculateJudgmentScore (lib/scoring/judgment.ts) for how a session with
+ * zero switch and/or conflict trials (Assessment, whose forced-single-rule
+ * session never generates either — see judgment-game.tsx's
+ * buildFixedRuleBlocks) redistributes that missing metric's weight onto
+ * overallAccuracy instead of scoring it as 0.
+ *
+ * Normalized Score Calibration Audit(2026-09) 이후 60/15/15/10 →
+ * 70/10/10/10로 조정 — switch/conflict 각각 15%씩이던 기존 가중치는 두
+ * trial 유형(규칙 전환 직후, 이전 규칙과 충돌) 모두 애초에 실수를 유도하도록
+ * 설계된 trial이라, 이 두 항목에서의 한두 번 실수가 overallAccuracy가
+ * 완벽해도 전체 점수를 과도하게 끌어내렸다. overallAccuracy 비중을 60→70로
+ * 올려 "정확도가 가장 중요하다"는 원칙은 유지하면서, switch/conflict 각각의
+ * 개별 영향력(15→10)은 줄였다 — 두 metric 모두 제거하지 않고 그대로
+ * 유지(단순히 빠르게만 누르는 전략이 여전히 통하지 않도록).
  *
  * Stated priority is Accuracy > Rule Switch Adaptation > Speed — the old
  * unbounded formula (`correctBlocks * overallAccuracy * 100`) didn't actually
@@ -209,13 +225,13 @@ export function getSegmentConfig(
  * Focus's old speed term and Memory's perfectRounds bonus).
  */
 export const JUDGMENT_SCORE_WEIGHTS = {
-  /** overallAccuracy (0-1) × this — the dominant term. */
-  accuracyWeight: 60,
-  /** switchAccuracy (0-1) × this — Judgment's signature trait: adapting the instant the rule changes. */
-  switchWeight: 15,
-  /** conflictAccuracy (0-1) × this — resisting interference from the previous rule. */
-  conflictWeight: 15,
-  /** throughputScore (0-1, normalizeUpward of correctBlocks) × this — speed, ranked last per the stated priority. */
+  /** overallAccuracy (0-1) × this (plus any redistributed switch/conflict weight — see calculateJudgmentScore) — the dominant term. */
+  accuracyWeight: 70,
+  /** switchAccuracy (0-1) × this, only when the session has switchTrials > 0 — Judgment's signature trait: adapting the instant the rule changes. Redistributed onto accuracyWeight when a session (e.g. Assessment) never generates a switch trial at all. */
+  switchWeight: 10,
+  /** conflictAccuracy (0-1) × this, only when the session has conflictTrials > 0 — resisting interference from the previous rule. Redistributed onto accuracyWeight when a session (e.g. Assessment) never generates a conflict trial at all. */
+  conflictWeight: 10,
+  /** throughputScore (0-1, normalizeUpward of correctBlocks) × this — speed, ranked last per the stated priority. Never redistributed: throughput is always measurable (a session that never moves just scores 0 here, which is a real, meaningful result, not a missing metric). */
   throughputWeight: 10,
 }
 
