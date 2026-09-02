@@ -1,8 +1,10 @@
 # Statling --- 아키텍처 결정 로그
 
-> **진실의 원천(Source of truth)**: 현재 저장소의 git HEAD `4e54742`
-> (`main` 브랜치) --- `supabase/migrations/` 아래의 마이그레이션과 이를
-> 호출하는 애플리케이션 코드. 이 문서는 현재 코드를 새로 읽고 작성한
+> **진실의 원천(Source of truth)**: ADR-001~016은 최초 작성 당시 git HEAD
+> `4e54742` (`main` 브랜치) 기준. ADR-017~021은 이후 추가된 analytics/data
+> 관련 결정을 현재 HEAD `4756253` 기준으로 다시 코드를 읽고 새로 작성했다.
+> 둘 다 `supabase/migrations/` 아래의 마이그레이션과 이를 호출하는
+> 애플리케이션 코드가 근거다. 이 문서는 현재 코드를 새로 읽고 작성한
 > 것이며, `docs/STATLING_MASTER_DOCUMENTATION.md`(어떤 파일을 열어볼지
 > 방향을 잡는 용도로만 사용)나 이전 초안을 다시 서술한 것이 아니다.
 > stash되었거나 커밋되지 않은 working tree의 내용은 확인하거나 복원하지
@@ -796,6 +798,26 @@ split**뿐이며, 둘을 함께 사용하기로 한 최초 선택 이유는 아�
 shape mapping으로 둘 다 dispatch"하는 shared layer를 두어 hand-sync
 risk를 제거할 수 있다. 현재는 구현되어 있지 않다.
 
+**추가 --- 3-way 데이터 도구 역할 분리 (2026-09-02 보완)**: 이 ADR은
+GA4/PostHog 두 analytics platform 사이의 역할 분리만 다루지만, 실제
+코드에서는 Supabase까지 포함한 3-way 분리가 이미 일관되게 지켜지고
+있다. ADR-001(Supabase를 유일한 backend로 사용)과 이 ADR을 함께 읽으면
+다음 표로 요약된다.
+
+| 도구 | 역할 | 근거 |
+|---|---|---|
+| **Supabase** | transactional/account/game state의 source of truth | ADR-001, ADR-002 --- RLS로 보호되는 계정별 row, `xp_totals`/`player_skill_records`/`pets` 등 게임 진행 상태 |
+| **GA4** | acquisition/traffic/session/funnel | `lib/analytics/ga.ts`의 `trackEvent` --- UTM/referrer 자동 파싱, 전환 퍼널 |
+| **PostHog** | product behavior/attempt behavior/identity/session | `lib/analytics/analytics.ts`의 `trackProductEvent` --- `game_completed`의 재시도 단위 이벤트, `identify()`/`createPersonProfile()` 기반 person 단위 행동 분석 |
+
+셋 중 어느 것도 다른 것의 대체재가 아니다. Supabase는 "지금 이
+계정의 최신 상태가 무엇인가"에 답하고(스냅샷, ADR-017 참고), GA4는
+"트래픽이 어디서 와서 어디서 전환/이탈하는가"에 답하며, PostHog는
+"한 사람이 시간에 걸쳐 무엇을 반복했는가"에 답한다. `player_skill_records`가
+시도 이력을 보존하지 않기로 한 결정(ADR-017)이 유지될 수 있는 이유도
+이 역할 분리 때문이다 --- attempt-level history가 필요한 분석은
+Supabase가 아니라 PostHog의 `game_completed` 이벤트로 답한다.
+
 ------------------------------------------------------------------------
 
 ## ADR-014 --- Internal `petId`는 Dex, sync, analytics에서 사용하는 identity로 유지; `slug`는 share-URL 전용 public representation
@@ -952,6 +974,318 @@ schema의 security model을 처음 review하는 사람에게 명시적으로 알
 
 ------------------------------------------------------------------------
 
+## ADR-017 --- `player_skill_records`는 attempt history가 아니라 `(user_id, game_id, difficulty)` 기준 best-record snapshot으로 유지
+
+**상태**: 채택됨
+
+**맥락**: "반복 플레이로 실력이 느는가", "몇 번째 시도에서 개인 최고
+기록이 나오는가" 같은 질문에 답하려면 매 플레이 시도(attempt)를 별도
+행으로 남기는 history 테이블이 필요해 보인다. 하지만 현재
+`player_skill_records`는 계정×게임×난이도 조합당 정확히 1행만 유지한다.
+
+**결정**: `player_skill_records`를 attempt history 테이블로 확장하지
+않고, best-record snapshot 구조를 유지한다. 매 시도의 세부 기록이
+필요한 분석은 Supabase가 아니라 PostHog의 `game_completed` 이벤트로
+답한다(ADR-013 추가 항목, ADR-019).
+
+**근거**:
+
+-   `lib/game/player-skill-storage.ts`의 `recordMiniGameCompletion`
+    (223-233번째 줄 부근): `isBetterByGameScore(input.normalizedScore,
+    existing.normalizedScore)`일 때만 기존 기록을 교체한다 --- 더 낮은
+    점수의 새 시도는 아예 저장되지 않는다.
+-   `supabase/migrations/20260819000000_phase1_schema_and_rls.sql`:
+    PRIMARY KEY가 `(user_id, game_id, difficulty)`다. 구조적으로 같은
+    조합의 두 번째 행이 존재할 수 없다.
+-   `supabase/migrations/20260827000000_phase3b7_game_leaderboard_rpcs.sql`
+    (161, 271번째 줄 부근): 게임별 랭킹 RPC가 `player_skill_records.metrics`를
+    직접 읽어 정렬한다 --- 이 테이블은 단순 참고용 캐시가 아니라 랭킹의
+    실제 데이터 소스다.
+-   `components/brain-bet/game-flow.tsx`: `isDifficultyUnlocked()`도
+    같은 best-record 값을 기준으로 Hard/Extreme 해금 여부를 계산한다.
+-   별도 조사(1→2→3→10회 플레이 시나리오, 100/1,000/10,000명 규모의
+    예상 데이터량까지 비교)에서 A(현행 유지)/B(전체 history
+    테이블)/C(부분 history) 세 옵션을 비교했고, "지금 당장 필요한
+    분석"과 "실사용자도 아직 없는 상태에서의 schema 확장 비용"을
+    저울질해 **C(지금은 만들지 않고 실사용자 데이터로 실제 수요가
+    확인되면 재검토)**로 결론지었다.
+
+**대안**: (B) 매 시도를 별도 행으로 남기는 `game_attempts` 이력 테이블
+추가 --- ADR-018에서 별도로 다룸. (A) 현행 그대로 --- 채택된 것과 동일.
+
+**이 방식이 작동하는 이유**: 랭킹/해금 계산은 "지금의 최고 기록"만
+필요하고, 이 테이블은 정확히 그 질문에 최적화되어 있다. `(user_id,
+game_id, difficulty)` PK 하나로 랭킹 RPC의 정렬 키와 해금 판정 기준이
+동시에 보장된다 --- 별도의 "최신 스냅샷을 다시 계산" 단계가 필요 없다.
+
+**트레이드오프**: "반복 플레이로 실력이 느는가", "몇 번째 시도에서
+최고 기록이 나왔는가" 같은 attempt-level 질문은 Supabase만으로는 답할
+수 없다. 현재는 PostHog의 `game_completed`(재시도 포함 매 유효
+시도마다 발화, `completion_result:'first_attempt'|'retry'`)가 이
+역할을 부분적으로 대신하지만, PostHog는 (1) 이벤트 보존 기간에
+종속적이고 (2) Free Play는 애초에 재시도 개념이 없어(전용 재도전
+버튼이 없고 재입장만 가능) `completion_result`가 Free Play에서는 항상
+`'first_attempt'`로 고정되는 한계가 있다(Assessment 전용 1회 한정
+재도전과는 다른 메커니즘 --- `game-flow.tsx`에서 `isRetryAttemptRef`가
+`startRetry()` 안에서만 설정됨).
+
+**향후 고려사항**: 실사용자 데이터가 쌓인 뒤 "반복 플레이 패턴"
+분석이 실제 제품 의사결정에 필요하다고 확인되면, 그때 부분
+history(예: 최근 N개 attempt만 보존) 또는 전체 history 테이블 도입을
+재검토한다. `game_attempts`를 지금 만들지 않기로 한 결정은 ADR-018
+참고.
+
+------------------------------------------------------------------------
+
+## ADR-018 --- `game_attempts` 이력 테이블을 지금 만들지 않음(구현 실패가 아니라 의도적 보류)
+
+**상태**: 채택됨(보류 결정)
+
+**맥락**: ADR-017에서 확인한 attempt-level 분석 공백을 메우려면 매
+시도를 별도 행으로 남기는 `game_attempts` 같은 append-style 테이블을
+새로 만드는 방법이 있다. 이 프로젝트는 아직 실사용자 트래픽이 없는
+단계다.
+
+**결정**: `game_attempts` 테이블을 만들지 않는다. 대신 현재 반복
+플레이/attempt 분석은 PostHog의 `game_started`/`game_completed`
+이벤트로 우선 관찰하고, 실제 분석 요구가 확인되면 그때 재검토한다.
+이는 "시간이 없어서 구현하지 못한 항목"이 아니라, **지금 단계에서
+의도적으로 보류한 architecture 결정**이다.
+
+**근거**:
+
+-   실사용자 트래픽이 없는 상태에서 새 테이블/RLS 정책/migration/
+    sync-dispatcher 연동/RPC까지 미리 만드는 것은, 실제 분석 요구의
+    형태(어떤 필드가 필요한지, 얼마나 자주 조회하는지, retention
+    기간을 얼마로 둘지)를 전혀 모른 채 schema를 확정하는 것과 같다 ---
+    나중에 다시 뜯어고칠 가능성이 매우 높다.
+-   `lib/analytics/analytics.ts`의 `game_completed` 이벤트가 이미
+    `game_id`/`difficulty`/`mode`/`normalized_score`/`completion_result`를
+    매 유효 시도마다(재시도 포함, Assessment 6종 + Free Play 12종
+    전체) 실어 보내고 있어, 당장은 이 이벤트가 attempt-level 관찰의
+    1차 수단으로 충분하다.
+-   같은 이유로 이번 cross-account 오염 수정(ADR-019)에서도 새
+    Supabase 테이블/migration을 추가하지 않고 기존 구조 안에서만
+    해결했다 --- 이 프로젝트 전반의 "실사용자 전에는 schema를 최소로
+    유지한다"는 일관된 태도다.
+
+**대안**: (B) 지금 바로 `game_attempts` 추가 --- 기각. (C) PostHog에
+전적으로 의존 + 필요시 재검토 --- 채택.
+
+**이 방식이 작동하는 이유**: schema는 한 번 실사용자 데이터가 쌓이면
+되돌리기 훨씬 어렵다. 지금 당장 답할 수 없는 질문이 있다는 것을
+인지한 상태로 미루는 것이, 틀릴 수도 있는 schema를 미리 확정하는
+것보다 리스크가 낮다.
+
+**트레이드오프**: PostHog만으로는 Supabase RLS 수준의 계정별
+접근제어나 SQL join 기반 정밀 분석이 어렵고, PostHog 이벤트
+보존/샘플링 정책에 분석 가능 범위가 종속된다. Free Play의 재시도
+분석 공백(ADR-017 참고)도 이 결정으로 인해 계속 남는다.
+
+**향후 고려사항**: 실사용자 유입 후 "반복 플레이 패턴"이 실제로
+중요한 제품 질문이 된다면(예: 특정 게임의 재도전율이 retention과
+상관관계가 있는지), 그때 최소 스키마(예: `raw_metric`을 JSONB로 둘지
+공통 컬럼으로 둘지)부터 다시 설계한다 --- 지금 미리 설계해두지
+않는다.
+
+------------------------------------------------------------------------
+
+## ADR-019 --- 동일 브라우저 내 계정 간 local state는 owner marker로 보호하고, guest → 최초 가입 경로는 예외로 허용
+
+**상태**: 채택됨
+
+**맥락**: `localStorage`의 게임 상태(XP, pet care/level, 스킬 기록,
+미션, 업적, Room 등)는 브라우저 전역 또는 `deviceId` 기준으로
+저장되어 계정과 무관하다. 계정 A가 로그아웃해도 `signOut()`은 이
+데이터를 지우지 않는다(reload 시 데이터 유실을 막기 위한 의도적
+설계). 같은 브라우저에서 계정 B가 새로 가입하면, 이 남은 데이터를
+그대로 화면에 노출하고 continuous sync를 통해 B의 실제 Supabase
+row에까지 기록할 위험이 있었다 --- 실측으로 재현 확인됨(계정 A의
+XP/레벨이 신규 계정 B의 화면과 Supabase `xp_totals`/`pet_care_state`에
+그대로 나타남).
+
+**결정**: `lib/pets/local-data-owner.ts`의 `statling.localDataOwner.v1`
+marker로 "이 브라우저의 로컬 데이터가 지금 로그인된 계정 소유가
+맞는지"를 판정한다. `null`(unclaimed)이면 guest 데이터이거나 marker
+도입 이전 기기로 간주해 **첫 번째로 claim하는 계정에게 정상
+이관**하고, 다른 값이면 다른(이미 로그아웃한) 계정 소유로 판단해
+`lib/pets/reset-foreign-account-state.ts`의
+`resetForeignAccountOwnedLocalState()`로 pets/feedback을 포함한 18개
+계정 소유 도메인 전체를 초기화한 뒤 marker를 다시 `null`로 되돌린다.
+
+**근거**:
+
+-   `lib/pets/local-data-owner.ts`: `isLocalDataOwnedBy(userId)`는
+    marker가 `null`이거나 `userId`와 같을 때만 `true` --- 그 외에는
+    "다른 계정 소유"로 판정.
+-   기존에는 이 가드가 `components/brain-bet/game-flow.tsx`(pet
+    profile), `lib/migration/migration-orchestrator.ts`(최초 통합
+    마이그레이션), `lib/feedback/feedback-storage.ts`(feedback
+    마이그레이션) 3곳에만 적용되어 있었다 --- XP/pet
+    care(Lv.)/스킬기록/업적/미션/Room 등 나머지 15개 로컬 도메인은
+    검증이 전혀 없었다.
+-   `lib/pets/reset-foreign-account-state.ts`(신규): 위 3곳 외 13개
+    저장소 모듈에 각각 `clear*` 함수를 추가하고, 하나의
+    `resetForeignAccountOwnedLocalState()`로 묶어 owner-mismatch
+    분기(`game-flow.tsx`)에서 한 번에 호출한다. 마지막에
+    `clearLocalDataOwner()`로 marker를 `null`로 되돌려, 이후
+    migration-orchestrator/session-sync의 기존 로직이 "완전히 새
+    기기"와 동일하게 처리하도록 한다 --- 이 함수 자체는 owner를 새
+    계정으로 claim하지 않는다(local이 아직 server와 일치한다고 증명된
+    시점이 아니므로).
+-   `lib/sync/sync-dispatcher.ts`: `pushDomain`이 각 도메인의 "현재
+    localStorage 값"을 그대로 Supabase에 쓰기 때문에, 클라이언트
+    표시뿐 아니라 서버 데이터 오염으로도 이어질 수 있었다 --- 로컬
+    dev 서버 + 실제 Supabase 프로젝트로 두 시나리오(A→logout→B 오염
+    차단 / guest→최초가입 데이터 보존)를 각각 실측 검증했다.
+-   `feedback-storage.ts`의 `migrateLocalFeedbackToRemote`도 같은
+    marker를 재사용한다 --- marker를 `null`로 되돌리는 것만으로는
+    feedback의 기존 보호가 오히려 약해질 수 있어(marker가 null이면
+    "unclaimed"로 간주되어 통과), `resetForeignAccountOwnedLocalState()`에
+    `clearFeedbackRecord()`도 포함시켰다.
+
+**대안**: 전체 `localStorage`를 로그인/로그아웃 시 무조건 clear ---
+기각(guest 진행 상황과 "로그인 상태에서 새로고침해도 안 날아간다"는
+기존 UX 전제를 모두 깨뜨림). marker 없이 매번 서버와 diff해서 판단 ---
+기각(추가 네트워크 호출과 race 위험).
+
+**이 방식이 작동하는 이유**: `null` = "누구 것도 아님"이라는 3-상태
+모델(내 것 / 남의 것 / 주인 없음)이 guest→최초가입(주인 없음 →
+합법적으로 claim)과 A→logout→B(남의 것 → 초기화 후 다시 주인 없음
+상태로) 두 경로를 하나의 marker로 정확히 구분한다. 새로 초기화된
+기기는 정말로 "방금 깨끗해진, 주인 없는 기기"와 구별할 수 없으므로,
+이후 로직을 전혀 새로 만들 필요가 없었다.
+
+**트레이드오프**: 이 보호는 오직 "같은 브라우저, 다른 계정" 시나리오만
+막는다 --- 여러 탭에서 서로 다른 계정을 동시에 여는 경우나, 서버
+쪽에서의 이중 검증(RLS는 각자 자기 row에만 쓰므로 별개의 보호 계층)은
+범위 밖이다. 또한 신규 도메인(예: 향후 새 게임 기능)이 추가될 때마다
+`reset-foreign-account-state.ts`에 `clear*` 호출을 잊지 않고 추가해야
+하는 수동 관리 부담이 남는다.
+
+**향후 고려사항**: 도메인이 계속 늘어난다면, 각 storage 모듈이 자기
+자신을 "계정 소유 도메인" 레지스트리에 등록하게 해 수동 추가 누락을
+구조적으로 막는 방법을 검토할 수 있다. 현재는 구현되어 있지 않다.
+
+------------------------------------------------------------------------
+
+## ADR-020 --- PostHog anonymous 방문자는 Assessment 시작 시점부터 Person profile을 생성해 가입 후 identify와 연결
+
+**상태**: 채택됨
+
+**맥락**: PostHog는 `person_profiles:'identified_only'`로 설정되어
+있다(비용 절감 --- 전환하지 않는 방문자에게 Person을 만들지 않기
+위함). 이 설정에서는 `identify()` 호출 전 이벤트가
+`$process_person_profile:false`로 수집되어 애초에 Person이 생성되지
+않는다. 그 결과 회원가입 시 `identify(user.id)`가 정확한 인자로
+호출돼도, 가입 **전** Assessment 행동(`assessment_started`,
+`game_started`, `game_completed` 등)이 가입 **후** Person Activity에
+영구히 나타나지 않는 문제가 실제 Production에서 확인되었다.
+
+**결정**: 완전 익명 방문자 전체를 `person_profiles:'always'`로
+전환하는 대신, **Assessment가 실제로 시작되는 시점**에만
+`posthog.createPersonProfile()`을 호출해 그 시점부터 person
+processing을 켠다.
+
+**근거**:
+
+-   `node_modules/posthog-js@1.418.10`의
+    `posthog-core.js`(`_hasPersonProcessing`, 3607-3614번째 줄
+    부근): `person_profiles==='identified_only'`이고 아직 식별되지
+    않았으면 매 이벤트에 `$process_person_profile:false`가 찍힌다 ---
+    실제 배포 SDK 소스로 직접 확인.
+-   `posthog-core.js`의 `identify()`(2431-2445번째 줄 부근) 주석:
+    *"send an $identify event any time the distinct_id is changing
+    and the old ID is an anonymous ID - logic on the server will
+    determine whether or not to do anything with it."* `$anon_distinct_id`를
+    포함한 `$identify` 이벤트 자체는 정상 발화하지만, merge할 익명
+    Person이 애초에 없으면 서버가 merge할 대상이 없다.
+-   `lib/analytics/posthog.ts`의 `ensurePersonProfileCreated()`(신규):
+    같은 SDK가 공식 제공하는 `posthog.createPersonProfile()`을
+    호출하되, distinct_id별 Set으로 dedupe해 `posthog.reset()` 이후
+    새 익명 id에도 정확히 한 번씩만 다시 호출되도록 한다.
+-   `components/brain-bet/game-flow.tsx`의 `start()`(신규 Intro
+    실행)와 `resumeIntro()`(체크포인트 재개) 두 진입점 모두에서
+    호출 --- Assessment 진입 경로가 이 두 곳뿐이기 때문.
+-   랜딩만 보고 이탈하는 방문자는 이 호출 자체가 일어나지 않으므로
+    여전히 Person이 생성되지 않는다 --- 비용 절감 의도는 유지된다.
+
+**대안**: `person_profiles:'always'`로 전체 전환 --- 기각(이탈
+방문자에게도 Person이 생겨 원래의 비용 절감 의도가 사라짐).
+`identify()` 시점에 서버 side에서 과거 이벤트를 재처리 --- PostHog
+표준 기능이 아니며 검토 범위 밖.
+
+**이 방식이 작동하는 이유**: Assessment를 시작한 방문자는 전환
+가능성이 있는 방문자다. 그 순간부터만 Person을 만들면, "이탈
+방문자에게 비용을 쓰지 않는다"는 원래 설계 의도와 "전환하는 사람의
+전환 직전 행동을 잃지 않는다"는 분석 요구를 동시에 만족시킨다.
+
+**트레이드오프**: Person Activity 탭 기준으로는 코드 레벨(SDK 호출
+인자, `$anon_distinct_id` 값)로 정상 동작을 확인했지만, PostHog
+백엔드의 merge pipeline 자체가 비동기이고 프로젝트 접근 권한 없이는
+검증할 수 없어 **Funnel/Insight 레벨에서 실제로 연결되는지는 별도로
+Production PostHog 대시보드에서 재확인이 필요**하다. 랜딩만 보고
+이탈하는 방문자는 여전히 Person이 없으므로, "랜딩만 본 사람"의
+행동은 앞으로도 Person 단위 분석 대상이 아니다(의도된 설계).
+
+**향후 고려사항**: Funnel 레벨 검증에서 문제가 추가로 발견되면,
+PostHog 지원팀 문의 또는 SDK 버전 업그레이드를 검토한다.
+
+------------------------------------------------------------------------
+
+## ADR-021 --- Feedback은 계정당 1행(latest-state) 구조 유지, append 이력화는 실제 수요 확인 후 재검토
+
+**상태**: 채택됨
+
+**맥락**: My Page의 "Statling, 어떠셨나요?" 피드백 폼은 만족도/선호
+이유/재사용 의향 등을 묻는다. 사용자가 같은 계정으로 여러 번 제출할
+수 있는 구조를 만들 때, 매 제출을 별도 행으로 남길지(append
+history), 계정당 최신 1건만 유지할지(upsert) 선택이 필요했다.
+
+**결정**: `public.feedback` 테이블은 `user_id`를 PRIMARY KEY로 하는
+계정당 1행 구조를 유지한다. 재제출은 `upsert(row, {onConflict:
+'user_id'})`로 기존 행을 덮어쓴다.
+
+**근거**:
+
+-   `supabase/migrations/20260901010000_phase3j1_feedback_table.sql`:
+    `user_id uuid primary key references auth.users(id)` --- 구조상
+    계정당 1행만 가능.
+-   `lib/feedback/feedback-storage.ts`의
+    `upsertFeedbackRecordRemote`: `client.from('feedback').upsert(row,
+    {onConflict:'user_id'})`.
+-   Production REST로 직접 검증(2026-09-02): 본인 계정으로 INSERT/SELECT/UPDATE
+    모두 정상 동작, 다른 계정이 내 row를 SELECT하면 빈 배열, 다른
+    계정이 내 `user_id`로 INSERT를 시도하면 RLS `with check`에
+    막혀 403, 비인증 요청은 401 --- 자세한 내용은
+    `docs/SECURITY_AND_PRIVACY.md` §12.
+-   `feedback-section.tsx`/`feedback-storage.ts`의 comment/`*OtherText`/`*Detail`
+    자유 텍스트 필드는 Supabase에는 저장되지만 GA4 `feedback_submit`
+    이벤트 payload에는 포함되지 않는다(코드 레벨 확인).
+
+**대안**: 매 제출을 별도 행으로 남기는 append-style feedback history
+--- "피드백이 시간에 따라 어떻게 바뀌었는가"를 분석하려면 필요하지만,
+지금은 "이 사용자가 지금 어떻게 느끼는가"라는 단일 최신 상태만
+필요하다고 판단해 기각.
+
+**이 방식이 작동하는 이유**: 앱의 실제 UX가 "피드백을 수정할 수
+있다"는 전제(`FeedbackRecord`의 기존 `submittedAt`/`updatedAt` 분리
+구조와 일치)이므로, 최신 상태 하나만 정확히 유지하는 것으로 충분하다.
+스키마가 단순해 RLS 정책도 `auth.uid() = user_id`만으로 충분히
+방어된다.
+
+**트레이드오프**: "피드백이 시간에 따라 어떻게 바뀌었는가"(예: 첫
+제출은 불만족이었다가 나중에 만족으로 바뀌었는가)는 현재 구조로는
+답할 수 없다 --- 매 upsert가 이전 값을 덮어쓴다.
+
+**향후 고려사항**: 반복 feedback history 분석이 실제로 필요해지면
+그때 append-style 구조(예: `feedback_history` 테이블 추가, 또는
+`feedback`은 최신 상태 캐시로 유지하고 별도 이력 테이블 병행)를
+재검토한다. 지금은 만들지 않는다 --- ADR-018과 같은 원칙(실사용자
+확인 전 schema 과다 확장 방지).
+
+------------------------------------------------------------------------
+
 ## 결정 인덱스
 
   -------------------------------------------------------------------------------------------------------------
@@ -1011,6 +1345,25 @@ schema의 security model을 처음 review하는 사람에게 명시적으로 알
 
   ADR-016        `get_friend_invite_preview`는       Security         채택됨         보편적인 anon-zero-access
                  schema의 유일한 anon-accessible RPC                                 posture의 첫 예외
+
+  ADR-017        `player_skill_records`는 attempt    Data / Analytics 채택됨         attempt-level 분석은
+                 history가 아닌 best-record snapshot                                PostHog 의존, Free Play
+                                                                                     재시도 구분 불가
+
+  ADR-018        `game_attempts` 이력 테이블을 지금   Data / Analytics 채택됨(보류)   attempt-level 정밀
+                 만들지 않음(의도적 보류)                                            분석은 실사용자 확보 후로
+                                                                                     미뤄짐
+
+  ADR-019        동일 브라우저 계정 간 local state는  Data /           채택됨         신규 도메인 추가 시
+                 owner marker로 보호, guest→최초가입  Persistence /                  clear* 호출 수동 관리
+                 은 예외                              Security                        필요
+
+  ADR-020        PostHog anonymous 방문자는           Analytics        채택됨         Funnel/Insight 레벨
+                 Assessment 시작 시 Person profile                                   최종 검증은 대시보드에서
+                 생성                                                                별도 필요
+
+  ADR-021        Feedback은 계정당 1행(latest-state)  Data             채택됨         피드백 변화 이력 분석
+                 유지                                                                불가
   -------------------------------------------------------------------------------------------------------------
 
 ------------------------------------------------------------------------
@@ -1108,6 +1461,41 @@ analysis를 모두 지원해야 한다. 선택: 같은 실제 action에서 별�
 설계한 code-verifiable 사례다. platform specialization과 manual-sync
 maintenance cost 사이의 trade-off를 논의하기 좋다.
 
+**ADR-019 --- 동일 브라우저 계정 간 local state 오염을 owner marker로
+차단.**
+
+문제: guest-first local storage 구조에서, 로그아웃이 데이터를 지우지
+않기 때문에 같은 브라우저에서 새 계정이 가입하면 이전 계정의
+XP/레벨/업적 등을 그대로 물려받고 심지어 Supabase 서버 데이터까지
+오염시킬 수 있었다 --- 실제로 재현되는 실측 버그였다. 선택: 이미 있던
+pet-profile 전용 owner marker를 XP/미션/업적/Room 등 18개 도메인
+전체로 확장하고, guest→최초가입은 marker가 `null`인 경우로 자연스럽게
+예외 처리했다. 기술적 근거: 초기화 후 marker를 즉시 새 계정으로
+claim하지 않고 다시 `null`로 되돌려, "완전히 새 기기"와 구별할 수
+없는 상태로 만든 뒤 기존 migration/session-sync 로직이 그대로 처리하게
+했다 --- 새로운 상태 기계를 만들지 않았다. 데이터/제품 관점: 실사용자
+리포트를 받고 원인을 코드로 재현 → 정확한 root cause 특정(SDK/구조
+문제가 아니라 15개 도메인에 검증 로직이 아예 없었던 gap) → 최소
+변경으로 수정 → 로컬 dev + 실제 Supabase로 두 시나리오(오염 차단 /
+정상 흐름 보존) 모두 실측 검증까지 이어지는 완전한 데이터 신뢰성
+디버깅 사례다.
+
+**ADR-020 --- PostHog anonymous→identified Person merge 연결.**
+
+문제: 가입 전 Assessment 행동이 가입 후 Person Activity에 나타나지
+않아, "어떤 방문자 행동이 실제 전환으로 이어지는가"를 Person 단위로
+분석할 수 없었다. 선택: `person_profiles:'identified_only'`라는 비용
+절감 설정 자체는 유지하면서, Assessment가 실제로 시작되는 시점에만
+`createPersonProfile()`을 호출해 전환 가능성이 있는 방문자만 선택적으로
+person processing을 켰다. 기술적 근거: 실제 배포된 posthog-js SDK
+소스(`_hasPersonProcessing`)를 직접 읽어 "코드가 identify()를 잘못
+호출해서"가 아니라 "애초에 merge할 익명 Person 자체가 생성되지
+않아서"라는 정확한 root cause를 코드 레벨로 증명했다. 데이터/제품
+관점: "SDK 호출이 구조적으로 맞다"와 "서버에서 실제로 원하는 결과가
+나온다"는 서로 다른 검증 layer라는 것을 실제로 구분해낸 사례 ---
+클라이언트 코드 검증만으로 데이터 신뢰성을 속단하지 않는 태도를
+보여준다.
+
 ------------------------------------------------------------------------
 
 ## 최종 QA 노트
@@ -1150,3 +1538,32 @@ section), `lib/friends/pending-friend-code.ts`(전체),
     self-identification을 직접 인용할 때만 사용했으며, 이를
     "architecture layer"나 임의로 만든 framework name 대신 사용하지
     않았다.
+
+### ADR-017~021 추가 시 QA 노트 (2026-09-02)
+
+ADR-017~021은 이전 대화 세션에서 실제로 수행한 조사/구현/실측 검증
+작업(cross-account 오염 재현 및 수정, PostHog SDK 소스 직접 분석,
+feedback RLS Production 실측 검증, player_skill_records history 여부
+별도 조사)을 근거로 작성했다. 문서 작성 자체를 위해 다음을 이번에
+다시 확인했다.
+
+-   `lib/pets/reset-foreign-account-state.ts`, `lib/pets/local-data-owner.ts`,
+    `components/brain-bet/game-flow.tsx`의 owner-mismatch 분기(전체
+    재확인), `lib/sync/sync-dispatcher.ts`(전체) --- ADR-019.
+-   `lib/analytics/posthog.ts`(`ensurePersonProfileCreated` 추가분),
+    `node_modules/posthog-js@1.418.10`의 `lib/src/posthog-core.js`의
+    `_hasPersonProcessing`/`identify` 구현부 --- ADR-020.
+-   `lib/game/player-skill-storage.ts`의 `recordMiniGameCompletion`,
+    `supabase/migrations/20260827000000_phase3b7_game_leaderboard_rpcs.sql`의
+    랭킹 RPC가 `player_skill_records.metrics`를 직접 읽는 부분 ---
+    ADR-017.
+-   `supabase/migrations/20260901010000_phase3j1_feedback_table.sql`,
+    `lib/feedback/feedback-storage.ts` --- ADR-021.
+-   `git log --oneline -15`로 이 문서가 다루는 결정들이 실제로 어느
+    commit에서 반영되었는지(`ba0ca45`, `b27ae33`, `fbcb84e`, `4756253`
+    등) 다시 확인했고, 임의로 commit hash를 만들어내지 않았다.
+-   ADR-018(`game_attempts` 미생성)은 코드로 "존재하지 않음"을
+    증명할 수 없는 항목이라, 실제로 저장소 전체에서
+    `game_attempts`/`Attempt` 관련 테이블·타입·migration이 없음을
+    grep으로 재확인한 뒤 "구현 실패가 아니라 의도적 보류"라고
+    서술했다.

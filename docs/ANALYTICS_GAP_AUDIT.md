@@ -1,6 +1,6 @@
 # Statling Analytics Gap Audit
 
-> **기준**: 2026-08-31 기준 저장소 코드(`Brain_Pet`, git `main`, HEAD `3e50494` 시점 기준 조사)를 직접 감사한 결과. `docs/ANALYTICS_MEASUREMENT_PLAN.md` 등 기존 문서의 이벤트 개수/결론은 참고만 하고 신뢰하지 않았으며, `lib/analytics/*`, `components/brain-bet/**`, `supabase/migrations/**`, `lib/migration/**`, `lib/sync/**`, repo 전체의 `localStorage`/`sessionStorage` 사용처를 코드 기준으로 다시 확인했다.
+> **기준**: 최초 감사는 2026-08-31 기준 저장소 코드(`Brain_Pet`, git `main`, HEAD `3e50494` 시점 기준 조사). 이후 Phase 3J-3(HEAD `d6c9436`)과 Production QA/후속 수정(cross-account 오염, GA4 초기화 race, PostHog anonymous↔identified merge — HEAD `ba0ca45`~`fbcb84e`)이 반영되어, 이 문서는 현재 HEAD `4756253` 기준으로 갱신되었다. `docs/ANALYTICS_MEASUREMENT_PLAN.md` 등 기존 문서의 이벤트 개수/결론은 참고만 하고 신뢰하지 않았으며, `lib/analytics/*`, `components/brain-bet/**`, `supabase/migrations/**`, `lib/migration/**`, `lib/sync/**`, repo 전체의 `localStorage`/`sessionStorage` 사용처를 코드 기준으로 다시 확인했다.
 > **목적**: 이벤트 개수 세기가 아니라, "기능은 있는데 운영자가 측정할 수 없는 것", "지금 데이터로 추정 불가능한 사용자 행동", "잘못 해석될 위험이 있는 데이터", "추가하면 가치가 큰 데이터", "저장/동기화/계정 ownership 때문에 유실·오염될 수 있는 데이터"를 찾는 것. 코드/migration은 수정하지 않았다.
 > **표기 규칙**: 가능(현재 데이터로 계산 가능) / 부분가능(근사치·간접 추정만 가능, 신뢰도 낮음) / 불가능(현재 데이터로 계산할 방법이 없음).
 
@@ -21,6 +21,14 @@ Statling은 GA4 + PostHog + Supabase 3계층으로 측정 체계를 구축했고
 **부수적 발견**: 이번 조사에서 Supabase 테이블 수가 기존 문서들이 말하는 "20개"가 아니라 **21개**(Phase 1의 19개 + `friendships` + `feedback`)임을 확인했다. `feedback` 테이블(`20260901010000_phase3j1_feedback_table.sql`)이 가장 최근에 추가되어 기존 문서에 반영되지 않은 것으로 보인다.
 
 > **Phase 3J-3 후속 작업 (2026-08-31)**: 이 감사에서 식별된 P0/P1 항목 중 사용자 테스트 전 필수로 판단된 6개(§14 P0 2개, P1 4개)를 실제 코드/DB 기준으로 재검증 후 수정했다. 각 항목의 RESOLVED/PARTIALLY RESOLVED 표시와 실제 구현 내용은 §14의 해당 행, 그리고 이 작업의 별도 완료 보고를 참고. 감사 당시 기록은 전부 그대로 보존했다.
+
+> **Production Analytics Final QA 및 후속 수정 (2026-09-01~09-02)**: Phase 3J-3가 실제 Production에 배포되기 전 상태에서 전체 사용자 여정을 실제 브라우저로 재현하는 Final QA를 수행했고, 그 과정에서 이 감사에는 없던 **새로운 P0/P1 항목 3개**를 코드 레벨로 직접 발견해 수정했다. 이 문서의 최초 감사 범위(2026-08-31)가 놓친 항목이므로 §1/§14에 새로 추가한다.
+>
+> 1. **[P0, RESOLVED]** 동일 브라우저에서 계정 A → 로그아웃 → 계정 B 가입 시, A가 남긴 로컬 게임 상태(XP/Lv/업적/미션/Room 등 18개 도메인 중 pets/feedback을 제외한 전부)가 아무 소유권 검증 없이 B의 화면에 노출되고 continuous sync를 통해 B의 실제 Supabase row에까지 기록될 수 있었던 cross-account 오염. `lib/pets/reset-foreign-account-state.ts` 신설 + owner-mismatch 시 전체 도메인 초기화로 수정, guest→최초가입 경로는 그대로 보존됨을 실측 확인. 상세는 §8, ADR-019.
+> 2. **[P0, RESOLVED]** `<GoogleAnalytics/>`의 `afterInteractive` 스크립트가 아직 로드되지 않은 시점(post-OAuth 리다이렉트 직후 등)에 `trackEvent()`가 호출되면 `window.gtag`가 아직 함수가 아니라서 이벤트가 조용히 드롭됨 — `profile_setup_view`/`profile_setup_complete`/`home_enter` 등 핵심 퍼널 이벤트 일부 유실. Google 공식 `dataLayer.push(arguments)` shim을 `trackEvent()` 내부에 추가해 gtag.js 로드 전에도 이벤트가 큐잉되도록 수정. 상세는 §10.
+> 3. **[P1, RESOLVED]** `person_profiles:'identified_only'` 설정 때문에 로그인 전 익명 방문자의 이벤트(`assessment_started`/`game_started`/`game_completed` 등)는 애초에 PostHog Person이 생성되지 않은 채(`$process_person_profile:false`) 수집되어, 이후 `identify()`가 호출돼도 가입 이전 행동이 가입 후 Person과 영구히 분리되는 문제. Assessment 시작 시점에 `posthog.createPersonProfile()`을 호출하도록 수정(`lib/analytics/posthog.ts`의 `ensurePersonProfileCreated`). 상세는 §11, ADR-020.
+>
+> 이 세 항목은 완전히 새로 발견된 것이므로 최초 감사 표에는 존재하지 않았다 — 아래 §14 표에 새 행으로 추가했다.
 
 ---
 
@@ -170,14 +178,14 @@ Screen/Modal 단위와 Click/Interaction 단위로 나눠 정리한다.
 
 | 유형 | 테이블 | 못하는 것 |
 |---|---|---|
-| **순수 스냅샷(덮어쓰기)** | `profiles`, `pets`, `xp_totals`, `attendance`, `activity_counters`, `pet_care_state`, `room_state`, `room_care_state`, `pet_memory`, `dialogue_memory`, `feedback` | 값이 언제/얼마나 변했는지 전혀 재구성 불가 |
+| **순수 스냅샷(덮어쓰기)** | `profiles`, `pets`, `xp_totals`, ~~`attendance`~~(**RESOLVED — Phase 3J-3, continuous sync 대상으로 편입, 값 변화는 여전히 재구성 불가하지만 "최신값"은 정확함**), `activity_counters`, `pet_care_state`, `room_state`, `room_care_state`, `pet_memory`, `dialogue_memory`, `feedback` | 값이 언제/얼마나 변했는지 전혀 재구성 불가 |
 | **최고기록 스냅샷** | `player_skill_records` | 시도 이력, 세션 수, 향상 곡선 계산 불가 |
 | **히스토리처럼 보이나 사실상 아님** | `daily_missions`(오늘 것만 업로드), `achievements`(unlock/claim 시각이 마이그레이션 이전 데이터는 합성값) | 과거 특정 일자의 미션 상태, 정확한 업적 달성 시각 |
 | **전체 교체(destructive replace)** | `room_items`, `deco_placement_items`, `user_notes` | 이전 방/장식 배치 이력 |
 | **진짜 append-only** | `room_inventory`, `deco_inventory`, `dex_entries`(단, `met_at`은 초기 마이그레이션 데이터의 경우 합성값) | 없음(단 마이그레이션 이전 계정은 시점 왜곡 있음) |
 | **생성 이력만 있고 삭제 이력 없음** | `friendships`(`created_at` 有, 삭제는 hard delete로 흔적 0) | 친구 관계 해제/이탈률 분석 불가 |
 
-**가장 심각한 개별 이슈**: `attendance`가 `lib/sync/sync-dispatcher.ts`의 continuous sync 대상(`SyncDomain`)에 포함되어 있지 않다 — 최초 로그인 마이그레이션 때 한 번 쓰이고 이후 다시는 갱신되지 않는다. 재방문·출석 스트릭 분석에 이 테이블을 쓰면 **활성 사용자를 과소평가**하게 된다.
+**가장 심각한 개별 이슈였던 것 — [RESOLVED — Phase 3J-3]**: ~~`attendance`가 `lib/sync/sync-dispatcher.ts`의 continuous sync 대상(`SyncDomain`)에 포함되어 있지 않다 — 최초 로그인 마이그레이션 때 한 번 쓰이고 이후 다시는 갱신되지 않는다. 재방문·출석 스트릭 분석에 이 테이블을 쓰면 활성 사용자를 과소평가하게 된다.~~ `attendance`를 `SyncDomain`에 추가해 매 방문마다 continuous sync되도록 수정, 재방문 시나리오 실측으로 `total_days`/`current_streak` 정상 갱신 확인(§14 P0).
 
 **Snapshot 데이터가 필요한 영역 vs Event/History 데이터가 필요한 영역**:
 - XP/능력치 성장 곡선, 스킬 향상 추이, 업적 달성 타임라인, 방/꾸미기 변경 이력, 친구 관계 해제 이력 → **모두 History 테이블 없이는 답할 수 없는 영역**. 지금은 이런 분석이 필요할 때마다 PostHog 원시 이벤트에 의존해야 하며, PostHog 리텐션 기간이나 식별 여부에 따라 데이터가 사라질 수 있다.
@@ -194,7 +202,8 @@ repo 전체에서 약 30개의 storage key를 확인했다. 대부분은 Supabas
 | `statling.introProgress.v1` | Assessment 6게임 진행 체크포인트(어느 스탯까지 했는지) | Supabase 미동기화, analytics로는 완료 시 `duration_ms` 하나만 파생되어 전달됨 — 온보딩 중단 지점 분석 불가 |
 | `statling.onboardingSeen.v1` | 최초 방문 온보딩 카드 "다시 보지 않기" 여부 | Supabase/analytics 어디에도 없음 — activation 지표로서 가치가 있는데 완전 블라인드 |
 | `statling:audio:bgmSettings` | BGM 트랙 선택/볼륨 | on/off 토글만 GA4 이벤트로 감, 실제 어떤 트랙이 선택되는지는 완전 로컬 |
-| `statling.attendance.v1`, `statling.userNotes.v1` | 출석/노트 | Supabase에 있긴 하나 최초 마이그레이션 이후 갱신 끊김(§8과 동일 문제) |
+| `statling.attendance.v1` | 출석 | **[RESOLVED — Phase 3J-3]** ~~Supabase에 있긴 하나 최초 마이그레이션 이후 갱신 끊김~~ → continuous sync 대상으로 편입됨(§8) |
+| `statling.userNotes.v1` | 노트 | Supabase에 있긴 하나 최초 마이그레이션 이후 갱신 끊김(continuous sync 대상 아님, `attendance`와 달리 이번 Phase에서도 변경하지 않음) |
 
 **공통 패턴**: "서비스는 정상 작동하지만 운영자는 데이터를 볼 수 없는" 사례는 예외 없이 (1) 비회원 상태이거나 (2) 애초에 sync 대상 domain 목록에서 빠진 경우다.
 
@@ -205,7 +214,7 @@ repo 전체에서 약 30개의 storage key를 확인했다. 대부분은 Supabas
 - 총 38개 custom event(`lib/analytics/ga.ts`) 확인, GA4 자동 `page_view`는 랜딩 계측을 대체.
 - **명명 규칙 불일치**: `_view`(achievement_view, collection_view, ranking_view 등) / `_start`·`_complete`(assessment, mini_game, free_play, egg_hatch) / 단발성 명사형(`pet_action`, `xp_earned`, `level_up`)이 혼재.
 - **의미가 겹치는 이벤트**: `daily_mission_view`와 `achievement_view`는 사실상 같은 컴포넌트의 같은 effect에서 탭 값만 다르게 분기된 것 — `ranking_view`처럼 하나의 이벤트에 `type` 파라미터를 두는 패턴과 설계가 다르다.
-- **필요한데 없는 이벤트**: Google OAuth 가입/로그인, Save 화면 노출/계속하기 클릭, Free Play 게임 중도 이탈, 난이도 해금 시점.
+- **필요한데 없던 이벤트, 전부 [RESOLVED — Phase 3J-3, §14 참고]**: ~~Google OAuth 가입/로그인, Save 화면 노출/계속하기 클릭, Free Play 게임 중도 이탈, 난이도 해금 시점~~.
 - **파라미터 누락**: `mini_game_complete`/`free_play_complete`에 `is_personal_best`, raw 지표값, 세션 소요시간이 없음.
 - GA4 전용이고 PostHog 대응이 없는 것: `collection_view`, `collection_statling_view`, `ranking_view`, `xp_earned`, `level_reward_received`, `audio_setting_change`, `bgm_play_mode_change`, `bgm_track_change`, `feedback_*`, `my_status_view`.
 
@@ -248,12 +257,12 @@ GA4 Consent Mode는 구현되어 있지 않다 — 동의 배너/consent gating 
 | Acquisition | 어느 홍보 채널의 사용자가 assessment completion rate가 가장 높은가? | 부분가능 — 앱 내부 공유발 트래픽만 채널 구분 가능, 운영자 직접 게시 링크는 UTM 누락 시 불가능 |
 | Acquisition | 지인 공유(친구 초대) 대비 일반 공유의 전환율 차이는? | 가능 — `utm_content`로 구분 가능 |
 | Activation | 첫날 어떤 행동을 한 사용자가 D7 retention이 높은가? | 부분가능 — PostHog 이벤트로 가능하나 identified user에 한함, 게스트 이탈은 반영 안 됨 |
-| Activation | Save 화면(가입 유도)이 실제로 이탈을 만드는가? | 불가능 — 화면 노출/계속하기 클릭 미계측 |
-| Activation | Google 로그인 사용자의 가입 전환율은? | **불가능/왜곡** — 이벤트 자체가 없음 |
+| Activation | Save 화면(가입 유도)이 실제로 이탈을 만드는가? | **[RESOLVED — Phase 3J-3]** 가능 — `save_screen_viewed`/`auth_continue_clicked` 추가됨 |
+| Activation | Google 로그인 사용자의 가입 전환율은? | **[RESOLVED — Phase 3J-3]** 가능 — `trackGoogleAuthIfApplicable`로 `sign_up`/`login`에 포함됨 |
 | Engagement | 어떤 게임이 retry율은 높지만 completion rate도 높은가? | 부분가능 — retry는 계측되나 completion rate 분모가 이탈 미계측으로 오염 |
 | Game Balance | 어떤 게임이 지나치게 쉽거나 어려운가? | 가능(§5) |
 | Retention | 레벨업이 다음날 재방문에 영향을 주는가? | 가능 — `level_up`과 `home_entered{returning}` 조인 |
-| Retention | 정확한 출석/스트릭 기반 리텐션은? | 불가능(Supabase 기준) / 가능(PostHog 기준, §6) |
+| Retention | 정확한 출석/스트릭 기반 리텐션은? | **[Supabase 기준 RESOLVED — Phase 3J-3]** 가능(Supabase `attendance` continuous sync 편입) / 가능(PostHog 기준, §6) — 단 "언제 스트릭이 끊겼는지"의 히스토리는 여전히 재구성 불가(최신값만 정확) |
 | Pet/Care | 방 꾸미기를 사용하는 사용자가 더 오래 남는가? | 가능 — `customization_save`/`room_saved`와 retention 조인 가능 |
 | Pet/Care | 돌봄 행동 빈도가 리텐션과 상관관계가 있는가? | 가능 |
 | Progression | 어떤 시점에 XP 성장이 정체되는가? | **불가능** — `xp_totals`가 스냅샷이라 성장 곡선 자체가 없음, PostHog `game_completed`의 `xp_earned`(GA4 전용) 이벤트로 근사만 가능 |
@@ -276,6 +285,8 @@ GA4 Consent Mode는 구현되어 있지 않다 — 동의 배너/consent gating 
 | **[RESOLVED — Phase 3J-1, 이번 Phase 이전]** 비회원 피드백이 회원가입 없이는 영구 소실 | localStorage에만 존재, 마이그레이션은 계정 생성 시 1회성 best-effort → `20260901010000_phase3j1_feedback_table.sql` + `lib/feedback/feedback-storage.ts`로 서버 저장 경로 추가됨(Phase 3J-3 시작 시점에 이미 완료된 상태, 이번 Phase에서는 변경하지 않음) | 서비스 만족도의 상당 부분(비회원)이 표본에서 원천 배제되어 **생존자 편향된 피드백 데이터**가 됨 | Feedback 전체 대표성 | 비회원도 익명 feedback을 서버로 보내는 경로 검토(추가 인프라 필요, 별도 논의 필요) | Medium~High |
 | GA4 Consent Mode 부재 | 동의 배너/consent gating 코드 없음 | 실사용자 홍보 전 개인정보 처리 관련 컴플라이언스 리스크(국내 서비스는 PIPA 고려 필요) — 이는 "잘못된 데이터"라기보다 서비스 운영 리스크이나 데이터 수집의 적법성 자체에 영향 | 없음(법적/신뢰 리스크) | 최소한의 쿠키/추적 고지 및 동의 UX 검토 | Medium |
 | `daily_missions`가 히스토리 테이블처럼 보이지만 오늘 데이터만 업로드 | `date_key` 컬럼이 있어 이력 테이블로 오인하기 쉬움 | 분석가가 이 테이블로 "과거 특정일 미션 달성률"을 조회하면 **결측을 0으로 오인**할 위험 | 일자별 미션 히스토리 | 문서화(테이블 코멘트/데이터 사전에 "오늘자만 유효" 명시) — 코드 변경 없이도 즉시 가능 | Low |
+| **[RESOLVED — Production QA 후속, 2026-09-02]** 동일 브라우저 계정 간 로컬 게임 상태 오염(cross-account contamination) | `lib/pets/local-data-owner.ts`의 owner-guard는 pet profile/최초 마이그레이션/feedback 3곳에만 적용되어 있었고, XP/Lv/업적/미션/Room 등 나머지 15개 로컬 도메인은 계정 소유권 검증이 전혀 없어 로그아웃 후 다른 계정이 가입하면 이전 계정 값을 그대로 물려받고 continuous sync로 실제 Supabase row에까지 기록될 수 있었음(실측: A의 XP 999/Lv.5 상당이 B의 로컬 화면과 Supabase `xp_totals`/`pet_care_state`에 반영되는 것을 직접 재현) → `lib/pets/reset-foreign-account-state.ts` 신설, owner-mismatch 시 18개 도메인 전체 초기화 + owner marker를 unclaimed로 리셋해 이후 정상 마이그레이션이 새 계정을 claim하도록 수정. guest→최초가입 경로(owner가 애초에 null인 경우)는 분기 자체가 타지 않아 그대로 보존됨을 실측 확인(로컬 dev 서버 + 실제 Supabase, 두 시나리오 모두 REST로 직접 조회). | 신규 가입자가 이미 성장한 상태로 시작하는 것처럼 보여 XP/Level 기반 랭킹·리텐션·활동 지표가 **실제로 오염**되며, "신규 사용자"라는 세그먼트 자체의 정의가 깨짐 | 전체 활동/랭킹/리텐션 분석(오염된 계정이 섞이면 세그먼트 신뢰 불가) | `lib/pets/reset-foreign-account-state.ts` + `components/brain-bet/game-flow.tsx`의 owner-mismatch 분기 확장 | Medium |
+| **[RESOLVED — Production QA 후속, 2026-09-02]** GA4 초기화 race로 인한 이벤트 유실 | `lib/analytics/ga.ts`의 `trackEvent()`가 `window.gtag`가 아직 함수가 아니면(`<GoogleAnalytics/>`의 `afterInteractive` 스크립트 로드 전 — 예: OAuth 리다이렉트 직후 첫 렌더처럼 페이지가 매우 이른 시점에 마운트되는 화면) 이벤트를 조용히 버렸음 | `profile_setup_view`/`profile_setup_complete`/`home_enter` 등 핵심 온보딩 퍼널 이벤트가 타이밍에 따라 간헐적으로 유실 — 재현이 어려운 산발적 결측이라 원인 파악이 특히 어려운 유형 | 회원가입 이후 온보딩 퍼널 전체 | Google 공식 `dataLayer.push(arguments)` shim을 `trackEvent()`에 추가, gtag.js 로드 전 호출도 큐잉되어 유실 없이 처리 | Low |
 
 ### P1 — 핵심 퍼널/핵심 KPI 계산 불가
 
@@ -287,7 +298,8 @@ GA4 Consent Mode는 구현되어 있지 않다 — 동의 배너/consent gating 
 | **[RESOLVED — Phase 3J-3]** Grow/Grow-game 단계 전부 미계측 | ~~두 화면 모두 추적 코드 없음~~ → `grow-screen.tsx` mount 시 PostHog `grow_screen_viewed`, `game-flow.tsx`의 `selectFreePlayGame`(스탯 선택 시점)에서 `grow_stat_selected{ability}` 추가. Grow-game(게임/난이도 선택) 자체의 별도 view 이벤트는 추가하지 않음 — `grow_stat_selected`가 곧 그 화면 진입을 의미하고, 게임/난이도 확정 후 실제 시작은 기존 `game_started`/`free_play_start`로 이미 충분히 커버되어 중복 계측을 피함(요청받은 대로). | Free Play 진입 전 단계의 이탈/선택 패턴을 알 수 없음 | Free Play Participation Funnel 세부 단계 | 화면 진입/선택 이벤트 추가 | Low |
 | **[RESOLVED — Phase 3J-3]** Hard/Extreme 해금 시점 이벤트 없음 | ~~해금은 클라이언트에서 조용히 계산될 뿐 이벤트화 안 됨~~ → `game-flow.tsx`의 `recordSkillCompletion`에서 게임 완료로 `player_skill_records`를 쓰기 직전(before)과 직후(after) 상태로 `isDifficultyUnlocked()`를 비교, `false→true`로 전환되는 유일한 순간에만 PostHog `tier_unlocked{game_id, ability, tier}` 발화. 별도 "이미 알림함" 플래그 없이 기존 최고기록 persistence 구조(단조 증가)만으로 정확히 1회만 발화함을 코드 레벨로 보장(요청받은 대로 임시 flag 추가 없이 기존 구조 검토 후 구현) — 실제 임계값을 넘는 완료를 재현하는 라이브 테스트는 이번 QA에서 수행하지 않음(시간 제약), 로직은 코드 리뷰로 검증. | "해금이 재방문을 유도하는가"라는 핵심 성장 가설 검증 불가 | 난이도 시스템의 재방문 기여도 | `tier_unlocked{game_id, tier}` 이벤트 추가 | Low |
 | **[PARTIALLY RESOLVED — Phase 3J-3]** 운영자 직접 홍보 링크에 UTM 강제 없음 | `buildCampaignUrl()`이 UI에 미연결 — 요청에 따라 이번 Phase에서도 UI는 만들지 않음. 대신 Threads/Instagram/네이버블로그/티스토리/지인 공유 채널별 권장 `utm_source`/`utm_medium`/`utm_campaign`/`utm_content` 값을 문서화(완료 보고 §12 참고). | Threads/Instagram/블로그 등 채널 비교가 통째로 불가능해질 위험 | Acquisition 채널 비교 | 프로세스 문서화 + 필요시 내부용 링크 생성 UI 추가 | Low |
-| **[NOT RESOLVED — 이번 Phase 범위 밖]** `player_skill_records`가 시도 이력을 보존하지 않음 | (user, game, difficulty)당 최고기록 1행만 upsert | "반복 플레이로 실력이 느는가" 같은 핵심 게임 분석 질문에 Supabase로는 답 불가 | 스킬 향상 곡선, 세션 빈도 | PostHog 원시 이벤트에 의존(현재도 가능은 하나 취약) — 별도 이력 테이블은 P2로 후순위 검토 | Medium~High |
+| **[의도적으로 이력 테이블화하지 않기로 결정 — 별도 조사 완료]** `player_skill_records`가 시도 이력을 보존하지 않음 | (user, game, difficulty)당 최고기록 1행만 upsert(`lib/game/player-skill-storage.ts`의 `recordMiniGameCompletion` — `isBetterByGameScore`일 때만 교체). 별도 조사(1→2→3→10회 플레이 시나리오, 100/1,000/10,000명 규모 데이터량 추정 포함)에서 A(현행 유지)/B(전체 history 테이블)/C(부분 history) 세 옵션을 비교한 결과 **C(현재는 만들지 않고 실사용자 데이터 확보 후 재검토)**로 결론 — 실사용자도 없는 상태에서 `game_attempts` 같은 append 테이블을 미리 만드는 것은 과도한 schema 확장으로 판단. `game_completed`(PostHog, 재시도 포함 매 유효 시도마다 발화, `completion_result:'first_attempt'\|'retry'`)가 현재 이 역할의 1차 대체 수단 — 단, Free Play는 재시도 개념 자체가 없어(전용 재도전 버튼 없음, 재입장만 가능) `completion_result`가 Free Play에서는 항상 `'first_attempt'`로 고정되는 한계가 있음(Assessment의 1회 한정 재도전과는 다름). 상세는 ADR-018/ADR-019. | "반복 플레이로 실력이 느는가" 같은 핵심 게임 분석 질문은 Supabase로는 여전히 답 불가하지만, PostHog 원시 이벤트로 부분적으로 근사 가능(Free Play 재시도 구분 제외) | 스킬 향상 곡선, 세션 빈도(Free Play 재시도 단위 분석은 여전히 불가) | 실사용자 데이터로 실제 반복 플레이 분석 수요가 확인되면 그때 재검토(ADR-018) | Medium~High |
+| **[RESOLVED — Production QA 후속, 2026-09-02]** PostHog anonymous→identified Person merge 미연결 | `person_profiles:'identified_only'` 설정에서는 `identify()` 호출 전 익명 이벤트가 `$process_person_profile:false`로 수집되어 애초에 Person이 생성되지 않음(실제 배포 SDK `posthog-js@1.418.10`의 `_hasPersonProcessing()` 로직으로 확인) → 이후 `identify()`가 정확한 인자로 호출돼도(코드 레벨/`$anon_distinct_id` 모두 정상) merge할 익명 Person 자체가 없어 가입 전 Assessment 행동(`assessment_started`/`game_started`/`game_completed`)이 가입 후 Person Activity에 영구히 나타나지 않음 — Production 실제 브라우저로 재현 확인(가입 전/후 두 Person id를 직접 비교). `posthog.identify()`/`reset()` 호출 자체는 처음부터 문제 없었음(오탐 아님을 코드 재검토로 확인) — 원인은 person-profile 생성 시점 자체였음. `lib/analytics/posthog.ts`의 `ensurePersonProfileCreated()`를 Assessment 시작 시점(`start`/`resumeIntro`)에 호출해 그 시점부터 익명 이벤트도 Person에 귀속되도록 수정. **Funnel/Insight 레벨(Person Activity 탭이 아닌)에서 실제로 연결되는지는 PostHog 프로젝트 직접 접근 없이는 검증 못 함 — Production 대시보드에서 재확인 필요.** 상세는 §11, ADR-020. | Assessment 완주 여부·소요시간·top_stat 같은 가입 **전** 행동과 가입 **후** 리텐션/전환을 Person 단위로 묶어 분석하는 것이 불가능했음(가입 전환에 영향을 주는 요인 분석의 핵심 데이터) | "어떤 Assessment 행동이 실제 전환/리텐션과 상관관계가 있는가" 전체 | `posthog.createPersonProfile()`을 Assessment 시작 시점에 호출 | Medium |
 
 ### P2 — 분석 가치는 높지만 당장 서비스 운영에는 지장 없음
 
@@ -339,6 +351,9 @@ GA4 Consent Mode는 구현되어 있지 않다 — 동의 배너/consent gating 
 ### MUST HAVE
 - [x] **RESOLVED (Phase 3J-3)** Google OAuth 가입/로그인 이벤트 추가(§14 P0) — 안 하면 홍보 이후 가장 중요한 KPI인 가입 전환율 자체가 왜곡된다.
 - [x] **RESOLVED (Phase 3J-3)** `attendance` 지속 동기화 반영. (구현 완료 — 더 이상 "PostHog `home_entered` 기준으로만 집계" 원칙에 의존하지 않아도 됨. 단, Phase 3J-3 이전에 마이그레이션된 기존 계정의 과거 공백 기간 자체는 소급 채워지지 않음 — 이 시점 이후 재방문부터 정확.)
+- [x] **RESOLVED (Production QA 후속, 2026-09-02)** 동일 브라우저 계정 간 로컬 게임 상태 오염(cross-account contamination) 수정(§14 P0) — 실사용자 홍보 전 반드시 막아야 했던 데이터 무결성 문제. `lib/pets/reset-foreign-account-state.ts`.
+- [x] **RESOLVED (Production QA 후속, 2026-09-02)** GA4 초기화 race로 인한 핵심 온보딩 이벤트 산발적 유실 수정(§14 P0) — `dataLayer` shim 추가.
+- [x] **RESOLVED (Production QA 후속, 2026-09-02)** PostHog anonymous→identified Person merge 연결(§14 P1) — 가입 전 Assessment 행동이 가입 후 분석과 분리되던 문제. `ensurePersonProfileCreated()`. Person Activity 탭 기준 코드 레벨 수정 완료, Funnel/Insight 레벨 최종 검증은 Production PostHog 대시보드에서 별도 확인 필요.
 - [ ] **NOT RESOLVED** 운영자가 SNS에 직접 게시할 모든 홍보 링크는 `buildCampaignUrl()` 또는 수동 UTM 부착을 거친다는 프로세스 확정(코드 없이도 즉시 가능) — 이번 Phase 3J-3에서는 권장 UTM 값만 문서화(완료 보고 §12), 프로세스 확정/UI는 여전히 미비.
 - [ ] **NOT RESOLVED** 개인정보 처리/추적 관련 최소 고지 검토(현재 GA4가 동의 없이 무조건 발화) — 실사용자 대상 홍보 전 법무/컴플라이언스 확인 권장. 이번 Phase 범위 밖.
 - [ ] **NOT RESOLVED** `daily_missions`/`achievements`의 스냅샷·부분 히스토리 한계를 데이터 분석 문서에 명시해, 향후 분석가가 이 테이블을 오독하지 않도록 한다. 이번 Phase 범위 밖.
@@ -350,7 +365,7 @@ GA4 Consent Mode는 구현되어 있지 않다 — 동의 배너/consent gating 
 - [x] **RESOLVED (Phase 3J-3)** Grow/Grow-game 화면 최소 view 이벤트.
 
 ### LATER
-- `player_skill_records` 시도 이력 별도 테이블화.
+- `player_skill_records` 시도 이력 별도 테이블화 — 별도 조사 결과 **지금은 만들지 않기로 결정**(옵션 C, ADR-018/ADR-019). 실사용자 데이터로 반복 플레이 분석 수요가 실제로 확인되면 재검토.
 - 친구 초대 생성 이벤트 분리, 친구 해제 이력.
 - BGM/오디오 세부 설정 계측, 온보딩 카드 노출/닫기 계측.
 - 게임별 raw 지표/소요시간 확대(문제가 확인된 게임부터).

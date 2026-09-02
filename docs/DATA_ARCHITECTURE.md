@@ -177,6 +177,8 @@ ranking과 friend 기능은 cross-user read/write가 필요하다. 이 함수들
 
 `birth_date`, `gender`, `nickname`, `friend_code`, `friendships`는 localStorage mirror가 없다.
 
+"sync 대상"으로 분류된 key와 `statling:feedback:{deviceId}`는 계정 소유권 검증(owner guard) 대상이기도 하다 — 로그아웃해도 이 key들은 지워지지 않으므로, 같은 브라우저에서 다른 계정이 로그인하면 owner marker 불일치 시 전부 초기화된다. 상세 메커니즘은 §7 "Cross-Account Local State Protection" 참고.
+
 ---
 
 ## 6. SessionStorage
@@ -249,6 +251,62 @@ sequenceDiagram
     Sync->>B: expose restore conflict
   end
 ```
+
+### Cross-Account Local State Protection (owner guard)
+
+위 세 흐름(신규 Login / 기존 User Login / New Device)은 모두 "이
+브라우저의 로컬 데이터가 지금 로그인하는 계정 소유"라는 전제 위에서
+동작한다. 이 전제가 깨지는 실제 경우가 하나 있다: **같은 브라우저에서
+계정 A가 로그아웃하고 계정 B가 새로 가입하는 경우** --- 로그아웃은
+localStorage를 지우지 않으므로(재로그인 없이 새로고침해도 데이터가
+안 날아가게 하려는 의도적 설계), B는 A가 남긴 XP/Lv/업적/미션/Room
+데이터를 그대로 상속받을 수 있었다(2026-09-02 실측 재현, ADR-019).
+
+`lib/pets/local-data-owner.ts`의 `statling.localDataOwner.v1` marker가
+이를 보호한다.
+
+| marker 값 | 의미 | `isLocalDataOwnedBy(userId)` |
+|---|---|---|
+| `null` | 아직 아무 계정도 claim하지 않은 상태(guest 데이터, 또는 marker 도입 이전 기기) | `true` --- 누구든 첫 claim 가능 |
+| `userId`와 같음 | 이 기기의 로컬 데이터가 정확히 이 계정 것임이 이미 확인됨 | `true` |
+| `userId`와 다름 | 다른(이미 로그아웃한) 계정 소유 | `false` |
+
+`isLocalDataOwnedBy`가 `false`를 반환하면 `game-flow.tsx`의 root
+effect가 `lib/pets/reset-foreign-account-state.ts`의
+`resetForeignAccountOwnedLocalState()`를 호출해 pets/feedback을
+포함한 18개 계정 소유 로컬 도메인 전체를 초기화하고 marker를 다시
+`null`로 되돌린다 --- 그 순간부터는 위 세 흐름이 "완전히 새 기기"와
+동일하게 처리한다. `statling.deviceId.v1`(device 식별자 자체)과
+오디오/온보딩/A-B variant 같은 device 단위 preference는 건드리지
+않는다.
+
+```mermaid
+sequenceDiagram
+  participant B as Browser (계정 A의 잔여 local state)
+  participant GF as game-flow.tsx
+  participant Owner as local-data-owner.ts
+  participant Reset as reset-foreign-account-state.ts
+
+  B->>GF: 계정 B로 로그인/가입 성공 (user.id = B)
+  GF->>Owner: isLocalDataOwnedBy(B.id)
+  alt marker == A.id (다른 계정 소유)
+    Owner-->>GF: false
+    GF->>Reset: resetForeignAccountOwnedLocalState()
+    Reset->>B: XP/Lv/업적/미션/Room 등 18개 도메인 초기화
+    Reset->>Owner: clearLocalDataOwner() (marker -> null)
+    Note over B,Owner: 이후 기존 migration/session-sync 흐름이<br/>"완전히 새 기기"로 정상 처리
+  else marker == null 또는 == B.id
+    Owner-->>GF: true
+    Note over GF: 기존 흐름 그대로 (guest→최초가입 포함)
+  end
+```
+
+이 보호는 guest→최초가입 경로를 막지 않는다 --- marker가 애초에
+`null`이면 `isLocalDataOwnedBy`가 `true`를 반환해 위 분기 자체를
+타지 않으므로, 게스트가 Assessment로 만든 진행 상황은 최초 가입 시
+그대로 정상 마이그레이션된다(2026-09-02 실측: guest로 실제 6게임
+플레이 후 가입 → XP/펫/업적이 Supabase에 그대로 반영됨을 REST로
+확인).
 
 ---
 
@@ -336,13 +394,15 @@ Assessment 입력은 최종적으로 pet 선택/확정과 skill/ability 표현�
 
 게임 완료 시 `statling.playerSkill.v1`에 raw metric, normalized score, completion id가 저장된다. 서버에는 `player_skill_records`로 upsert된다. ranking UI는 local record를 정렬하지 않고 ranking RPC 결과를 사용한다.
 
+`player_skill_records`는 **best-record snapshot**이다 --- PK가 `(user_id, game_id, difficulty)`라 시도마다 새 행이 쌓이지 않고, `isBetterByGameScore`로 판정될 때만 기존 행이 교체된다(`lib/game/player-skill-storage.ts#recordMiniGameCompletion`). 랭킹 RPC(`get_game_leaderboard_*`)와 난이도 해금 판정(`isDifficultyUnlocked`)이 이 값을 직접 읽으므로 이 구조는 의도적으로 유지된다(ADR-017). "반복 플레이로 실력이 느는가" 같은 attempt-level 질문은 이 테이블로는 답할 수 없고, PostHog의 `game_completed{completion_result:'first_attempt'|'retry'}`(모든 유효 시도마다 발화)가 현재의 1차 대체 수단이다 --- 단 Free Play는 재시도 UI 자체가 없어 `completion_result`가 항상 `'first_attempt'`로 고정된다. `game_attempts` 같은 별도 이력 테이블은 실사용자 데이터로 실제 수요가 확인되기 전까지는 만들지 않기로 결정했다(ADR-018).
+
 ### XP
 
 XP는 `statling.xp.v1`에 total/weekly 형태로 쌓이고 `xp_totals`로 sync된다. XP leaderboard는 `xp_totals.total_xp` 기반 RPC가 계산한다.
 
 ### Missions
 
-Daily mission과 activity counters는 local-first로 갱신되고 서버의 `daily_missions`, `activity_counters`에 저장된다. `attendance`는 migration/restore table이 있지만 continuous sync domain에는 없다.
+Daily mission과 activity counters는 local-first로 갱신되고 서버의 `daily_missions`, `activity_counters`에 저장된다. `attendance`는 Phase 3J-3부터 `lib/sync/sync-dispatcher.ts`의 `SyncDomain`에 포함되어 매 방문마다 continuous sync된다(이전에는 최초 마이그레이션 1회만 반영되고 갱신이 끊겼음 — 재방문 시나리오로 `total_days`/`current_streak` 정상 갱신을 실측 확인). `daily_missions`/`activity_counters`는 여전히 스냅샷이며, `daily_missions`는 "오늘 것"만 서버에 반영된다는 점에 주의(§18).
 
 ### Achievements
 
@@ -363,6 +423,10 @@ Dex는 `statling.dex.v1`에 internal pet id 배열로 저장된다. 서버는 `d
 ### Profile
 
 `nickname`, `birth_date`, `gender`는 Supabase profile row가 source다. `birth_date`와 `gender`는 nullable이고 guest에게 input 자체가 숨겨져 있으며 localStorage mirror가 없다.
+
+### Feedback
+
+비로그인 상태에서는 `statling:feedback:{deviceId}`에만 저장된다(guest fallback). 로그인 사용자는 `public.feedback`(PK `user_id`, ADR-021)에 `upsert(row, {onConflict:'user_id'})`로 저장되며, 계정당 최신 1건만 유지된다(append 이력 아님). Production Supabase에 이 테이블이 실제로 적용되어 있는지, RLS가 본인 row만 SELECT/INSERT/UPDATE를 허용하는지는 REST로 직접 검증했다(§12 Security QA Evidence 대응 --- `docs/SECURITY_AND_PRIVACY.md` §12 참고). `comment`/`*OtherText`/`*Detail` 자유 텍스트 필드는 Supabase에는 저장되지만 GA4 `feedback_submit` 이벤트 payload에는 포함되지 않는다.
 
 ---
 
@@ -460,6 +524,31 @@ public/client payload에는 상대방 raw UUID가 나오지 않는다. invite co
 
 GA4와 PostHog는 product DB가 아니다. 둘은 같은 사용자 행동 근처에서 별도 이벤트를 보내지만, Supabase row와 같은 source of truth 역할을 하지 않는다.
 
+세 데이터 도구는 서로 대체재가 아니라 서로 다른 질문에 답하도록 역할이 분리되어 있다(ADR-013 추가 항목).
+
+| 도구 | 역할 | 답하는 질문 |
+|---|---|---|
+| **Supabase** | transactional/account/game state | "지금 이 계정의 최신 상태는?" |
+| **GA4** | acquisition/traffic/session/funnel | "트래픽이 어디서 와서 어디서 전환/이탈하는가?" |
+| **PostHog** | product behavior/attempt behavior/identity/session | "한 사람이 시간에 걸쳐 무엇을 반복했는가?" |
+
+### Anonymous → Identified Identity Flow (PostHog)
+
+PostHog는 `person_profiles:'identified_only'`로 설정되어 있어(비용 절감 목적), `identify()` 호출 전 이벤트는 기본적으로 Person을 생성하지 않는다. 이 상태로 두면 가입 전 Assessment 행동이 가입 후 Person과 영구히 분리되는 문제가 있어(2026-09 Production 실측 확인, ADR-020), Assessment 시작 시점에 `createPersonProfile()`을 호출해 그 시점부터는 person processing이 켜지도록 한다.
+
+```mermaid
+flowchart LR
+  A[Anonymous visitor] --> B[Assessment starts]
+  B --> C["createPersonProfile()"]
+  C --> D["assessment_started / game_started / game_completed<br/>(person processing ON)"]
+  D --> E[signup / login]
+  E --> F["identify(Supabase user UUID)"]
+  F --> G["PostHog Person merge<br/>($anon_distinct_id -> distinct_id)"]
+  G --> H[authenticated product history<br/>naming_completed / home_entered / ...]
+```
+
+랜딩만 보고 Assessment를 시작하지 않는 방문자는 `createPersonProfile()`이 호출되지 않아 Person이 생성되지 않는다 — 원래의 비용 절감 의도는 그대로 유지된다. Person Activity 탭 기준 코드 레벨 동작은 실측 확인했으나, Funnel/Insight 레벨에서의 최종 검증은 PostHog 프로젝트 접근이 필요해 별도 확인 대상으로 남아 있다.
+
 | 데이터 | GA4/PostHog custom payload 여부 | 비고 |
 |---|---|---|
 | pet internal id / statling type | 일부 이벤트에 포함 | reveal, friend invite, product events |
@@ -544,7 +633,8 @@ GA4와 PostHog는 product DB가 아니다. 둘은 같은 사용자 행동 근처
 |---|---|
 | local-first와 server mirror의 이중 상태 | migration/sync/restore가 복잡하며, marker/freshness 판단이 잘못되면 stale overwrite 위험이 있다. |
 | visible ranking과 local ranking abstraction 분리 | Ranking screen은 RPC 직접 호출, `ranking-provider.ts`는 achievement path에 남아 있어 독자가 오해하기 쉽다. |
-| 일부 migration/restore 대상이 continuous sync domain이 아님 | `attendance`, `user_notes`는 현재 `SyncDomain`에 없다. 멀티 디바이스 최신성 기대치를 문서화해야 한다. |
+| 일부 migration/restore 대상이 continuous sync domain이 아님 | ~~`attendance`,~~ `user_notes`는 현재 `SyncDomain`에 없다(`attendance`는 Phase 3J-3에서 추가되어 더 이상 해당하지 않음). 멀티 디바이스 최신성 기대치를 문서화해야 한다. |
+| **[RESOLVED — 2026-09-02]** 동일 브라우저 계정 간 local state 오염 | pet profile 외 15개 로컬 도메인에 계정 소유권 검증이 없어, 로그아웃 후 다른 계정이 가입하면 이전 계정 값을 상속하고 continuous sync로 실제 Supabase row까지 오염될 수 있었다. `lib/pets/reset-foreign-account-state.ts`로 수정, 두 시나리오(오염 차단/guest→최초가입 보존) 모두 실측 검증 완료(§7 Cross-Account Local State Protection, ADR-019). |
 | achievement notification 상태의 이중 표현 | local notified set이 서버 `notified_at`으로 mapping된다. 독립 domain처럼 보이지만 실제로는 achievement row 일부다. |
 | friend_code가 capability token 역할 | 별도 accept/approval 단계가 없으므로 code 유출은 연결 시도로 이어질 수 있다. rotation 기능은 없다. |
 | anon-accessible RPC 존재 | `get_friend_invite_preview`는 좁지만, anon zero-access 원칙의 명시적 예외다. |

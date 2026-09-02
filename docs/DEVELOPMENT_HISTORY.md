@@ -1,6 +1,6 @@
 # Statling Development History
 
-> 기준: 현재 repository HEAD `4e54742` (`main`), 2026-07-23부터 2026-08-25까지의 전체 Git history.
+> 기준: 최초 작성 시 repository HEAD `4e54742` (`main`), 2026-07-23부터 2026-08-25까지의 전체 Git history. §5.1은 이후 HEAD `4756253`까지(2026-08-31~09-02, feedback/analytics/cross-account/GA4/PostHog/OAuth 관련 커밋)를 추가로 반영했다.
 > 작성 원칙: `git log --reverse`, migration history, 주요 commit의 `git show --stat`, 현재 코드 파일을 근거로 개발 흐름을 복원했다. 기존 `STATLING_MASTER_DOCUMENTATION*` 및 `ARCHITECTURE_DECISION_LOG.md`는 방향 확인용으로만 참고했고, 내용을 source of truth처럼 복사하지 않았다.
 > 확인 불가 표기: commit/diff만으로 원래 의사결정 이유를 복원할 수 없는 경우에는 추정하지 않고 별도 표기했다.
 
@@ -454,6 +454,63 @@ Friend system은 2026-08-24부터 2026-08-25까지 매우 짧은 기간에 backe
 
 ---
 
+## 5.1 Production QA 및 Data-Quality 후속 조치 (2026-08-31 ~ 2026-09-02)
+
+Phase 3J-3(분석 계측 개선) 이후, 실사용자 홍보 전 마지막 단계로 실제 Production 환경 기준 QA를 진행하며 발견된 사례다. 위 §5 표와 달리 이 구간은 단순 commit 나열이 아니라 실제 조사 과정을 거쳤으므로, 사례별로 문제→발견→원인→수정→검증 흐름을 남긴다.
+
+### A. Feedback 서버 저장 — 코드는 있지만 Production에 미적용
+
+- **문제**: `public.feedback` 테이블과 저장 로직은 이미 코드에 있었지만, 실제 Production Supabase 프로젝트에 이 migration이 적용됐는지는 별도로 확인된 적이 없었다.
+- **발견**: 무인증 REST로 `feedback` 테이블을 조회하면 `404 PGRST205`(테이블 없음)가 반환됐다 — 실제로 존재하는 `profiles`/`attendance`에 같은 방식으로 요청하면 `401`(RLS 차단, 테이블은 존재)이 나오는 것과 대조해 "테이블 자체가 없다"고 확정했다. Production UI로 실제 피드백을 제출해도 `제출하지 못했어요` 실패 토스트와 함께 GA4 `feedback_fail` 이벤트가 발화됐다.
+- **원인**: `20260901010000_phase3j1_feedback_table.sql`이 git에는 커밋됐지만, 실제 Supabase 프로젝트에는 한 번도 SQL이 실행되지 않았다.
+- **수정**: 에이전트는 service-role key/DB 비밀번호가 없어 직접 실행할 수 없었다 — migration SQL이 `create table if not exists`/`drop policy if exists`/신규 RLS 정책만 추가하는 안전한 내용임을 검토해 사용자에게 전달했고, 사용자가 Supabase Dashboard SQL Editor에서 직접 실행했다.
+- **검증**: 실행 후 같은 무인증 REST 조회가 `401`로 전환됨을 확인. 실제 테스트 계정으로 본인 row INSERT/SELECT/UPDATE 성공, 다른 계정이 그 row를 SELECT하면 빈 배열, 다른 계정이 `user_id`를 스푸핑해 INSERT를 시도하면 RLS `with check`에 막혀 `403`, 비인증 요청은 `401` — 전부 REST로 직접 검증. 마지막으로 Production UI로 실제 피드백을 다시 제출해 `feedback_submit` 이벤트와 Supabase row 생성까지 확인했다(자유 텍스트 코멘트는 Supabase에는 저장되지만 GA4 payload에는 포함되지 않음도 함께 확인).
+
+### B. PostHog Production network delivery 조사 — 테스트 환경의 bot 차단
+
+- **문제**: Playwright 자동화 브라우저로 Production을 테스트할 때, `posthog.capture()`가 실제로 호출됨에도 `us.i.posthog.com`으로 나가는 network request가 전혀 관측되지 않았다(정적 asset host만 호출됨). 같은 브라우저 컨텍스트에서 GA4는 정상적으로 `204` 응답을 받았다.
+- **발견**: headless/non-headless 모두 동일, 여러 차례 재현. `curl`로 `us.i.posthog.com`에 직접 요청하면 정상 응답(`400`, 의도적으로 잘못된 payload)을 받아 네트워크 경로 자체는 열려 있음을 확인 — sandbox 전체 차단이 아니었다.
+- **원인**: 실제 배포된 `posthog-js` SDK 소스(`posthog-core.js`)를 직접 읽어, SDK 자체의 bot detection(`_is_bot()`/`isLikelyBot`)이 자동화 브라우저(Playwright)를 감지해 캡처를 클라이언트 레벨에서 폐기함을 확인 — Statling 코드의 결함이 아니었다.
+- **수정**: 코드 변경 없음 — 이것은 테스트 환경의 한계이지 Production 버그가 아니라는 판정 자체가 결과물이었다.
+- **검증**: `--disable-blink-features=AutomationControlled` + `navigator.webdriver` spoof + User-Agent 변경까지 조합해도 동일하게 차단됨을 추가로 확인해, 단순 webdriver 플래그 문제가 아니라 SDK의 더 종합적인 bot 판정 로직임을 뒷받침했다. 이후 모든 PostHog 관련 QA 보고에서 "CODE VERIFIED(SDK가 올바른 인자로 호출됨)"와 "NETWORK VERIFIED(실제 서버 도달 확인)"를 명시적으로 구분해서 보고하는 방식으로 전환했다.
+
+### C. PostHog anonymous → identified Person merge 미연결
+
+- **문제**: 실제 Production 브라우저로 수동 검증한 결과, 회원가입 후 PostHog Person Activity에 가입 **이전** Assessment 행동(`assessment_started`/`game_started`/`game_completed`)이 전혀 나타나지 않았다.
+- **발견**: 가입 전 anonymous Person id와 가입 후 identified Person id를 직접 비교 — 가입 후 Person Activity에는 `naming_completed`/`profile_setup_viewed`/`home_entered` 등 가입 **이후** 이벤트만 존재했다.
+- **원인**: `identify()` 호출 자체(인자, 호출 시점, `$anon_distinct_id`)는 코드 재검토로 전부 정상임을 확인했다 — 문제는 `person_profiles:'identified_only'` 설정 때문에 `identify()` 호출 **전** 이벤트가 애초에 Person을 생성하지 않는다는 점이었다(`posthog-js` 소스의 `_hasPersonProcessing()`으로 확인). merge할 대상 자체가 없었다.
+- **수정**: `lib/analytics/posthog.ts`에 `ensurePersonProfileCreated()`를 추가하고, Assessment 시작 시점(`game-flow.tsx`의 `start()`/`resumeIntro()`)에 `posthog.createPersonProfile()`을 호출 (`b27ae33`).
+- **검증**: 상세는 ADR-020. Person Activity 탭 기준 SDK 레벨 동작은 코드로 확인했으나, Funnel/Insight 레벨 최종 검증은 PostHog 프로젝트 대시보드 접근이 필요해 별도 확인 항목으로 남아 있다.
+
+### D. Cross-account 로컬 상태 오염(P0)
+
+- **문제**: 동일 브라우저에서 계정 A가 로그아웃하고 계정 B가 새로 가입하면, A가 남긴 XP/레벨/업적/미션/Room 데이터를 B가 그대로 상속하는 것처럼 보이는 현상이 보고됨.
+- **발견**: A 계정 잔여 상태(XP 999/Lv.5 상당)를 시뮬레이션해두고 실제 6게임 플레이 + 실제 회원가입으로 신규 B를 만들어 재현 — B의 화면에 A의 값이 그대로 나타났고, continuous sync를 통해 B의 실제 Supabase `xp_totals`/`pet_care_state` row에까지 반영됨을 직접 확인했다.
+- **원인**: `lib/pets/local-data-owner.ts`의 owner-guard가 pet profile/최초 마이그레이션/feedback 3곳에만 적용되어 있었고, 나머지 15개 로컬 도메인(XP, pet care, 스킬 기록, 업적, 미션, Room 등)은 계정 소유권 검증이 전혀 없었다.
+- **수정**: `lib/pets/reset-foreign-account-state.ts` 신설, owner-mismatch 시 18개 도메인 전체 초기화 + owner marker를 unclaimed로 리셋(`ba0ca45`).
+- **검증**: 로컬 dev 서버 + 실제 Supabase 프로젝트로 두 시나리오 모두 실측 — (1) A→logout→B: B의 로컬/Supabase 값 모두 clean default임을 확인, (2) guest→최초가입 회귀 테스트: 게스트가 만든 실제 진행 상황(XP/펫/업적)이 초기화되지 않고 그대로 Supabase에 마이그레이션됨을 확인. 상세는 ADR-019.
+
+### E. GA4 초기화 race로 인한 이벤트 유실
+
+- **문제**: `profile_setup_view`/`profile_setup_complete`/`home_enter` 같은 핵심 온보딩 이벤트가 간헐적으로 GA4에 도달하지 않았다.
+- **원인**: `lib/analytics/ga.ts`의 `trackEvent()`가 `window.gtag`가 아직 함수가 아니면(`<GoogleAnalytics/>`의 `afterInteractive` 스크립트 로드 전 — 페이지가 매우 이른 시점에 마운트되는 경우) 이벤트를 조용히 버렸다.
+- **수정**: Google 공식 `dataLayer.push(arguments)` shim을 `trackEvent()`에 추가해, gtag.js 로드 전 호출도 유실 없이 큐잉되도록 수정. 같은 커밋에서 `home_enter`의 `entry_type:'first_time'|'returning'` 파라미터를 GA4에도 추가해 PostHog `home_entered`와의 비대칭도 함께 해소했다(`fbcb84e`).
+- **검증**: 코드 리뷰 및 diff 재확인 — Google의 공식 문서화된 큐잉 패턴을 그대로 사용해 중복 발송 위험이 없음을 확인.
+
+### F. Google OAuth 실패/취소 후 회원가입 CTA가 영구히 잠기는 문제
+
+- **문제**: Google OAuth 동의 화면에서 취소하거나 실패한 뒤 브라우저 뒤로가기로 앱에 돌아오면, "이동하는 중..." 상태의 버튼이 다시 활성화되지 않았다.
+- **원인**: Google 동의 화면에서의 취소는 앱의 `/auth/callback` 라우트를 거치지 않는다 — 브라우저가 back/forward cache(bfcache)로 이전 페이지 인스턴스를 그대로 복원하면서, 리다이렉트 직전에 `true`로 설정된 `googleSubmitting` state가 그대로 얼어붙었다.
+- **수정**: `pageshow` 이벤트의 `event.persisted`(bfcache 복원 여부)를 감지해 `googleSubmitting`을 해제하도록 수정. Google 버튼과 이메일/비밀번호 버튼의 loading state도 하나의 공유 `submitting` 대신 독립된 두 state로 분리해, 한쪽이 멈춰도 다른 경로를 막지 않도록 함(`4756253`).
+
+### G. Final Smoke QA (Production Analytics Final QA)
+
+- **범위**: Phase 3J-3 배포 전 상태에서 실사용자 홍보 전 마지막 점검으로, Landing → Assessment → Reveal → Save/Auth → Signup → Naming → Profile Setup → Home → Grow → Free Play(완료/재시도/이탈) → Ranking → My Page → Feedback → 로그아웃/재로그인까지 전체 여정을 실제 Production 브라우저로 완주했다.
+- **핵심 발견 3건**: (1) 로컬 HEAD가 `origin/main`보다 1커밋 앞서 있어 Phase 3J-3 개선사항이 Production에 아직 배포되지 않은 상태였음(코드 문제 아님, 배포 상태 문제), (2) 위 A번(feedback 테이블 미적용), (3) 위 B번(PostHog network delivery 조사).
+- **최종 판정**: READY WITH MANUAL CHECK — "실제 데이터 유실/퍼널 왜곡/identity 연결 끊김/PII 문제/Production DB write 실패"를 기준으로 판정했고, 사소한 P2/P3 이슈만으로 NOT READY를 주지 않는다는 원칙을 지켰다. 두 가지 조치(Phase 3J-3 배포, feedback migration 적용)가 필요하다고 명시했으며, 둘 다 이후 실제로 완료되었다(§9).
+
+---
+
 ## 6. Database Evolution Timeline
 
 | Migration | 주요 변경 | 제품 기능 |
@@ -545,6 +602,12 @@ Ranking과 friend system은 RLS만으로 해결하기 어려운 cross-user read/
 - Friend system and friend ranking: `6156d42` ~ `ba6aaf9`.
 - Public share slug: `b3d9dbb`.
 - Birthday/Profile onboarding: `4e54742`.
+- Feedback server-side 저장(`public.feedback` 테이블, RLS): `10ac4c3`. Production 실제 적용/RLS 검증은 §5.1 A.
+- 분석 퍼널 계측 개선(home_enter 타이밍, Google OAuth 계측, attendance continuous sync 등, Phase 3J-3): `d6c9436`.
+- Cross-account 로컬 상태 오염 P0 수정: `ba0ca45`(§5.1 D).
+- PostHog anonymous→identified Person merge 연결: `b27ae33`(§5.1 C).
+- GA4 초기화 race 수정 + home_enter GA4 entry_type 추가: `fbcb84e`(§5.1 E).
+- Google OAuth 실패 후 CTA 잠금 문제 수정: `4756253`(§5.1 F).
 
 ### 현재 알려진 미해결/주의 지점
 
@@ -552,6 +615,9 @@ Ranking과 friend system은 RLS만으로 해결하기 어려운 cross-user read/
 - `birth_date`/`gender`는 guest local mirror가 없다. guest가 입력할 수 없는 구조라 의도된 trade-off지만, guest personalization이 필요해지면 재설계가 필요하다.
 - `friend_code`는 capability token 성격이다. rotation/revocation 기능은 현재 migration/code에 없다.
 - public slug는 static catalog field다. 이미 공유된 slug 변경을 막는 DB-level mechanism은 없다.
+- `player_skill_records`는 attempt history를 보존하지 않는다 — 의도적 보류 결정(ADR-017/018), `game_attempts` 등 이력 테이블은 실사용자 데이터로 수요가 확인되면 재검토.
+- PostHog anonymous→identified merge는 SDK 호출 레벨/Person Activity 탭 기준으로는 수정 검증을 마쳤으나, Funnel/Insight 레벨 최종 검증은 PostHog 프로젝트 대시보드에서 별도 확인이 필요하다(§5.1 C).
+- `?ref=<friend_code>` 초대 URL이 analytics SDK의 자동 pageview/URL 수집 경로로 노출될 가능성은 여전히 `UNKNOWN`(대시보드 설정에 의존, 코드만으로는 배제 불가) — `docs/SECURITY_AND_PRIVACY.md` §6/§7 참고.
 
 ### Feature Freeze 상태
 

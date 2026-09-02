@@ -1,13 +1,29 @@
 # Statling 포트폴리오 케이스 스터디
 
-> **Source of truth**: 현재 repository HEAD `9c1d124`, 전체 185 commits. 기존 문서는 탐색 보조 자료로 참고했지만, 아래 제품/기술 주장은 repository에 보이는 코드, migration, Git history 기준으로만 작성했다.  
+> **Source of truth**: 최초 작성 시 repository HEAD `9c1d124`, 전체 185 commits. §1.1과 §10.1은 이후 HEAD `4756253`(2026-09-02)까지의 Production QA/data-quality 조사를 반영해 추가했다. 기존 문서는 탐색 보조 자료로 참고했지만, 아래 제품/기술 주장은 repository에 보이는 코드, migration, Git history 기준으로만 작성했다.  
 > **범위**: 이 문서는 구현된 제품 시스템을 취업 포트폴리오에서 설명하기 위한 케이스 스터디다. 향후 사용자 테스트 데이터가 뒷받침하기 전까지 실제 사용자 성과, retention lift, conversion 개선, survey 결과를 주장하지 않는다.
 
 ---
 
 ## 1. Executive Summary
 
-Statling은 짧은 인지형 Assessment를 개인화된 캐릭터로 변환하고, 그 결과를 반복 플레이, 성장, 랭킹, 공유, 친구 비교 루프로 확장한 브라우저 기반 제품이다. 현재 구현은 6개 능력치 진단, 30개 정적 Statling 캐릭터 프로필, 12개 Free Play 미니게임, XP/성장, achievement, global/friend ranking, share link, Dex collection, Supabase 기반 계정/동기화 계층을 포함한다. 아키텍처는 local-first Next.js 앱이며, 사용자는 게스트로 즉시 시작한 뒤 계정을 만들면 Supabase Auth/Postgres/RLS/RPC를 통해 데이터가 migration/restore된다. 측정 계층은 GA4와 PostHog를 병렬로 사용하며, 현재 measurement plan 기준 42개 GA4 custom event, 21개 PostHog product event, 4개 funnel, 31개 KPI 후보가 정리되어 있다. 이 프로젝트의 포트폴리오 가치는 “성격 테스트를 만들었다”가 아니라, 사용자 행동이 event data, database state, scoring, ranking, privacy boundary, user-test hypothesis까지 추적 가능한 제품/데이터 시스템으로 연결되어 있다는 점이다. 현재 증거는 구현 완료와 사용자 테스트 준비 상태를 뒷받침하지만, 실제 제품 성과 주장은 아직 사용자 테스트와 analytics 데이터가 필요하다.
+Statling은 짧은 인지형 Assessment를 개인화된 캐릭터로 변환하고, 그 결과를 반복 플레이, 성장, 랭킹, 공유, 친구 비교 루프로 확장한 브라우저 기반 제품이다. 현재 구현은 6개 능력치 진단, 30개 정적 Statling 캐릭터 프로필, 12개 Free Play 미니게임, XP/성장, achievement, global/friend ranking, share link, Dex collection, Supabase 기반 계정/동기화 계층을 포함한다. 아키텍처는 local-first Next.js 앱이며, 사용자는 게스트로 즉시 시작한 뒤 계정을 만들면 Supabase Auth/Postgres/RLS/RPC를 통해 데이터가 migration/restore된다. 측정 계층은 GA4와 PostHog를 병렬로 사용하며, 현재 measurement plan 기준 42개 GA4 custom event, 21개 PostHog product event, 4개 funnel, 31개 KPI 후보가 정리되어 있다. 이 프로젝트의 포트폴리오 가치는 "성격 테스트를 만들었다"가 아니라, 사용자 행동이 event data, database state, scoring, ranking, privacy boundary, user-test hypothesis까지 추적 가능한 제품/데이터 시스템으로 연결되어 있다는 점이다. 현재 증거는 구현 완료와 사용자 테스트 준비 상태를 뒷받침하지만, 실제 제품 성과 주장은 아직 사용자 테스트와 analytics 데이터가 필요하다.
+
+실사용자 홍보 직전 단계에서는 구현을 "완성했다"에서 멈추지 않고, Production 환경 기준으로 실제 데이터가 정확히 수집되는지를 별도로 검증하는 단계를 거쳤다. 이 과정에서 실제로 데이터 신뢰성에 영향을 주는 문제 4건(§10.1)을 발견해 원인을 코드/SDK 레벨로 특정하고 수정, Production 재검증까지 완료했다 — 이는 "기능이 동작한다"와 "그 기능이 만드는 데이터를 믿을 수 있다"가 서로 다른 검증 단계라는 것을 실제로 보여주는 근거다.
+
+---
+
+## 1.1 My Role
+
+이 프로젝트는 단독으로 진행했으며, 아래 범위는 실제 git history(단일 author)와 이 문서가 인용하는 코드/migration/ADR로 뒷받침되는 것만 적었다.
+
+| 영역 | 구체적으로 한 일 | 근거 |
+|---|---|---|
+| Product design | 진단→캐릭터→성장→소셜 루프 설계, 6개 능력치/30개 캐릭터/12개 미니게임 밸런싱 | §2, §8 |
+| Data architecture | local-first + Supabase 계정 migration/restore/continuous sync 설계 및 구현, RLS/RPC 보안 경계 설계 | ADR-001/002/003, `docs/DATA_ARCHITECTURE.md` |
+| Measurement design | GA4/PostHog 이중 taxonomy 설계, 42개 GA4 + 21개 PostHog 이벤트 정의, PII 배제 설계 | ADR-013, `docs/ANALYTICS_GAP_AUDIT.md` |
+| Production QA / data-quality investigation | 실 Production 환경에서 전체 사용자 여정 재현, 데이터 신뢰성 문제 발견 시 코드/SDK 레벨 root-cause 규명 | §10.1 |
+| Fix & validation | 발견한 문제를 최소 변경으로 수정하고, 코드 리뷰에 그치지 않고 실측(REST 직접 조회, 재현 시나리오)으로 재검증 | §10.1, ADR-017~021 |
 
 ---
 
@@ -233,6 +249,56 @@ Supabase는 단순 저장소가 아니라 제품 기능의 경계다. RLS는 사
 
 ---
 
+## 10.1 Featured Data-Quality Investigations
+
+일반적인 버그 픽스보다 데이터 분석 직무 관점에서 더 설명할 가치가 큰 4건을 선별했다. 모두 "기능은 정상 동작하는 것처럼 보인다"와 "그 기능이 만드는 데이터를 실제로 믿을 수 있다"가 서로 다른 질문이라는 것을 실제로 확인한 사례다. 각 사례는 Product design → Data architecture → Measurement design → Production QA → Discovery → Root-cause analysis → Fix → Validation → Real-user analysis readiness 흐름으로 정리했다.
+
+### 1. PostHog Anonymous → Identified History Disconnect
+
+- **Product design**: 방문자는 계정 없이 바로 Assessment를 시작할 수 있어야 한다(guest-first).
+- **Data architecture**: PostHog는 비용 절감을 위해 `person_profiles:'identified_only'`로 설정되어 있다 — 식별 전 방문자에게는 Person을 만들지 않는다.
+- **Measurement design**: 회원가입 시 `posthog.identify(supabase_user_id)`를 호출해 익명 행동과 가입 후 행동을 하나의 Person으로 연결하도록 설계되어 있었다.
+- **Production QA**: 실제 Production 브라우저로 "Assessment 플레이 → 회원가입" 흐름을 완주한 뒤 PostHog Person Activity를 직접 확인했다.
+- **Discovery**: 가입 후 Person Activity에 가입 **이전** 이벤트(`assessment_started`, `game_started`, `game_completed`)가 전혀 없었다 — 가입 이후 이벤트만 존재했다.
+- **Root-cause analysis**: `identify()` 호출 자체(인자, 시점, `$anon_distinct_id`)는 코드 재검토로 문제가 없음을 먼저 확인했다. 실제 배포된 `posthog-js` SDK 소스(`_hasPersonProcessing()`)를 직접 읽어, `identified_only` 모드에서는 `identify()` 이전 이벤트가 애초에 Person을 생성하지 않는다는 것 — 즉 merge할 대상 자체가 없었다는 정확한 원인을 특정했다.
+- **Fix**: Assessment가 실제로 시작되는 시점에만 `posthog.createPersonProfile()`을 호출해, 전환 가능성이 있는 방문자만 선택적으로 person processing을 켰다(비용 절감 의도는 유지).
+- **Validation**: SDK 호출 레벨은 코드로 재검증했고, `$anon_distinct_id` 연결이 실제 값 기준으로 정상 동작함을 확인했다. Funnel/Insight 레벨의 최종 검증은 PostHog 프로젝트 대시보드 접근이 필요해 별도 확인 항목으로 남겨두었다 — "코드로 확인 가능한 것"과 "대시보드에서 확인해야 하는 것"을 섞어서 보고하지 않았다.
+- **왜 위험했는가**: 이 문제를 방치했다면 "어떤 Assessment 행동이 실제 전환/리텐션과 상관관계가 있는가"라는, 이 제품의 핵심 분석 질문 자체에 Person 단위로는 영원히 답할 수 없었을 것이다 — 사용자 경험에는 영향이 없지만, 분석 데이터의 근본적인 신뢰성 문제였다.
+
+### 2. Cross-Account Local State Contamination
+
+- **Product design**: guest는 계정 없이 즉시 시작할 수 있어야 하고, 로그인 상태에서 새로고침해도 진행 상황이 사라지면 안 된다.
+- **Data architecture**: 이 두 요구 때문에 로그아웃이 `localStorage`를 지우지 않도록 설계되어 있었다(local-first, ADR-002).
+- **Measurement design**: XP/레벨/업적 등은 `continuous sync`를 통해 로그인된 계정의 Supabase row에 실시간으로 반영된다.
+- **Production QA**: "같은 브라우저에서 계정 A 사용 후 로그아웃하고 계정 B로 새로 가입하면 어떻게 되는가"를 실제로 재현했다.
+- **Discovery**: 신규 계정 B가 이미 성장한 상태(A의 XP/레벨)로 시작하는 것처럼 보였고, 이 값이 B의 실제 Supabase row(`xp_totals`, `pet_care_state`)에도 그대로 기록될 수 있음을 확인했다.
+- **Root-cause analysis**: 계정 소유권을 검증하는 owner-guard가 pet profile 하나에만 적용되어 있었고, XP/업적/미션/Room 등 나머지 15개 로컬 도메인에는 검증 로직 자체가 없었다는 정확한 gap을 코드 전수 조사로 특정했다.
+- **Fix**: owner-mismatch가 감지되면 18개 계정 소유 도메인 전체를 초기화하고, marker를 "주인 없음" 상태로 되돌려 이후 정상 마이그레이션이 새 계정을 claim하도록 최소 변경으로 수정했다.
+- **Validation**: 로컬 dev 서버 + 실제 Supabase 프로젝트로 두 시나리오를 모두 실측했다 — (1) 오염 시나리오가 실제로 차단되는지, (2) 그 수정이 guest→최초가입이라는 정상 경로까지 망가뜨리지 않는지. 둘 다 REST로 직접 Supabase row를 조회해 확인했다(수정만 하고 "될 것이다"로 끝내지 않았다).
+- **왜 위험했는가**: 이 문제는 사용자 경험(신규 계정이 이상하게 시작함)과 데이터 신뢰성(랭킹/활동 지표가 실제로 오염됨) 양쪽에 동시에 영향을 준다 — "신규 사용자"라는 세그먼트 정의 자체가 깨지는 P0급 데이터 무결성 문제였다.
+
+### 3. GA4 Initialization Race
+
+- **Measurement design**: 회원가입 직후 온보딩 퍼널(`profile_setup_view` → `profile_setup_complete` → `home_enter`)을 GA4로 추적하도록 설계되어 있었다.
+- **Production QA**: 실제 신규 계정 생성 흐름을 GA4 dataLayer 캡처와 함께 재현했다.
+- **Discovery**: 위 이벤트들이 타이밍에 따라 간헐적으로 GA4에 도달하지 않았다 — 재현이 쉽지 않은 산발적 결측이라 원인 파악이 특히 어려운 유형이었다.
+- **Root-cause analysis**: `trackEvent()`가 `window.gtag`가 아직 함수로 준비되지 않은 시점(스크립트가 `afterInteractive`로 로드되기 전, 예: OAuth 리다이렉트 직후처럼 페이지가 이례적으로 이른 시점에 마운트되는 화면)에 호출되면 이벤트를 조용히 버리고 있었다는 것을 코드 레벨로 확인했다.
+- **Fix**: Google이 공식 문서화한 `dataLayer.push(arguments)` shim을 추가해, gtag.js가 아직 로드되지 않았어도 이벤트가 큐에 쌓였다가 로드된 즉시 정상 처리되도록 수정 — 새 메커니즘을 발명하지 않고 벤더 표준 패턴을 그대로 적용했다.
+- **Validation**: 코드 리뷰로 큐잉 로직이 중복 발송을 만들지 않음을 확인했다(같은 함수가 호출당 정확히 한 번만 `gtag(...)`를 호출).
+- **왜 위험했는가**: 이런 유형의 유실은 "이벤트가 아예 없다"가 아니라 "가끔 없다"이기 때문에, 퍼널 수치를 볼 때 실제 이탈과 계측 유실을 구분할 수 없어 온보딩 개선 의사결정 자체를 잘못된 방향으로 이끌 수 있는 조용한 위험이다.
+
+### 4. Google OAuth CTA Stuck After Cancellation
+
+- **Product design**: Google 로그인은 버튼 클릭 즉시 로딩 상태로 전환되어야 하고, 실패/취소 후에는 다시 시도할 수 있어야 한다.
+- **Production QA**: Google 동의 화면에서 의도적으로 취소한 뒤 브라우저 뒤로가기로 앱에 복귀하는 흐름을 실제로 테스트했다.
+- **Discovery**: "이동하는 중..." 상태의 버튼이 다시 활성화되지 않아 그 세션에서는 회원가입 자체를 진행할 수 없었다.
+- **Root-cause analysis**: Google 동의 화면에서의 취소는 앱의 콜백 라우트를 거치지 않는다 — 브라우저가 back/forward cache(bfcache)로 리다이렉트 직전 페이지 인스턴스를 그대로 복원하면서, `true`로 설정된 loading state가 그대로 얼어붙는다는 브라우저 lifecycle 레벨의 원인을 특정했다.
+- **Fix**: `pageshow` 이벤트의 `persisted` 플래그(실제 bfcache 복원인지 판별하는 표준 신호)를 감지해 loading state를 해제하도록 수정. Google 버튼과 이메일/비밀번호 버튼의 loading state도 분리해, 한쪽이 멈춰도 다른 가입 경로까지 막지 않도록 했다.
+- **Validation**: diff 기준으로 수정 범위를 재확인했다(이 세션에서는 실제 브라우저 재현 테스트까지는 반복하지 않음 — 별도 세션에서 구현·검증됨을 git 커밋으로 확인).
+- **왜 위험했는가**: 이 문제는 순수 UX 리스크다 — Google 로그인을 시도하다 마음이 바뀐 사용자가 그 세션에서는 어떤 방법으로도 가입을 완료할 수 없게 되어, 전환 퍼널의 특정 구간에서 완전한 막다른 길이 생긴다.
+
+---
+
 ## 11. Security & Privacy By Design
 
 Statling의 보안 설계는 “client convenience”보다 “data boundary”를 우선한다. 모든 주요 app table은 RLS 아래에 있고, 대부분의 user-owned 데이터는 `auth.uid()` 기준으로 접근한다. Cross-user 기능은 table access를 넓히지 않고 RPC로 좁힌다.
@@ -266,7 +332,18 @@ Statling의 보안 설계는 “client convenience”보다 “data boundary”�
 | Retention test | Do users return D1/D7? | return/room/free-play/care events | cohort retention |
 | Survey/interview | What story do users think the product tells? | not analytics-only | qualitative themes and quotes |
 
-정확한 포트폴리오 표현은 “이 질문을 측정할 수 있게 구현했다”이지 “이미 답을 얻었다”가 아니다. 답은 실제 참여자 데이터가 있어야 한다.
+정확한 포트폴리오 표현은 "이 질문을 측정할 수 있게 구현했다"이지 "이미 답을 얻었다"가 아니다. 답은 실제 참여자 데이터가 있어야 한다.
+
+**실사용자 유입 후 채울 분석 질문 목록** (현재는 계측만 되어 있고 답은 없음 — QA/synthetic 데이터가 아니라 real-user 데이터가 쌓여야 답할 수 있다):
+
+- Assessment completion — 몇 %가 6게임을 완주하는가, 어느 게임에서 가장 많이 이탈하는가
+- Signup conversion — Save 화면 노출 대비 실제 가입 전환율은 얼마인가
+- First Free Play activation — 가입 후 첫 Free Play까지 도달하는 비율과 소요 시간은
+- Replay behavior — 어떤 게임이 재플레이율이 높은가(§10.1에서 확인했듯 Free Play는 현재 `completion_result`로 재시도를 구분하지 못하므로, 이 질문은 게임별 재입장 빈도로 근사해야 함)
+- Ability/game preference — 어떤 능력치/게임에 실제 플레이가 몰리는가
+- Retention — D1/D7/D30 재방문율, attendance streak과 재방문의 상관관계
+- Feedback — 실제 만족도/재사용 의향 분포, 어떤 세그먼트가 낮은 점수를 주는가
+- Difficulty progression — Hard/Extreme 해금이 실제로 재방문을 유도하는가(`tier_unlocked` 이벤트 기반)
 
 ---
 

@@ -167,6 +167,12 @@ For normal tables, user A cannot directly read or mutate user B because:
 
 For cross-user features that need exceptions, access is through limited `SECURITY DEFINER` RPCs whose outputs intentionally avoid raw user ids and sensitive profile fields.
 
+### Cross-Account Local State Protection (client-side, distinct from RLS)
+
+The RLS-based protection above covers two *simultaneously authenticated* accounts reading each other's Supabase rows. It does not by itself cover a *sequential* same-browser case: account A logs out, account B signs up on the same device. Logout does not clear `localStorage` (by design, so a page reload while still signed in never loses data), so A's leftover local game state (XP, level, skill records, missions, achievements, Room) could previously be inherited by B on-screen and, through continuous sync, written into B's own (RLS-valid, correctly-owned) Supabase row — reproduced and confirmed 2026-09-02.
+
+Fixed via `lib/pets/local-data-owner.ts`'s `statling.localDataOwner.v1` marker (`null` = unclaimed / owned by nobody yet, a real value = "this device's local state currently matches exactly this account") plus `lib/pets/reset-foreign-account-state.ts`, which wipes all 18 account-owned local domains and resets the marker to unclaimed the moment an owner mismatch is detected. Verified on a local dev server against the real Supabase project for both directions: (1) A→logout→B: B's local state and Supabase rows (`xp_totals`, `pet_care_state`, etc.) came back as clean defaults, not A's values; (2) guest→first-signup: a guest's genuinely-earned progress was not wiped and migrated to Supabase correctly. See `docs/ARCHITECTURE_DECISION_LOG_KO.md` ADR-019 for the full design.
+
 ---
 
 ## 4. Friend System Security
@@ -317,6 +323,7 @@ PostHog:
 - `person_profiles: 'identified_only'`.
 - `maskAllInputs: true`.
 - `PostHogIdentify` calls `posthog.identify(user.id)` on login and `posthog.reset()` on logout.
+- `lib/analytics/posthog.ts`'s `ensurePersonProfileCreated()` calls `posthog.createPersonProfile()` once, at Assessment start, to opt that anonymous visitor into person processing before `identify()` — closes an anonymous→identified history-linking gap found in Production QA (2026-09-02, see `docs/ARCHITECTURE_DECISION_LOG_KO.md` ADR-020). No PII is involved — it only changes whether already-anonymous events attach to a Person, never sets a person property.
 
 Important distinction:
 
@@ -483,7 +490,7 @@ Important trust boundary:
 | Severity | Risk | Evidence | Impact | Existing mitigation | Recommended follow-up |
 |---|---|---|---|---|---|
 | P1 | Friend invite `ref` is a capability token in URLs | `buildFriendInviteUrl` adds `ref=<friend_code>` | Leaked link can let holder preview nickname and attempt connection | 128-bit random code; general share excludes `ref`; connection requires explicit action | Consider code rotation/revocation and URL redaction in analytics/logging |
-| P1 | `ref` may be captured by pageview URL, browser history, logs, or referrer | share route reads `useSearchParams().get('ref')`; analytics pageviews can collect URLs | Token exposure outside custom payload controls | Custom events do not include `friend_code`; only explicit friend invite includes ref | Configure GA4/PostHog/server log redaction if available; verify dashboard settings |
+| P1 | `ref` may be captured by pageview URL, browser history, logs, or referrer | share route reads `useSearchParams().get('ref')`; analytics pageviews can collect URLs. `ref` is scoped to `/share/[petId]` routes only (`lib/friends/pending-friend-code.ts` / `friend-invite-cta.tsx`) — a 2026-09-01 Production QA pass confirmed a plain `/` visit with unrelated UTM params does not trigger this path, but `/share/[petId]?ref=...` itself was not re-verified against live GA4/PostHog dashboards in that pass | Token exposure outside custom payload controls | Custom events do not include `friend_code`; only explicit friend invite includes ref | Configure GA4/PostHog/server log redaction if available; verify dashboard settings — **still not resolved, keep as open risk** |
 | P1 | No repo-visible rate limiting for anon invite preview | `get_friend_invite_preview` granted to `anon` | Scripted exact-code attempts possible | 128-bit entropy; exact match only; nickname only | Add/verify Supabase/API rate limiting before public promotion |
 | P2 | Client-originated game scores are not server-verified | score/raw metrics produced client-side and synced | Users can tamper with local storage or requests to affect rankings | score range checks; ownership; ranking season/version | Accept for casual beta or add anti-cheat/server validation later |
 | P2 | Browser localStorage contains behavioral and free-text memory data | user notes/dialogue/pet memory storage modules | Same-device privacy risk; XSS would expose data | RLS after sync; PostHog input masking | CSP review, avoid storing unnecessary free text, provide user reset/export/delete policy |
@@ -521,6 +528,21 @@ Needs production/live QA:
 - Attempt user A direct select of user B `profiles`, `pets`, `player_skill_records`.
 - Verify GA4/PostHog URL handling for `?ref=`.
 - Verify rate limiting / abuse controls.
+
+### Production QA Evidence — `feedback` table (live-tested, 2026-09-02)
+
+Unlike the rest of this section (repository/schema evidence only), the checks below were run directly against the real deployed Supabase project via REST, with two real throwaway test accounts, after confirming the `public.feedback` migration (previously committed to git but never applied — see `docs/DEVELOPMENT_HISTORY.md` §5.1 A) was actually run.
+
+| Check | Result |
+|---|---|
+| Own account INSERT | `201` success |
+| Own account SELECT | `200`, only own row returned |
+| Own account UPDATE | `200` success |
+| Different account SELECT of my row | `200`, empty array — row invisible, not an error |
+| Different account INSERT spoofing my `user_id` | `403`, blocked by RLS `with check` |
+| Unauthenticated (anon) SELECT | `401`, no `anon` grant exists |
+
+This directly satisfies the "Attempt user A direct select of user B" and "confirm grants match migration output" items above, scoped to `feedback` specifically — the same checks have not been repeated for `friendships`/`profiles`/`pets`/`player_skill_records` and those remain `UNKNOWN`/repo-evidenced only. Free-text feedback fields (`comment`, `*OtherText`, `*Detail`) were confirmed to be stored in Supabase but confirmed absent from the GA4 `feedback_submit` event payload in the same test run (a real submission's payload contained only `rating`/`satisfaction_reason`/`reuse_intent`).
 
 ---
 
