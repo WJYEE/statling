@@ -5,6 +5,7 @@ import { LandingScreen, type LandingScreenProps } from '@/components/brain-bet/s
 import { LandingVariantB } from '@/components/brain-bet/screens/landing-variant-b'
 import { getOrAssignLandingVariant, type LandingVariant } from '@/lib/experiments/landing-variant'
 import { trackProductEvent } from '@/lib/analytics/analytics'
+import { syncLandingVariantPersonProperty } from '@/lib/analytics/posthog'
 
 export interface LandingExperimentProps extends LandingScreenProps {
   /**
@@ -58,6 +59,11 @@ export function LandingExperiment({ eligible, ...landingProps }: LandingExperime
     const resolved = getOrAssignLandingVariant()
     setVariant(resolved)
     trackProductEvent('landing_experiment_viewed', { variant: resolved })
+    // PostHog Person property mirror of the event property above, so
+    // Heatmaps (which can't filter by which variant a same-URL click came
+    // from any other way) can separate A from B — see
+    // syncLandingVariantPersonProperty's own doc comment.
+    syncLandingVariantPersonProperty(resolved)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately mount-once; eligible is stable for this component's lifetime
   }, [])
 

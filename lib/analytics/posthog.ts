@@ -114,4 +114,33 @@ export function ensurePersonProfileCreated(): void {
   posthog.createPersonProfile()
 }
 
+/**
+ * Syncs the sticky Landing A/B variant (lib/experiments/landing-variant.ts's
+ * own localStorage-based 50:50 assignment, untouched by this function) onto
+ * the PostHog Person as `landing_variant`, so PostHog Heatmaps — which can
+ * only filter by event/person properties, never by which React component
+ * actually rendered — can separate Variant A's clicks from Variant B's even
+ * though both render at the identical "/" URL and neither is a PostHog
+ * feature flag/group (see landing-variant.ts's own doc comment for why).
+ * `$autocapture` click events don't carry this property themselves, but
+ * PostHog's Heatmap tool can filter recordings/events by the *person*
+ * viewing them, which this makes possible.
+ *
+ * Deliberate, narrow exception to ensurePersonProfileCreated's "only
+ * Assessment starters get a Person profile" policy above: per posthog-js's
+ * own setPersonProperties() docs, this call creates a Person profile if one
+ * doesn't exist yet even under person_profiles: 'identified_only' — for
+ * every Landing viewer, not just those who start Assessment. That's
+ * intentional here (a landing-only bounce with no Person profile would
+ * defeat the one thing this property exists for — separating Landing-page
+ * click behavior by variant), but it does mean more Persons get created
+ * than initPostHog's original "anonymous guest never creates a full person
+ * profile" framing implied. No PII: the only value ever set is the literal
+ * string 'A' or 'B'.
+ */
+export function syncLandingVariantPersonProperty(variant: 'A' | 'B'): void {
+  if (!isPostHogEnabled || typeof window === 'undefined') return
+  posthog.setPersonProperties({ landing_variant: variant })
+}
+
 export { posthog }
