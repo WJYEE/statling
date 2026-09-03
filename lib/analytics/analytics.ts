@@ -150,6 +150,8 @@ export interface ProductEventParams {
   profile_setup_viewed: Record<string, never>
   /** PostHog counterpart of ga.ts's `profile_setup_complete` — same choke point (right before onContinue(), never on a validation failure), same no-PII/no-params shape. */
   profile_setup_completed: Record<string, never>
+  /** PostHog counterpart of ga.ts's `birthday_celebration_shown` — same once-per-local-day choke point (RoomScreen), same no-PII/no-params shape (birth_date value itself never included). */
+  birthday_celebration_shown: Record<string, never>
   /**
    * Phase 3J-3 — Google OAuth's first-ever session, the PostHog counterpart
    * of ga.ts's `sign_up{method:'google'}`. Scoped to `method:'google'` only

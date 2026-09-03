@@ -64,6 +64,40 @@ export function validateBirthDate(raw: string, now: Date = new Date()): BirthDat
   return { ok: true, value: trimmed }
 }
 
+export type BirthDateReadResult = { ok: true; birthDate: string | null } | { ok: false; error: string }
+
+/**
+ * Reads the CALLER'S OWN birth_date only (`.eq('id', userId)` + RLS both
+ * scope this to auth.uid() = userId, same maybeSingle()-returns-null shape
+ * as lib/profile/nickname.ts#getProfileNickname). Used by RoomScreen's
+ * birthday-celebration check — never logs/returns the value in an error path.
+ */
+export async function getProfileBirthDate(client: SupabaseClient, userId: string): Promise<BirthDateReadResult> {
+  const { data, error } = await client
+    .from('profiles')
+    .select('birth_date')
+    .eq('id', userId)
+    .maybeSingle<{ birth_date: string | null }>()
+  if (error) return { ok: false, error: errorMessage(error) }
+  return { ok: true, birthDate: data?.birth_date ?? null }
+}
+
+/**
+ * True exactly when `birthDate`'s month/day matches `now`'s LOCAL month/day
+ * (the browser's own timezone, same "오늘" the rest of pet-care/visit-context.ts
+ * already uses) — the year is never compared, since a birthday recurs every
+ * year. `birthDate` is a plain YYYY-MM-DD string (no time/timezone component,
+ * see the Phase 3I-1 migration's own doc comment), so it's parsed directly
+ * off the string rather than through `new Date(birthDate)` — the latter
+ * treats a bare date string as UTC midnight, which can read as the wrong
+ * local day depending on the viewer's timezone.
+ */
+export function isBirthdayToday(birthDate: string | null, now: Date = new Date()): boolean {
+  if (!birthDate || !DATE_ONLY_PATTERN.test(birthDate)) return false
+  const [, monthStr, dayStr] = birthDate.split('-')
+  return now.getMonth() + 1 === Number(monthStr) && now.getDate() === Number(dayStr)
+}
+
 export type BirthdayWriteResult = { ok: true } | { ok: false; error: string }
 
 /** Supabase's PostgrestError is a plain object, not an Error instance — same shape every other lib/ranking/*.ts and lib/friends/*.ts errorMessage() already uses. */

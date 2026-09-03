@@ -173,6 +173,14 @@ export interface GAEventParams {
    * above.
    */
   profile_setup_complete: Record<string, never>
+  /**
+   * Phase 3K-1 — fires once, the instant RoomScreen's birthday check
+   * confirms today matches profiles.birth_date's month/day AND opens the
+   * popup (see room-screen.tsx's own once-per-local-day guard). No
+   * params — the birth_date value itself must never reach GA4, only the
+   * fact that the moment happened, same PII exclusion as profile_setup_view.
+   */
+  birthday_celebration_shown: Record<string, never>
 }
 
 /**

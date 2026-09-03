@@ -154,7 +154,7 @@ export function BirthdayScreen({ statlingName, confirmedAtIso, onContinue }: Bir
                 if (error) setError(null)
               }}
               disabled={saving}
-              className="mt-2 w-full rounded-2xl bg-card px-4 py-3.5 text-center font-display text-base font-extrabold text-foreground toy-border outline-none disabled:opacity-70"
+              className="mt-2 w-full rounded-2xl bg-card px-4 py-3.5 text-left font-display text-base font-extrabold text-foreground toy-border outline-none disabled:opacity-70"
             />
             <p className={cn('mt-2 text-xs font-semibold', error ? 'text-destructive' : 'text-muted-foreground')}>
               {error ?? '생일이 되면 Statling이 축하해줄게요!'}

@@ -5,6 +5,12 @@ import { ArrowRight, Crosshair, Sparkles } from 'lucide-react'
 import { Toast } from '@base-ui/react/toast'
 import { trackEvent } from '@/lib/analytics/ga'
 import { trackProductEvent } from '@/lib/analytics/analytics'
+import { useAuth } from '@/lib/auth/auth-provider'
+import { getSupabaseBrowserClient } from '@/lib/supabase/client'
+import { getProfileBirthDate, isBirthdayToday } from '@/lib/profile/birthday'
+import { loadLastBirthdayCelebrationDate, saveLastBirthdayCelebrationDate } from '@/lib/profile/birthday-celebration-storage'
+import { BIRTHDAY_EFFECT, BIRTHDAY_INTIMACY_EXP } from '@/lib/config/pet-care.config'
+import { BirthdayPopup } from '@/components/brain-bet/birthday-popup'
 import { CareActionButton } from '@/components/brain-bet/care-action-button'
 import { GiftQaMenu } from '@/components/brain-bet/gift-qa-menu'
 import { GiftRewardPopup } from '@/components/brain-bet/gift-reward-popup'
@@ -33,7 +39,7 @@ import { computeInteractionMode } from '@/lib/pet-care/interaction-mode'
 import { pickCareMemoryText, pickGameNameMemoryText, pickMemoryReferenceLine } from '@/lib/pet-care/initiated-dialogue'
 import { loadDialogueMemory } from '@/lib/pet-care/dialogue-memory-storage'
 import { computeRelationshipStage } from '@/lib/pet-care/relationship-stage'
-import { daysSince } from '@/lib/pet-care/visit-context'
+import { daysSince, toLocalDateKey } from '@/lib/pet-care/visit-context'
 import type { PetAnimation } from '@/lib/pet-care/types'
 import { RECONNECT_ANGRY_HOLD_MS } from '@/lib/config/character-state.config'
 import { PET_AUTONOMY_CONFIG } from '@/lib/config/pet-autonomy.config'
@@ -160,6 +166,67 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
   // for why granting (care.claimGift) and ending the gift state
   // (care.dismissGiftClaim) are two separate steps instead of one.
   const [rewardPopup, setRewardPopup] = useState<SupportedDecoAsset | null>(null)
+
+  // Phase 3K-1 — once-a-year "생일 축하해!" moment. Guest-inaccessible by
+  // construction: profiles.birth_date has no local mirror (see
+  // lib/profile/birthday.ts's own doc comment), so this simply no-ops
+  // without a signed-in `user` — a guest just never sees it, same as
+  // BirthdayScreen's own birth_date input. Gated on `authLoading` so a
+  // returning session's still-resolving auth state can't be read as "no
+  // user, skip" and silently miss today's popup on a page refresh.
+  const { user, loading: authLoading } = useAuth()
+  const [birthdayPopupOpen, setBirthdayPopupOpen] = useState(false)
+  // Guards against a second check starting once the first is under way —
+  // persists for this component instance's whole lifetime (a plain ref, not
+  // per-effect-invocation state), since `user`/`petProfile` are ordinary
+  // prop/context values that can get a new reference on an unrelated
+  // re-render (e.g. AuthProvider's own state settling) without RoomScreen
+  // actually unmounting; re-running this effect on that kind of churn must
+  // never restart the check.
+  const birthdayCheckStartedRef = useRef(false)
+  // True only once RoomScreen itself actually unmounts — deliberately a
+  // SEPARATE effect with empty deps (real mount/unmount lifecycle only) so a
+  // dependency-change re-run of the effect below (same churn as above) can
+  // never be mistaken for "the component went away" and drop an in-flight
+  // check's result.
+  const unmountedRef = useRef(false)
+  useEffect(() => {
+    // Resets the flag back to false on mount too, not just true on cleanup —
+    // React 18 Strict Mode's dev-only mount->cleanup->remount cycle runs this
+    // cleanup once before genuinely remounting the same instance, and without
+    // this line the flag would get stuck at `true` forever after that first
+    // synthetic cycle even though the component is still very much alive.
+    unmountedRef.current = false
+    return () => {
+      unmountedRef.current = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (authLoading || !user || !petProfile) return
+    if (birthdayCheckStartedRef.current) return
+    const todayKey = toLocalDateKey(new Date())
+    if (loadLastBirthdayCelebrationDate(user.id) === todayKey) return
+    birthdayCheckStartedRef.current = true
+
+    async function checkBirthday() {
+      const client = getSupabaseBrowserClient()
+      if (!client || !user) return
+      const result = await getProfileBirthDate(client, user.id)
+      if (unmountedRef.current || !result.ok || !isBirthdayToday(result.birthDate)) return
+      // Marked BEFORE the popup/reward below rather than after — an
+      // early unmount (e.g. immediately navigating away) must still count
+      // as "shown today", same as GiftRewardPopup's grant-then-popup order,
+      // so a remount within the same day can never re-fire this.
+      saveLastBirthdayCelebrationDate(user.id, todayKey)
+      setBirthdayPopupOpen(true)
+      care.applyEffect(BIRTHDAY_EFFECT, BIRTHDAY_INTIMACY_EXP)
+      trackEvent('birthday_celebration_shown', {})
+      trackProductEvent('birthday_celebration_shown', {})
+    }
+    void checkBirthday()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- starts at most once per mount (birthdayCheckStartedRef); care.applyEffect/petProfile are read live, not tracked
+  }, [authLoading, user, petProfile])
 
   // A picked 대화 answer's own expression (happy/thinking/embarrassed/love/
   // tired/...), held for TALK_EXPRESSION_HOLD_MS regardless of what mood/
@@ -556,6 +623,12 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
     startEventTail(PET_AUTONOMY_CONFIG.significantEventTailMs)
   }
 
+  /** BirthdayPopup's 고마워 button — purely closes the popup; the reward/tracking already happened the moment the popup was opened (see the effect above), same "grant happens before the popup's own confirm" shape GiftRewardPopup uses. */
+  function handleBirthdayPopupConfirm() {
+    setBirthdayPopupOpen(false)
+    startEventTail(PET_AUTONOMY_CONFIG.significantEventTailMs)
+  }
+
   /** Blocks 성장시키기(and therefore every minigame it leads to) while the Statling is asleep — the only entry point into Grow/minigames from Room. */
   function handleGrowClick() {
     if (care.mood === 'sleepy') {
@@ -569,6 +642,9 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
     <div className="mx-auto flex w-full max-w-3xl flex-col px-5 pb-24 pt-4 sm:pb-28 sm:pt-8" data-interaction-mode={mode}>
       {SHOW_GIFT_QA && <GiftQaMenu levels={LEVEL_GIFT_LEVELS} onTrigger={care.debugTriggerGift} />}
       {rewardPopup && <GiftRewardPopup asset={rewardPopup} onConfirm={handleRewardPopupConfirm} />}
+      {birthdayPopupOpen && petProfile && (
+        <BirthdayPopup statlingName={statlingName} imageSrc={petProfile.imageSrc} onConfirm={handleBirthdayPopupConfirm} />
+      )}
 
       <header className="flex items-center justify-between gap-3">
         <h1 className="flex min-w-0 items-baseline gap-1.5 font-display text-lg font-extrabold text-foreground sm:text-xl">

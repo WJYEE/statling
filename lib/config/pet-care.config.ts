@@ -111,6 +111,17 @@ export const OVERPET_REACTION_HOLD_MS = 2_000
 export const TALK_INTIMACY_EXP = 1
 
 /**
+ * Once-a-year birthday-popup bonus (RoomScreen, gated by
+ * lib/profile/birthday-celebration-storage.ts's once-per-day flag) — applied
+ * via the exact same lib/pet-care/actions.ts#buildDirectEffect entry point
+ * PLAY_EFFECT/PLAY_EXP already use for a button-pressed action, just a touch
+ * bigger since this only ever fires once per real calendar year. No new
+ * reward system: same stats, same exp curve, same clampStat ceiling.
+ */
+export const BIRTHDAY_EFFECT = { happiness: 20, affection: 5 }
+export const BIRTHDAY_INTIMACY_EXP = 5
+
+/**
  * Energy cost of completing one Free Play (성장시키기) mini-game round —
  * NOT the Initial Assessment's 6 diagnostic games, and NOT a mid-game
  * abandon/restart (see game-flow.tsx#recordSkillCompletion, the single
