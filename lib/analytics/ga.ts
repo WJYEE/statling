@@ -181,6 +181,28 @@ export interface GAEventParams {
    * fact that the moment happened, same PII exclusion as profile_setup_view.
    */
   birthday_celebration_shown: Record<string, never>
+  /**
+   * GrowScreen mount (Room's "성장시키기" CTA target — Free Play's game-pick
+   * step). Fires once per real screen entry (empty-deps effect, same
+   * once-per-mount convention as profile_setup_view/statling_reveal) — a
+   * Path Exploration entry signal only. Deliberately distinct from
+   * free_play_start (game-flow.tsx), which fires later, only once a
+   * specific game+difficulty is actually confirmed — grow_view instead
+   * marks "the user opened Grow," including anyone who opens it and leaves
+   * without picking anything. No params: nothing PII, no extra dimension
+   * needed for the home_enter → Grow/Ranking/My Page comparison this was
+   * added for.
+   */
+  grow_view: Record<string, never>
+  /**
+   * MyPageScreen mount. Fires once per real screen entry (empty-deps
+   * effect, same convention as grow_view/profile_setup_view) — a Path
+   * Exploration entry signal only, added alongside grow_view/ranking_view
+   * so home_enter's three main downstream destinations (Grow/Ranking/My
+   * Page) are all comparably instrumented. No params — same no-PII/no-extra
+   * -dimension rationale as grow_view.
+   */
+  my_page_view: Record<string, never>
 }
 
 /**

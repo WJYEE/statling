@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   HelpCircle,
   Loader2,
@@ -77,6 +77,19 @@ interface MyPageScreenProps {
 }
 
 export function MyPageScreen({ statlingName, topStat, secondaryStat, petProfile, onResetPet, onShowOnboarding }: MyPageScreenProps) {
+  // GA4 `my_page_view` — Path Exploration entry signal for one of
+  // home_enter's three main downstream destinations (Grow/Ranking/My Page,
+  // see grow-screen.tsx's grow_view for the sibling case). Fires once per
+  // real screen entry (empty-deps effect, same once-per-mount convention as
+  // grow_view/profile_setup_view) — this component only exists in the tree
+  // while `phase === 'mypage'`, so leaving and returning is a fresh mount
+  // and fires again on its own, no extra re-entry handling needed. No
+  // params: nothing PII, no extra dimension needed for this analysis.
+  useEffect(() => {
+    trackEvent('my_page_view', {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per mount only
+  }, [])
+
   const [sfxEnabled, setSfxEnabled] = useState(() => loadSfxEnabled())
   /** Personal growth number only (see lib/ranking/xp-ledger.ts) — never used for any ranking computation, see lib/ranking/ranking-provider.ts. */
   const [totalXp] = useState(() => loadXpState().totalXp)

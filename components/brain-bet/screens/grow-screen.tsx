@@ -6,6 +6,7 @@ import { StatBadge } from '@/components/brain-bet/stat-badge'
 import { PLAY_ORDER, STATS, type StatId } from '@/lib/brain-bet'
 import type { StatStatusMap } from '@/lib/game/types'
 import { cn } from '@/lib/utils'
+import { trackEvent } from '@/lib/analytics/ga'
 import { trackProductEvent } from '@/lib/analytics/analytics'
 
 interface GrowScreenProps {
@@ -25,9 +26,21 @@ interface GrowScreenProps {
  * (grow_stat_selected) fires from game-flow.tsx's selectFreePlayGame, not
  * here — same split SaveScreen uses (view lives with the screen, the
  * transition's own tracking lives where the transition is decided).
+ *
+ * GA4 `grow_view` (added alongside the existing PostHog-only
+ * grow_screen_viewed above) closes the ANALYTICS_GAP_AUDIT.md Path
+ * Exploration gap where home_enter → Grow had no GA4 node at all — see that
+ * doc for why free_play_start (fired only once a specific game is actually
+ * confirmed, from game-flow.tsx) can't stand in for "the user opened Grow."
+ * Same empty-deps/once-per-mount convention: this component only exists in
+ * the tree while `phase === 'grow'` (game-flow.tsx conditionally renders
+ * it), so leaving Grow and coming back is a fresh mount and fires again —
+ * no separate re-entry handling needed. No params: nothing here is
+ * per-user/PII, and no additional dimension is needed for this analysis.
  */
 export function GrowScreen({ statStatus, recommendedStat, onSelect, onBack }: GrowScreenProps) {
   useEffect(() => {
+    trackEvent('grow_view', {})
     trackProductEvent('grow_screen_viewed', {})
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per mount only
   }, [])
