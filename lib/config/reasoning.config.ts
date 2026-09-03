@@ -92,13 +92,20 @@ export const REASONING_DIFFICULTY_WEIGHTS: Record<number, number> = {
 }
 
 /**
- * How long the per-question correct/wrong/timeout feedback (with the
- * correct-answer highlight and the 1-line Rule Explanation) stays up before
- * advancing. Raised from 800ms so there's actually time to read the
- * Explanation (~1-1.5s), while staying short enough that the real questions
- * don't make the whole session feel like it's dragging.
+ * How long the per-question CORRECT feedback stays up before advancing —
+ * kept short so a correct streak keeps the session's tempo.
  */
 export const REASONING_FEEDBACK_MS = 1400
+/**
+ * How long WRONG (including timed-out) feedback stays up — same "wrong
+ * answers get real reading time, correct ones don't" split
+ * lib/config/number-pattern.config.ts's NUMBER_PATTERN_WRONG_ADVANCE_MS
+ * already uses (and the same 3500ms value, for a consistent feel across
+ * both 추리력 games). 1400ms proved too short to actually read the
+ * correct-answer highlight + explanation when the player got it wrong —
+ * that's exactly when they need the time most.
+ */
+export const REASONING_WRONG_FEEDBACK_MS = 3500
 /**
  * How long the Tutorial → Tutorial / Tutorial → Real transition message
  * stays up — raised from 1100ms to 2200ms so the rule callout was actually

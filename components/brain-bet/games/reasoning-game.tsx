@@ -14,6 +14,7 @@ import { STATS } from '@/lib/brain-bet'
 import {
   getReasoningTimeLimitForDifficulty,
   REASONING_FEEDBACK_MS,
+  REASONING_WRONG_FEEDBACK_MS,
   REASONING_TUTORIAL_TRANSITION_MS,
 } from '@/lib/config/reasoning.config'
 import { GAME_DIFFICULTY_DISPLAY_LABEL } from '@/lib/game/difficulty'
@@ -170,6 +171,11 @@ export function ReasoningGame({ index, mode, difficulty, onComplete, onBack, onG
       : Math.round(performance.now() - questionStartedAtRef.current)
     const isCorrect = !timedOut && selectedOptionIndex === question.correctOptionIndex
     play(isCorrect ? 'answer-correct' : 'wrong')
+    // Wrong (including timed-out) answers hold the correct-answer highlight
+    // and explanation on screen much longer than a correct one — same split
+    // number-pattern-game.tsx already uses. A correct answer keeps the
+    // session's tempo; a wrong one needs actual reading time to see why.
+    const feedbackMs = isCorrect ? REASONING_FEEDBACK_MS : REASONING_WRONG_FEEDBACK_MS
 
     setStage('feedback')
     setLastOutcome({ selectedOptionIndex, isCorrect, timedOut })
@@ -181,7 +187,7 @@ export function ReasoningGame({ index, mode, difficulty, onComplete, onBack, onG
       schedule(() => {
         setMessage('규칙은 모양뿐 아니라 개수·위치·방향에도 있을 수 있어요. 이제 실전을 시작할게요.')
         schedule(() => beginQuestion('real', 0), REASONING_TUTORIAL_TRANSITION_MS)
-      }, REASONING_FEEDBACK_MS)
+      }, feedbackMs)
       return
     }
 
@@ -207,13 +213,13 @@ export function ReasoningGame({ index, mode, difficulty, onComplete, onBack, onG
     if (updated.length >= realQuestionsRef.current.length) {
       const rawSummary = summarizeReasoningTrials(updated)
       const gameScore = calculateReasoningScore(rawSummary, detectDevice().inputType)
-      schedule(() => onComplete({ trials: updated, rawSummary, gameScore }), REASONING_FEEDBACK_MS)
+      schedule(() => onComplete({ trials: updated, rawSummary, gameScore }), feedbackMs)
       return
     }
 
     schedule(() => {
       beginQuestion('real', realIndexNow + 1)
-    }, REASONING_FEEDBACK_MS)
+    }, feedbackMs)
   }
 
   const startGame = () => {

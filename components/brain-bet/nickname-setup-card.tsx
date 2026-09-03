@@ -6,6 +6,7 @@ import { ToyButton } from '@/components/brain-bet/toy-button'
 import { useAuth } from '@/lib/auth/auth-provider'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import {
+  NICKNAME_MAX_LENGTH,
   updateProfileNickname,
   updateProfileNicknameFromStatlingName,
   validateNickname,
@@ -106,7 +107,7 @@ export function NicknameSetupCard({ statlingName, onSaved }: NicknameSetupCardPr
           if (error) setError(null)
         }}
         placeholder="닉네임 입력"
-        maxLength={20}
+        maxLength={NICKNAME_MAX_LENGTH}
         disabled={saving}
         className="w-full rounded-xl bg-background px-4 py-3 text-sm font-bold text-foreground toy-border outline-none disabled:opacity-70"
       />
