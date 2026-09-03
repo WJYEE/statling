@@ -254,7 +254,7 @@ export function RankingScreen({ statlingName }: RankingScreenProps) {
               aria-selected={isActive}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                'flex-1 rounded-2xl px-3 py-2.5 text-sm font-bold toy-border transition-colors',
+                'flex-1 truncate rounded-2xl px-2 py-2.5 text-xs font-bold toy-border transition-colors sm:px-3 sm:text-sm',
                 isActive ? 'bg-primary text-primary-foreground' : 'bg-card text-foreground',
               )}
             >
