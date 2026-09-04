@@ -21,6 +21,7 @@
 export type LandingVariant = 'A' | 'B'
 
 const LANDING_VARIANT_KEY = 'statling.landingVariant.v1'
+const LANDING_VARIANT_QUERY_KEY = 'landing_variant'
 
 function randomVariant(): LandingVariant {
   return Math.random() < 0.5 ? 'A' : 'B'
@@ -49,4 +50,40 @@ export function getOrAssignLandingVariant(): LandingVariant {
     // own try/catch fallback.
     return randomVariant()
   }
+}
+
+/**
+ * Mirrors the already-resolved sticky `variant` onto the visible URL as
+ * `?landing_variant=A|B`, purely so PostHog Heatmaps — which can only split
+ * data by URL, never by event/person property (see this module's own doc
+ * comment on why the assignment itself stays a plain localStorage flag) —
+ * can separate Variant A's clicks from Variant B's even though both render
+ * at the identical route. `variant` here is always whatever
+ * `getOrAssignLandingVariant()` already decided; this function only ever
+ * reflects that value onto the URL, never reads the URL to decide it — a
+ * stale/tampered `?landing_variant=` from a shared/bookmarked link is
+ * silently corrected to match the real sticky assignment, never trusted as
+ * a second source of truth.
+ *
+ * Raw `history.replaceState()`, not `next/navigation`'s `router.replace()`
+ * — this must stay an invisible, non-navigating URL-bar edit with no
+ * Next.js route transition, re-render, or data refetch. (GA4's own
+ * "Page changes based on browser history events" Enhanced Measurement
+ * setting does listen to `replaceState()` and may record an extra
+ * automatic page_view from this call — a known, accepted trade-off of this
+ * approach, not something this function works around; see the Phase 3E-2
+ * Landing Heatmap Separation report.)
+ *
+ * No-ops (no replaceState call at all) once the URL already carries the
+ * correct value — the common case on every reload after the first
+ * assignment — so this never repeatedly rewrites history on an unchanged
+ * URL. Every other query parameter (utm_*, ref, ...) is preserved exactly
+ * as-is: only the single `landing_variant` key is ever added/corrected.
+ */
+export function syncLandingVariantQueryParam(variant: LandingVariant): void {
+  if (typeof window === 'undefined') return
+  const url = new URL(window.location.href)
+  if (url.searchParams.get(LANDING_VARIANT_QUERY_KEY) === variant) return
+  url.searchParams.set(LANDING_VARIANT_QUERY_KEY, variant)
+  window.history.replaceState(window.history.state, '', url)
 }

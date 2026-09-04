@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { LandingScreen, type LandingScreenProps } from '@/components/brain-bet/screens/landing-screen'
 import { LandingVariantB } from '@/components/brain-bet/screens/landing-variant-b'
-import { getOrAssignLandingVariant, type LandingVariant } from '@/lib/experiments/landing-variant'
+import { getOrAssignLandingVariant, syncLandingVariantQueryParam, type LandingVariant } from '@/lib/experiments/landing-variant'
 import { trackProductEvent } from '@/lib/analytics/analytics'
 import { syncLandingVariantPersonProperty } from '@/lib/analytics/posthog'
 
@@ -64,6 +64,11 @@ export function LandingExperiment({ eligible, ...landingProps }: LandingExperime
     // from any other way) can separate A from B — see
     // syncLandingVariantPersonProperty's own doc comment.
     syncLandingVariantPersonProperty(resolved)
+    // Same goal via the URL instead — PostHog's dedicated Heatmap tool can
+    // only filter by URL, not by person/event property, so this mirrors
+    // `resolved` onto `?landing_variant=` too (see that function's own doc
+    // comment for the history.replaceState/GA4 trade-off).
+    syncLandingVariantQueryParam(resolved)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately mount-once; eligible is stable for this component's lifetime
   }, [])
 
