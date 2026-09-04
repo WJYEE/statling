@@ -20,8 +20,16 @@ export const NUMBER_PATTERN_TIME_LIMIT_MS = 15_000
 
 /** How long the feedback stage holds before advancing to the next question (or completing) — kept short for a correct answer so the game keeps its tempo. */
 export const NUMBER_PATTERN_CORRECT_ADVANCE_MS = 800
-/** Same feedback stage, but for a wrong (or timed-out) answer — long enough to actually read the "왜 이 답인지" explanation before the game moves on. */
+/** Same feedback stage, but for a wrong (or timed-out) answer in Free Play — long enough to actually read the "왜 이 답인지" explanation before the game moves on. */
 export const NUMBER_PATTERN_WRONG_ADVANCE_MS = 3_500
+/**
+ * Same wrong-answer feedback stage, but for Initial Assessment (`mode ===
+ * 'first'`) — Assessment measures ability and shouldn't let a long
+ * explanation pause interrupt that flow the way Free Play's leisurely
+ * NUMBER_PATTERN_WRONG_ADVANCE_MS is meant to. Free Play's value is
+ * untouched; this is a separate constant, not a shorter version of it.
+ */
+export const NUMBER_PATTERN_WRONG_ADVANCE_MS_ASSESSMENT = 1_400
 
 /**
  * Game-wide difficulty tier scaling on top of the per-question base above —

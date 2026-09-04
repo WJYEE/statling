@@ -12,6 +12,7 @@ import {
   NUMBER_PATTERN_INTRO_COUNTDOWN_SECONDS,
   NUMBER_PATTERN_QUESTION_COUNT,
   NUMBER_PATTERN_WRONG_ADVANCE_MS,
+  NUMBER_PATTERN_WRONG_ADVANCE_MS_ASSESSMENT,
 } from '@/lib/config/number-pattern.config'
 import type { GameDifficulty } from '@/lib/game/difficulty'
 import { detectDevice } from '@/lib/game/device'
@@ -95,20 +96,25 @@ export function NumberPatternGame({ index, mode, difficulty, onComplete, onBack 
     setStage('feedback')
 
     // Wrong (including timed-out) answers hold the explanation on screen
-    // much longer than a correct one — a correct answer keeps the game's
-    // tempo, a wrong one needs actual reading time for "왜 이 답인지".
-    window.setTimeout(
-      () => {
-        if (qIndex + 1 < questions.length) {
-          startQuestion(qIndex + 1)
-        } else {
-          const rawSummary = summarizeNumberPatternAnswers(updated)
-          const gameScore = calculateNumberPatternScore(rawSummary, detectDevice().inputType)
-          onComplete({ answers: updated, rawSummary, gameScore })
-        }
-      },
-      answer.isCorrect ? NUMBER_PATTERN_CORRECT_ADVANCE_MS : NUMBER_PATTERN_WRONG_ADVANCE_MS,
-    )
+    // much longer than a correct one in Free Play — a correct answer keeps
+    // the game's tempo, a wrong one needs actual reading time for "왜 이
+    // 답인지". Initial Assessment (mode === 'first') uses its own, shorter
+    // wrong-answer hold instead — Assessment measures ability and shouldn't
+    // let a long explanation pause interrupt that flow.
+    const advanceMs = answer.isCorrect
+      ? NUMBER_PATTERN_CORRECT_ADVANCE_MS
+      : mode === 'first'
+        ? NUMBER_PATTERN_WRONG_ADVANCE_MS_ASSESSMENT
+        : NUMBER_PATTERN_WRONG_ADVANCE_MS
+    window.setTimeout(() => {
+      if (qIndex + 1 < questions.length) {
+        startQuestion(qIndex + 1)
+      } else {
+        const rawSummary = summarizeNumberPatternAnswers(updated)
+        const gameScore = calculateNumberPatternScore(rawSummary, detectDevice().inputType)
+        onComplete({ answers: updated, rawSummary, gameScore })
+      }
+    }, advanceMs)
   }
 
   const secondsLeft = Math.ceil(remainingMs / 1000)

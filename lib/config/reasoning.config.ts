@@ -107,6 +107,15 @@ export const REASONING_FEEDBACK_MS = 1400
  */
 export const REASONING_WRONG_FEEDBACK_MS = 3500
 /**
+ * Same wrong-answer feedback stage, but for Initial Assessment (`mode ===
+ * 'first'`) — Assessment measures ability and shouldn't let a long
+ * explanation pause interrupt that flow the way Free Play's leisurely
+ * REASONING_WRONG_FEEDBACK_MS is meant to. Free Play's value above is
+ * untouched; this is a separate constant, not a shorter version of it. Same
+ * 1400ms REASONING_FEEDBACK_MS already uses for a correct answer's tempo.
+ */
+export const REASONING_WRONG_FEEDBACK_MS_ASSESSMENT = 1400
+/**
  * How long the Tutorial → Tutorial / Tutorial → Real transition message
  * stays up — raised from 1100ms to 2200ms so the rule callout was actually
  * readable, then trimmed back down to 800ms for touch responsiveness ("이

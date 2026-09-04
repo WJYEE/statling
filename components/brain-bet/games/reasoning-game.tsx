@@ -15,6 +15,7 @@ import {
   getReasoningTimeLimitForDifficulty,
   REASONING_FEEDBACK_MS,
   REASONING_WRONG_FEEDBACK_MS,
+  REASONING_WRONG_FEEDBACK_MS_ASSESSMENT,
   REASONING_TUTORIAL_TRANSITION_MS,
 } from '@/lib/config/reasoning.config'
 import { GAME_DIFFICULTY_DISPLAY_LABEL } from '@/lib/game/difficulty'
@@ -172,10 +173,17 @@ export function ReasoningGame({ index, mode, difficulty, onComplete, onBack, onG
     const isCorrect = !timedOut && selectedOptionIndex === question.correctOptionIndex
     play(isCorrect ? 'answer-correct' : 'wrong')
     // Wrong (including timed-out) answers hold the correct-answer highlight
-    // and explanation on screen much longer than a correct one — same split
-    // number-pattern-game.tsx already uses. A correct answer keeps the
-    // session's tempo; a wrong one needs actual reading time to see why.
-    const feedbackMs = isCorrect ? REASONING_FEEDBACK_MS : REASONING_WRONG_FEEDBACK_MS
+    // and explanation on screen much longer than a correct one in Free Play
+    // — same split number-pattern-game.tsx already uses. A correct answer
+    // keeps the session's tempo; a wrong one needs actual reading time to
+    // see why. Initial Assessment (mode === 'first') uses its own, shorter
+    // wrong-answer hold instead — Assessment measures ability and shouldn't
+    // let a long explanation pause interrupt that flow.
+    const feedbackMs = isCorrect
+      ? REASONING_FEEDBACK_MS
+      : mode === 'first'
+        ? REASONING_WRONG_FEEDBACK_MS_ASSESSMENT
+        : REASONING_WRONG_FEEDBACK_MS
 
     setStage('feedback')
     setLastOutcome({ selectedOptionIndex, isCorrect, timedOut })
