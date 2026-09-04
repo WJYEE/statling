@@ -10,22 +10,61 @@
  */
 export interface XpState {
   version: 1
-  /** All-time sum — what "전체 랭킹" sorts by. */
+  /** All-time sum — what "전체 랭킹" (the only XP ranking currently live — see ranking-screen.tsx's own "no daily/weekly view exists yet" note) sorts by. */
   totalXp: number
-  /** Sum since this state's `weekKey` — what "주간 랭킹" sorts by. Reset (not decremented from totalXp) the moment a read/write crosses into a new week. */
+  /**
+   * Sum since this state's `weekKey`, intended for a future "주간 랭킹" — no
+   * current UI/RPC reads this yet (see xp_totals.weekly_xp/week_key's own
+   * migration comment). Kept accurate anyway so that whenever that feature
+   * ships, its history isn't backdated by whatever this column happened to
+   * hold before anyone read it. Reset (not decremented from totalXp) the
+   * moment a read/write crosses into a new week.
+   */
   weeklyXp: number
-  /** Monday (UTC) of the week weeklyXp is currently accumulating for, as 'YYYY-MM-DD'. */
+  /** Monday 00:00 KST (Asia/Seoul) of the week weeklyXp is currently accumulating for, as 'YYYY-MM-DD' — see mondayKeyOf below. */
   weekKey: string
   updatedAt: string
 }
 
 const STORAGE_KEY = 'statling.xp.v1'
 
-/** Monday-anchored week key, computed in UTC so it's stable regardless of the player's local timezone offset. */
+/**
+ * `date`'s calendar date in Asia/Seoul, as `{year, month (0-based), day}` —
+ * unlike `date.getFullYear()`/`getMonth()`/`getDate()` (which read whatever
+ * timezone the CALLING device/runtime happens to be set to), this always
+ * projects the same real instant onto the same fixed Asia/Seoul calendar
+ * date no matter what timezone the browser/OS is configured for. That
+ * device-dependence was the actual bug in the previous implementation here
+ * (despite its own doc comment claiming UTC-stability) — see the Statling
+ * "주간 랭킹 KST 기준" QA report.
+ */
+function seoulDateParts(date: Date): { year: number; month: number; day: number } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date)
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value)
+  return { year: get('year'), month: get('month') - 1, day: get('day') }
+}
+
+/**
+ * Monday-anchored week key for the Asia/Seoul calendar week containing
+ * `date`'s real instant — i.e. the boundary is KST Monday 00:00, matching
+ * "주간 랭킹은 한국시간 월요일 00:00~일요일 23:59" (Statling's primary user base is
+ * Korean). Stable regardless of the CALLER's own timezone (server render, a
+ * device set to a non-KST zone, ...) since the calendar date itself comes
+ * from seoulDateParts's fixed Asia/Seoul projection — only the Monday-offset
+ * arithmetic below still uses UTC internally, and that's safe precisely
+ * because by this point the y/m/d already ARE the correct Seoul calendar
+ * date, so there's nothing further to shift.
+ */
 function mondayKeyOf(date: Date): string {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
-  const day = d.getUTCDay() // 0 (Sun) - 6 (Sat)
-  const diffToMonday = (day === 0 ? -6 : 1) - day
+  const { year, month, day } = seoulDateParts(date)
+  const d = new Date(Date.UTC(year, month, day))
+  const dow = d.getUTCDay() // 0 (Sun) - 6 (Sat)
+  const diffToMonday = (dow === 0 ? -6 : 1) - dow
   d.setUTCDate(d.getUTCDate() + diffToMonday)
   return d.toISOString().slice(0, 10)
 }

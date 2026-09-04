@@ -121,12 +121,59 @@ function devWarn(...args: unknown[]): void {
  * failure for domain X keeps blocking the marker even after some UNRELATED
  * domain Y succeeds in between, and stops blocking the moment X itself (or
  * a full catch-up / migration batch that necessarily included X) succeeds.
- * Deliberately just a Set, not a queue/retry system — nothing here ever
- * re-attempts a failed domain on its own; that already happens naturally
- * the next time a real local change touches it (see this file's own
- * top-of-file doc comment on the no-retry-queue-needed model).
+ * Still just a Set, not a real queue: the one bounded retry a failure gets
+ * (see scheduleFailureRetry below) reuses this exact same push path rather
+ * than adding a second write mechanism, and a domain that keeps failing
+ * past that one retry is left here — genuinely re-attempted, not just
+ * flagged — the next time a real local change touches it, or the next
+ * session's catch-up sync (session-catchup.ts), whichever comes first.
  */
 const domainsWithOutstandingFailure = new Set<SyncDomain>()
+
+/**
+ * Domains with exactly one delayed retry already pending after a failed
+ * push — caps a persistently-failing domain (a real server-side rejection,
+ * not a transient blip) to one automatic follow-up rather than retrying
+ * forever. Cleared the moment that retry actually fires (scheduleInternal
+ * re-validates readiness itself at that point, same as every other
+ * re-entry in this file), so a LATER, genuinely new failure is free to
+ * schedule its own retry again.
+ */
+const domainRetryScheduled = new Set<SyncDomain>()
+
+/**
+ * How long to wait before automatically retrying a domain whose push just
+ * failed. xp_totals is the motivating case (Statling QA report, Phase
+ * 2D-3+): unlike the ticked/frequently-touched domains, XP is only earned
+ * on discrete events (a game completion, a reward claim), so a session with
+ * no further XP for a while had no other "next call" to naturally correct a
+ * single failed push — this closes exactly that gap, for every 0-debounce
+ * domain alike (not special-cased to xp_totals; every domain here already
+ * shares one push mechanism). 20s is long enough that a genuinely offline
+ * device doesn't retry into a second failure within the same short window,
+ * short enough that a real play session (minutes, not seconds) gets a real
+ * second chance before falling back to the much coarser "next login's
+ * session-catchup" safety net.
+ */
+const FAILED_PUSH_RETRY_MS = 20_000
+
+/**
+ * A failed push's one automatic follow-up — reuses scheduleInternal (not a
+ * second write path), so the retry re-validates sync-readiness/session
+ * ownership at fire time exactly like every other re-entry in this file
+ * (see runAndMaybeRepeat's .finally() for the same reasoning). Skipped when
+ * `s.dirty` is already true: a newer local change is already queued behind
+ * this push and gets its own immediate re-run from .finally() below, so a
+ * delayed retry on top of that would just be a redundant second push.
+ */
+function scheduleFailureRetry(domain: SyncDomain, s: DomainSyncState): void {
+  if (s.dirty || domainRetryScheduled.has(domain)) return
+  domainRetryScheduled.add(domain)
+  window.setTimeout(() => {
+    domainRetryScheduled.delete(domain)
+    scheduleInternal(domain)
+  }, FAILED_PUSH_RETRY_MS)
+}
 
 /** Called after any batch write Phase 2B/2D-6's own "all tables, all at once" paths (migration, catch-up) confirm fully succeeded — see migration-orchestrator.ts / session-catchup.ts. */
 export function clearOutstandingDomainFailures(): void {
@@ -364,12 +411,19 @@ function runAndMaybeRepeat(domain: InternalSyncTarget, client: SupabaseClient, u
       // itself vouched for — only real domains feed the outstanding-failure
       // set that gates it (see the set's own doc comment above pushDomain).
       if (domain === '_account_marker') return
-      if (ok) domainsWithOutstandingFailure.delete(domain)
-      else domainsWithOutstandingFailure.add(domain)
+      if (ok) {
+        domainsWithOutstandingFailure.delete(domain)
+      } else {
+        domainsWithOutstandingFailure.add(domain)
+        scheduleFailureRetry(domain, s)
+      }
     })
     .catch((err) => {
       devWarn(`[sync-dispatcher] ${domain} sync threw unexpectedly (local state unaffected):`, err)
-      if (domain !== '_account_marker') domainsWithOutstandingFailure.add(domain)
+      if (domain !== '_account_marker') {
+        domainsWithOutstandingFailure.add(domain)
+        scheduleFailureRetry(domain, s)
+      }
     })
     .finally(() => {
       s.inFlight = null
