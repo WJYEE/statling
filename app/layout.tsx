@@ -101,7 +101,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`bg-background ${baloo.variable} ${nunito.variable}`}>
+    <html lang="ko" className={`bg-background ${baloo.variable} ${nunito.variable}`}>
       <body className="antialiased">
         <AppToastProvider>
           <AuthProvider>

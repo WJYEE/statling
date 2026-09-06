@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { ImageResponse } from 'next/og'
 
 /**
@@ -10,7 +12,29 @@ import { ImageResponse } from 'next/og'
  * Kept to plain hex colors and system fonts (no oklch(), no custom
  * webfonts) since the Satori renderer behind ImageResponse has narrower
  * CSS support than a real browser.
+ *
+ * Real logo, not a placeholder shape — public/icon.svg is itself just a
+ * thin `<svg><image href="data:image/png;base64,...">` wrapper around a
+ * real 256x256 RGBA PNG (confirmed by inspecting its bytes directly), not a
+ * true vector graphic. Satori (the renderer behind ImageResponse) has
+ * narrow, inconsistent support for rendering arbitrary SVG passed to
+ * `<img src>` — this codebase's own sibling route
+ * (app/api/og/share/route.tsx's BrandMark) already had to fetch a plain PNG
+ * by absolute URL for the exact same reason, never an SVG. Rather than fetch
+ * over the network (which would also make this static route depend on
+ * SITE_URL resolving correctly), the PNG bytes already embedded inside
+ * icon.svg are extracted once at module load and reused as a data URI —
+ * same real Statling mark, zero SVG parsing, zero network dependency.
  */
+const ICON_SVG_SOURCE = readFileSync(join(process.cwd(), 'public', 'icon.svg'), 'utf8')
+const ICON_PNG_BASE64 = ICON_SVG_SOURCE.match(/data:image\/png;base64,([^"']+)/)?.[1]
+const ICON_DATA_URL = ICON_PNG_BASE64 ? `data:image/png;base64,${ICON_PNG_BASE64}` : undefined
+
+// Explicit Node.js runtime — readFileSync above needs real filesystem
+// access, which the default/edge runtime for this file convention doesn't
+// guarantee.
+export const runtime = 'nodejs'
+
 export const alt = 'Statling — 나의 숨겨진 스탯을 발견해보세요'
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
@@ -37,31 +61,10 @@ export default function OpengraphImage() {
             gap: 24,
           }}
         >
-          {/* Plain shapes only (no emoji/icon font) — Satori's font support
-              for emoji glyphs is unreliable without an extra network fetch,
-              so an abstract egg silhouette built from divs is the safer bet
-              for a server-rendered image. */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 120,
-              height: 120,
-              borderRadius: 36,
-              background: '#e07a3f',
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                width: 56,
-                height: 68,
-                borderRadius: '50% 50% 46% 46% / 55% 55% 45% 45%',
-                background: '#fdf6ea',
-              }}
-            />
-          </div>
+          {ICON_DATA_URL && (
+            // eslint-disable-next-line @next/next/no-img-element -- Satori (ImageResponse) requires a plain <img>, not next/image
+            <img src={ICON_DATA_URL} width={120} height={120} style={{ objectFit: 'contain' }} alt="" />
+          )}
           <div style={{ display: 'flex', fontSize: 96, fontWeight: 800, color: '#4a3a28' }}>
             Statling
           </div>
