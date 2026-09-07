@@ -42,6 +42,7 @@ export function NavRail({ active, onSelect }: NavRailProps) {
             <button
               key={item.id}
               type="button"
+              data-onboarding-target={`nav-${item.id}`}
               onClick={() => onSelect(item.id)}
               className={cn(
                 'flex flex-1 flex-col items-center gap-1 rounded-xl py-1.5 text-[11px] font-bold transition-colors',

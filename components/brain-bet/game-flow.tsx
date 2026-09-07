@@ -35,7 +35,8 @@ import { GrowGameScreen } from '@/components/brain-bet/screens/grow-game-screen'
 import { StatlingScreen } from '@/components/brain-bet/screens/statling-screen'
 import { RankingScreen } from '@/components/brain-bet/screens/ranking-screen'
 import { MyPageScreen } from '@/components/brain-bet/screens/my-page-screen'
-import { OnboardingModal } from '@/components/brain-bet/onboarding-modal'
+import { HomeOnboardingGuide, ONBOARDING_STEPS } from '@/components/brain-bet/home-onboarding-guide'
+import { loadOnboardingSeen, markOnboardingSeen } from '@/lib/onboarding-storage'
 import { audioManager } from '@/lib/audio/audio-manager'
 import { NavRail, type NavTab } from '@/components/brain-bet/nav-rail'
 import { QaSkipMenu } from '@/components/brain-bet/qa-skip-menu'
@@ -345,13 +346,20 @@ export function GameFlow() {
   /** A resumable Intro checkpoint found on mount (see lib/game/intro-progress-storage.ts) — non-null only while Landing can still offer "이어서 하기". Cleared the moment the player resumes, restarts, or the run finishes. */
   const [introResume, setIntroResume] = useState<IntroProgressState | null>(null)
   const [confirmingRestartIntro, setConfirmingRestartIntro] = useState(false)
-  // Manual-open only (MyPageScreen's "튜토리얼 보기" row sets this directly
-  // via onShowOnboarding below) — RevealScreen's own ContentUnlockPreview/
-  // NextJourneyPreview now cover this same "discover -> grow -> raise"
-  // explanation before Home is ever reached, so there is no longer an
-  // auto-show-on-first-Home-visit effect here. See onboarding-modal.tsx's
-  // own doc comment for the fuller history.
+  // Home UI coach mark (HomeOnboardingGuide) — auto-shown once on the very
+  // first real Room arrival (see the effect below, gated on phase==='room'
+  // specifically since every step's target lives on Room/NavRail), and
+  // reopenable anytime via MyPageScreen's "Statling 가이드" row
+  // (onShowOnboarding below sets this directly, bypassing the seen check).
   const [showOnboarding, setShowOnboarding] = useState(false)
+  /** Whether the currently-open (or about-to-open) guide was auto-shown vs manually reopened — only ever read while showOnboarding is true, passed straight through to HomeOnboardingGuide's own analytics. */
+  const [onboardingSource, setOnboardingSource] = useState<'auto' | 'manual'>('auto')
+  /** Which of ONBOARDING_STEPS is current — owned here (not inside HomeOnboardingGuide) because advancing a step also means actually navigating `phase` to that step's real tab (see handleOnboardingNext/Prev below), which only this component can do. */
+  const [onboardingStepIndex, setOnboardingStepIndex] = useState(0)
+  /** True once Step 7's "다음" has returned phase to 'room' — HomeOnboardingGuide renders the short completion card instead of a coach-mark step while this is true. */
+  const [onboardingComplete, setOnboardingComplete] = useState(false)
+  /** Guards the auto-show effect below so it only ever fires once per mount, even as `phase` keeps changing between nav tabs. */
+  const autoOnboardingShownRef = useRef(false)
 
   /**
    * topStat/secondaryStat once a pet has been assigned come straight from
@@ -1982,6 +1990,78 @@ export function GameFlow() {
     }
   }
 
+  // Auto-shows the Home coach mark exactly once, the first time `phase`
+  // actually reaches 'room' (never on any other nav tab — every one of
+  // HomeOnboardingGuide's steps targets a Room/NavRail element that only
+  // exists once Room itself has mounted). Runs for guest and signed-in
+  // users alike (no `user` check). The "seen" bar is
+  // loadOnboardingSeen(petRecord?.confirmedAt) — scoped to THIS specific
+  // Statling (confirmedAt is unique per confirm/hatch, see
+  // lib/onboarding-storage.ts's own doc comment for why a single global
+  // flag isn't enough: it would incorrectly stay "seen" forever after
+  // "처음부터 다시 하기" made a brand-new pet). A returning user whose pet
+  // was already confirmed+named on a previous visit correctly never sees
+  // this again for THAT pet, without any extra "already onboarded" flag of
+  // its own.
+  useEffect(() => {
+    if (autoOnboardingShownRef.current) return
+    if (phase !== 'room') return
+    autoOnboardingShownRef.current = true
+    if (!loadOnboardingSeen(petRecord?.confirmedAt)) {
+      setOnboardingSource('auto')
+      setOnboardingStepIndex(0)
+      setOnboardingComplete(false)
+      setShowOnboarding(true)
+    }
+  }, [phase, petRecord])
+
+  /**
+   * Advances the guide one step — Steps 1-3 stay on 'room' (only the
+   * spotlighted element changes), Steps 4-7 each ride an actual
+   * setPhase(tab) so the next real screen (My Stats/Ranking/Statling/My
+   * Page) mounts for real, never a fake mock (see ONBOARDING_STEPS' own doc
+   * comment). From the last step, this instead returns to Room and shows
+   * the completion card — see home-onboarding-guide.tsx's `complete` prop.
+   */
+  const handleOnboardingNext = () => {
+    if (onboardingStepIndex >= ONBOARDING_STEPS.length - 1) {
+      setPhase('room')
+      setOnboardingComplete(true)
+      return
+    }
+    const next = onboardingStepIndex + 1
+    setOnboardingStepIndex(next)
+    setPhase(ONBOARDING_STEPS[next].phase)
+  }
+
+  /** Mirrors handleOnboardingNext in reverse — current step index and active phase stay in lockstep either direction (e.g. Ranking -> 이전 lands back on My Stats, not just a text change). */
+  const handleOnboardingPrev = () => {
+    if (onboardingStepIndex <= 0) return
+    const prev = onboardingStepIndex - 1
+    setOnboardingStepIndex(prev)
+    setPhase(ONBOARDING_STEPS[prev].phase)
+  }
+
+  /**
+   * Every exit path from the guide — skip at any step, or the completion
+   * card's own "시작하기" — must land back on Room with onboardingSeen
+   * marked, so this one function is shared by both (see the two call sites
+   * in the render below). `stepIndex` is only meaningful for the skip path
+   * (onboarding_skipped's own param); the completion path always passes the
+   * last index since every step was already seen by then.
+   */
+  const finishOnboarding = (outcome: 'skipped' | 'completed', stepIndexAtExit: number) => {
+    markOnboardingSeen(petRecord?.confirmedAt)
+    trackProductEvent(
+      outcome === 'skipped' ? 'onboarding_skipped' : 'onboarding_completed',
+      outcome === 'skipped' ? { source: onboardingSource, step_index: stepIndexAtExit } : { source: onboardingSource },
+    )
+    setPhase('room')
+    setShowOnboarding(false)
+    setOnboardingComplete(false)
+    setOnboardingStepIndex(0)
+  }
+
   const currentBestRaw = statStatus[activeStatId].current?.raw ?? null
   const currentBestScore = statStatus[activeStatId].current?.gameScore ?? null
 
@@ -2305,7 +2385,15 @@ export function GameFlow() {
             secondaryStat={secondaryStat}
             petProfile={displayedPetProfile}
             onResetPet={resetAllPetData}
-            onShowOnboarding={() => setShowOnboarding(true)}
+            onShowOnboarding={() => {
+              // Always restarts from Step 1 on Room, even though this is
+              // clicked from My Page itself — see ONBOARDING_STEPS[0].
+              setOnboardingSource('manual')
+              setOnboardingStepIndex(0)
+              setOnboardingComplete(false)
+              setPhase('room')
+              setShowOnboarding(true)
+            }}
           />
         )}
 
@@ -2340,7 +2428,16 @@ export function GameFlow() {
 
       {NAV_PHASES.includes(phase) && <NavRail active={phase as NavTab} onSelect={handleNavSelect} />}
 
-      <OnboardingModal open={showOnboarding} onClose={() => setShowOnboarding(false)} />
+      <HomeOnboardingGuide
+        open={showOnboarding}
+        complete={onboardingComplete}
+        stepIndex={onboardingStepIndex}
+        source={onboardingSource}
+        onNext={handleOnboardingNext}
+        onPrev={handleOnboardingPrev}
+        onSkip={() => finishOnboarding('skipped', onboardingStepIndex)}
+        onFinish={() => finishOnboarding('completed', onboardingStepIndex)}
+      />
 
       <ConfirmDialog
         open={pendingNavTab !== null}

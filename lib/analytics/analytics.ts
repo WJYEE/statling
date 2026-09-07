@@ -166,6 +166,19 @@ export interface ProductEventParams {
   signed_up: { method: 'google' }
   /** PostHog counterpart of ga.ts's `login{method:'google'}` — same choke point as signed_up above, fires instead of it for a returning Google user. */
   logged_in: { method: 'google' }
+  /**
+   * HomeOnboardingGuide (the Home coach mark) opened — either auto-shown on
+   * the first real Room arrival, or manually reopened via MyPageScreen's
+   * "Statling 가이드" row. `source` distinguishes the two. PostHog-only by
+   * design, same as tier_unlocked/game_tutorial_* above — a UI-onboarding
+   * detail, not part of the GA4 acquisition/funnel taxonomy home_enter
+   * already covers.
+   */
+  onboarding_viewed: { source: 'auto' | 'manual' }
+  /** Closed via the explicit "건너뛰기" link before reaching the last step — still marks onboardingSeen (see lib/onboarding-storage.ts), this just distinguishes an explicit skip from onboarding_completed. */
+  onboarding_skipped: { source: 'auto' | 'manual'; step_index: number }
+  /** Reached the end and closed via the final "시작하기" button. */
+  onboarding_completed: { source: 'auto' | 'manual' }
 }
 
 /**

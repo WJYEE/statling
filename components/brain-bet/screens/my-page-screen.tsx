@@ -72,7 +72,7 @@ interface MyPageScreenProps {
   petProfile: PetProfile | null
   /** Wipes the pet profile + care state + memory and returns to Landing. See resetAllPetData in game-flow.tsx. */
   onResetPet: () => void
-  /** Reopens the first-visit onboarding card on demand — see components/brain-bet/onboarding-modal.tsx. */
+  /** Reopens the first-visit Home coach mark on demand — see components/brain-bet/home-onboarding-guide.tsx. */
   onShowOnboarding: () => void
 }
 
@@ -353,8 +353,8 @@ export function MyPageScreen({ statlingName, topStat, secondaryStat, petProfile,
           <HelpCircle size={20} strokeWidth={2.2} />
         </span>
         <div className="flex-1">
-          <p className="font-display text-sm font-extrabold text-foreground">튜토리얼 보기</p>
-          <p className="text-xs text-muted-foreground">앱 사용법을 다시 확인해요.</p>
+          <p className="font-display text-sm font-extrabold text-foreground">Statling 가이드</p>
+          <p className="text-xs text-muted-foreground">Home 사용법을 다시 확인해요.</p>
         </div>
       </button>
 

@@ -654,6 +654,7 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
         <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
+            data-onboarding-target="room-mission"
             onClick={onOpenMission}
             className="grid h-9 w-9 place-items-center rounded-xl bg-accent text-accent-foreground toy-border toy-shadow-sm transition-transform active:translate-y-0.5"
             aria-label="미션"
@@ -774,7 +775,7 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
       />
 
       {/* care actions — compact icon buttons, 3x2 on mobile / one row on desktop */}
-      <div className="mt-2 grid grid-cols-3 gap-1.5 sm:mt-3 sm:grid-cols-6 sm:gap-2">
+      <div className="mt-2 grid grid-cols-3 gap-1.5 sm:mt-3 sm:grid-cols-6 sm:gap-2" data-onboarding-target="room-care-actions">
         {CARE_ACTIONS.map((action) => (
           <CareActionButton
             key={action.id}
@@ -788,7 +789,11 @@ export function RoomScreen({ statlingName, topStat, secondaryStat, petProfile, o
       </div>
 
       {/* grow CTA — the one action on this screen meant to stand out more than the compact HUD above */}
-      <ToyButton className="mx-auto mt-3 w-full max-w-xs px-5 py-2.5 sm:mt-4 sm:py-3" onClick={handleGrowClick}>
+      <ToyButton
+        className="mx-auto mt-3 w-full max-w-xs px-5 py-2.5 sm:mt-4 sm:py-3"
+        data-onboarding-target="room-grow-cta"
+        onClick={handleGrowClick}
+      >
         <Sparkles size={18} strokeWidth={2.6} />
         성장시키기
         <ArrowRight size={18} strokeWidth={2.8} />
