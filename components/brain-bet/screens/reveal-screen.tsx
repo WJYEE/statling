@@ -153,14 +153,7 @@ export function RevealScreen({
             growth). Copy names that destination directly ("성장 시작하기")
             instead of the previous, direction-less "함께하기" — see this
             screen's drop-off investigation (RevealScreen read as a finished
-            result report, not a starting point). The small "다음 단계 →"
-            eyebrow above it exists only for the not-yet-confirmed first-run
-            copy — isConfirmed's own "저장하고 시작하기" path already implies
-            "continuing," not "about to begin," so it keeps its original
-            label/no-eyebrow treatment untouched. */}
-        {!isConfirmed && (
-          <p className="text-xs font-bold text-muted-foreground">다음 단계 →</p>
-        )}
+            result report, not a starting point). */}
         <ToyButton className="w-full" onClick={onConfirm}>
           {isConfirmed ? '저장하고 시작하기' : `✨ ${withCompanionParticle(petProfile.name)} 성장 시작하기`}
           <ArrowRight size={20} strokeWidth={2.8} />
