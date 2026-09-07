@@ -9,6 +9,23 @@ import { useAuth } from '@/lib/auth/auth-provider'
 interface SaveScreenProps {
   onContinue: () => void
   onSkip: () => void
+  /**
+   * The species catalog name (e.g. "새싹코알라") — the pet's own custom
+   * nickname doesn't exist yet at this point in the flow (Naming is the
+   * NEXT screen, after Save), so this is the only name available here.
+   * Optional/undefined-safe: falls back to a generic "이 Statling" so this
+   * screen never breaks if a future caller omits it.
+   */
+  statlingSpeciesName?: string
+}
+
+/** "새싹코알라를 키우려면" / "바다고래를 키우려면" — same technique as mission-screen.tsx's withObjectParticle / my-page-screen.tsx's withSubjectParticle (Hangul syllables are a fixed Unicode block starting at U+AC00, in 28-value groups, remainder 0 means no final consonant). Falls back to '를' for anything that isn't a plain Hangul syllable. */
+function withObjectParticle(word: string): string {
+  const last = word.trim().slice(-1)
+  const code = last.charCodeAt(0)
+  if (code < 0xac00 || code > 0xd7a3) return `${word}를`
+  const hasBatchim = (code - 0xac00) % 28 !== 0
+  return `${word}${hasBatchim ? '을' : '를'}`
 }
 
 /**
@@ -28,8 +45,9 @@ interface SaveScreenProps {
  * PostHog-only (see lib/analytics/analytics.ts's own doc comments) — no GA4
  * counterpart, matching this task's PostHog-first scope.
  */
-export function SaveScreen({ onContinue, onSkip }: SaveScreenProps) {
+export function SaveScreen({ onContinue, onSkip, statlingSpeciesName }: SaveScreenProps) {
   const { isConfigured } = useAuth()
+  const petLabel = statlingSpeciesName?.trim() || '이 Statling'
 
   // Empty-deps effect, same once-per-real-mount convention as
   // profile_setup_view/statling_reveal — this screen only ever mounts once
@@ -52,13 +70,23 @@ export function SaveScreen({ onContinue, onSkip }: SaveScreenProps) {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col items-center justify-center px-5 py-10 text-center">
       <Logo size="sm" />
+      {/* Gain-framed, not loss-framed — the previous "잃어버리지 않도록
+          저장해둘까요?" explained login only as damage control (see this
+          screen's own drop-off investigation), never what logging in
+          actually unlocks. Naming this specific pet ("{petLabel}을(를)
+          키우려면") ties the ask directly to the Statling the visitor just
+          got, and the subcopy now names the concrete downstream experience
+          (games → stats → growth → ranking) instead of just "이어서 만날
+          수 있어요". */}
       <h1 className="mt-8 text-balance font-display text-2xl font-extrabold leading-snug text-foreground">
-        이 친구를 잃어버리지 않도록
+        {withObjectParticle(petLabel)} 키우려면
         <br />
-        저장해둘까요?
+        저장이 필요해요
       </h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        로그인하면 다음에도 Statling을 이어서 만날 수 있어요.
+        로그인하면 게임으로 스탯을 키우고,
+        <br />
+        Statling을 성장시키며 랭킹에도 도전할 수 있어요.
       </p>
 
       <div className="mt-8 w-full">

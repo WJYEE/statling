@@ -7,6 +7,8 @@ import { trackEvent, type ShareContext } from '@/lib/analytics/ga'
 import { trackProductEvent } from '@/lib/analytics/analytics'
 import { CharacterTraits } from '@/components/brain-bet/result/character-traits'
 import { CompatibleEnvironment } from '@/components/brain-bet/result/compatible-environment'
+import { ContentUnlockPreview, withCompanionParticle } from '@/components/brain-bet/result/content-unlock-preview'
+import { NextJourneyPreview } from '@/components/brain-bet/result/next-journey-preview'
 import { StatDistribution } from '@/components/brain-bet/result/stat-distribution'
 import { StatlingCompatibility } from '@/components/brain-bet/result/statling-compatibility'
 import { StatlingHero } from '@/components/brain-bet/result/statling-hero'
@@ -135,9 +137,32 @@ export function RevealScreen({
 
       <StatlingCompatibility goodMatches={goodMatchCards} differentRhythms={differentRhythmCards} />
 
-      <div className="mt-7 flex w-full flex-col gap-3">
+      {/* "결과를 다 봤다" → "새로운 세계가 열렸다" transition beat, right
+          where the drop-off investigation found users likely to bounce
+          (immediately after 궁합). Sits between StatlingCompatibility and
+          NextJourneyPreview per that investigation's reading-order fix:
+          캐릭터 이해 → 특징 → 잘 맞는 환경 → 궁합 → (새 콘텐츠 해금) →
+          (현재 성장 상태 확인) → CTA. */}
+      <ContentUnlockPreview petProfile={petProfile} />
+
+      <NextJourneyPreview petProfile={petProfile} />
+
+      <div className="mt-7 flex w-full flex-col items-center gap-3">
+        {/* Primary CTA — the one action that actually leads into the next
+            service experience (save/login → naming → Home → Free Play/XP/
+            growth). Copy names that destination directly ("성장 시작하기")
+            instead of the previous, direction-less "함께하기" — see this
+            screen's drop-off investigation (RevealScreen read as a finished
+            result report, not a starting point). The small "다음 단계 →"
+            eyebrow above it exists only for the not-yet-confirmed first-run
+            copy — isConfirmed's own "저장하고 시작하기" path already implies
+            "continuing," not "about to begin," so it keeps its original
+            label/no-eyebrow treatment untouched. */}
+        {!isConfirmed && (
+          <p className="text-xs font-bold text-muted-foreground">다음 단계 →</p>
+        )}
         <ToyButton className="w-full" onClick={onConfirm}>
-          {isConfirmed ? '저장하고 시작하기' : '이 Statling과 함께하기'}
+          {isConfirmed ? '저장하고 시작하기' : `✨ ${withCompanionParticle(petProfile.name)} 성장 시작하기`}
           <ArrowRight size={20} strokeWidth={2.8} />
         </ToyButton>
 
@@ -145,9 +170,16 @@ export function RevealScreen({
             itself offers both "친구에게 공유" and "이미지 저장" — a
             separate "이미지로 저장" button here just opened the identical
             Preview, so it added nothing (same consolidation MyPage's own
-            share buttons went through). */}
+            share buttons went through).
+            variant="secondary" (toned-down bg/shadow vs the primary CTA
+            above) is a deliberate hierarchy fix: sharing is still one tap
+            away, but no longer visually competes with "내 Statling
+            키우기" as an equally-weighted "the last thing you do here"
+            action — see this screen's drop-off investigation. Share itself
+            is untouched (same handler, same modal, same analytics). */}
         <ToyButton
           className="w-full"
+          variant="secondary"
           onClick={share.openPreview}
           aria-label="대표 스탯링 결과 공유 미리보기 열기"
         >

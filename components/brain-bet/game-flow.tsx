@@ -2178,7 +2178,11 @@ export function GameFlow() {
         )}
 
         {phase === 'save' && (
-          <SaveScreen onContinue={() => setPhase('naming')} onSkip={() => setPhase('naming')} />
+          <SaveScreen
+            onContinue={() => setPhase('naming')}
+            onSkip={() => setPhase('naming')}
+            statlingSpeciesName={displayedPetProfile?.name}
+          />
         )}
 
         {phase === 'naming' && displayedPetProfile && (
