@@ -1,12 +1,19 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Toast } from '@base-ui/react/toast'
 import { Logo } from '@/components/brain-bet/logo'
 import { ToyButton } from '@/components/brain-bet/toy-button'
 import { toLocalDateKey } from '@/lib/pet-care/visit-context'
 import { cn } from '@/lib/utils'
-import { GENDER_OPTIONS, validateBirthDate, updateProfileBirthday, type Gender, type BirthDateValidationError } from '@/lib/profile/birthday'
+import {
+  GENDER_OPTIONS,
+  validateBirthDate,
+  updateProfileBirthday,
+  getProfileBirthDate,
+  type Gender,
+  type BirthDateValidationError,
+} from '@/lib/profile/birthday'
 import { useAuth } from '@/lib/auth/auth-provider'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { trackEvent } from '@/lib/analytics/ga'
@@ -51,6 +58,32 @@ interface BirthdayScreenProps {
  * that would silently fail to persist would be worse than not offering them
  * at all. A guest still gets the Statling-birthday moment itself, just
  * without the profile question underneath.
+ *
+ * birth_date input starts blank and is only ever filled by: (a) the signed-
+ * in account's own already-saved profiles.birth_date, fetched once per
+ * user.id below, or (b) the user's own keystrokes/picker selection — never a
+ * "today" fallback. This matters for the exact scenario that can reach this
+ * screen despite the "never re-offered" note above: a device/account reused
+ * to hatch a fresh test pet (local pet state cleared, so game-flow.tsx's
+ * restore effect treats it as brand-new and routes through 'naming' again)
+ * while still signed into an account that already has a real saved
+ * birth_date from before — the fetch below must show THAT account's value,
+ * never bleed in a stale local value or silently default to today.
+ *
+ * Two race conditions the restore effect below deliberately guards against
+ * (found during a later audit of this exact logic):
+ * 1. `useAuth()`'s `user` is a NEW object on every auth event, including a
+ *    same-account TOKEN_REFRESHED (see supabase-auth-provider.tsx's
+ *    onAuthStateChange, which calls setUser(toAuthUser(session)) for every
+ *    event, not just SIGNED_IN). Depending on the full `user` object would
+ *    re-run this effect — and wipe whatever the user just picked — on any
+ *    such no-op re-auth while they're sitting on this screen. Keyed on
+ *    `user?.id` instead so only an actual account change re-triggers it.
+ * 2. The DB fetch is async; if it resolves after the user has already typed
+ *    or picked a date, it must never clobber that fresh input with a
+ *    possibly-stale saved value. `userEditedRef` tracks "has this user
+ *    touched the field since it last became theirs to fill in" and gates
+ *    the fetch's own setState.
  */
 export function BirthdayScreen({ statlingName, confirmedAtIso, onContinue }: BirthdayScreenProps) {
   const { user } = useAuth()
@@ -59,6 +92,8 @@ export function BirthdayScreen({ statlingName, confirmedAtIso, onContinue }: Bir
   const [gender, setGender] = useState<Gender | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  /** See this component's own doc comment (race condition #2) — true once the CURRENT user has typed/picked into the date field since it was last reset for them. */
+  const userEditedRef = useRef(false)
 
   const confirmedAt = confirmedAtIso ? new Date(confirmedAtIso) : new Date()
   const birthdayLabel = toLocalDateKey(confirmedAt).replace(/-/g, '.')
@@ -74,7 +109,39 @@ export function BirthdayScreen({ statlingName, confirmedAtIso, onContinue }: Bir
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per mount only
   }, [])
 
-  /** Fires profile_setup_complete once, then actually advances — every real exit path below (guest skip, both fields blank, or a successful/best-effort save) routes through this instead of calling onContinue() directly, so a client-side validation failure (which returns before ever reaching this) can never fire it. */
+  // Restores this ACCOUNT's own already-saved birth_date, if any — never a
+  // fallback to today. Keyed on user.id (not just "user truthy") so if this
+  // screen is ever reached under a different signed-in account than the one
+  // that last rendered it (e.g. a shared/test device), the input is reset to
+  // blank before the fetch resolves, rather than briefly showing the
+  // previous account's leftover local state. A guest (`user` null) or an
+  // account with no saved birth_date yet both correctly leave the field
+  // blank for direct manual entry.
+  const userId = user?.id ?? null
+  useEffect(() => {
+    // A real account change (including "no longer signed in") — reset both
+    // the field and the "has this user typed yet" tracker so the new
+    // account starts from a clean slate. A same-account re-auth event
+    // (TOKEN_REFRESHED etc.) never reaches here, since this effect only
+    // re-runs when `userId` itself changes.
+    setBirthDateInput('')
+    userEditedRef.current = false
+    if (!userId) return
+    let cancelled = false
+    const client = getSupabaseBrowserClient()
+    if (!client) return
+    void getProfileBirthDate(client, userId).then((result) => {
+      // The user may have already started typing while this was in flight
+      // — their input always wins over a possibly-stale saved value.
+      if (cancelled || userEditedRef.current || !result.ok || !result.birthDate) return
+      setBirthDateInput(result.birthDate)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [userId])
+
+  /** Fires profile_setup_complete once, then actually advances — every real exit path below (guest skip, both fields blank, or an actually-successful save) routes through this instead of calling onContinue() directly, so neither a client-side validation failure nor a failed/thrown save (both return early below) can ever fire it. */
   function completeAndContinue() {
     trackEvent('profile_setup_complete', {})
     trackProductEvent('profile_setup_completed', {})
@@ -109,16 +176,38 @@ export function BirthdayScreen({ statlingName, confirmedAtIso, onContinue }: Bir
 
     setError(null)
     setSaving(true)
-    const client = getSupabaseBrowserClient()
-    if (client) {
-      const result = await updateProfileBirthday(client, user.id, { birthDate: validatedBirthDate, gender })
-      if (!result.ok) {
-        toastManager.add({ title: '저장하지 못했어요. 다시 시도해주세요.', type: 'error' })
+    // Tracks whether the write actually went through — a Supabase-reported
+    // failure or a thrown exception must both block completeAndContinue()
+    // below (the user should stay here and be able to retry), unlike the
+    // earlier "never blocks on a save failure" behavior this replaces. `true`
+    // when there's no client at all (not-configured) since that's not a
+    // failed save attempt — same as the guest/no-op paths above, there was
+    // never anything to write in the first place.
+    let didSaveSucceed = true
+    try {
+      const client = getSupabaseBrowserClient()
+      if (client) {
+        const result = await updateProfileBirthday(client, user.id, { birthDate: validatedBirthDate, gender })
+        if (!result.ok) {
+          didSaveSucceed = false
+          toastManager.add({ title: '저장하지 못했어요. 다시 시도해주세요.', type: 'error' })
+        }
       }
+    } catch {
+      // Same user-facing message as the result.ok===false branch above — an
+      // unexpected throw (offline, network drop mid-request) is still just
+      // "the save didn't happen."
+      didSaveSucceed = false
+      toastManager.add({ title: '저장하지 못했어요. 다시 시도해주세요.', type: 'error' })
+    } finally {
+      // Runs on every path (success, Supabase-reported error, or a thrown
+      // exception) — `saving` must never stay stuck true, since it also
+      // disables the date input itself (see this file's own audit notes).
+      // birthDateInput/gender are left untouched here so a failed attempt
+      // can be retried without retyping.
+      setSaving(false)
     }
-    setSaving(false)
-    // Never blocks on a save failure — both fields are optional by design,
-    // so losing this one write is not worth trapping the user here.
+    if (!didSaveSucceed) return
     completeAndContinue()
   }
 
@@ -149,7 +238,9 @@ export function BirthdayScreen({ statlingName, confirmedAtIso, onContinue }: Bir
               type="date"
               value={birthDateInput}
               max={todayKey}
+              autoComplete="off"
               onChange={(e) => {
+                userEditedRef.current = true
                 setBirthDateInput(e.target.value)
                 if (error) setError(null)
               }}
