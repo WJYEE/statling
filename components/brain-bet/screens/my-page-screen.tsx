@@ -353,7 +353,7 @@ export function MyPageScreen({ statlingName, topStat, secondaryStat, petProfile,
           <HelpCircle size={20} strokeWidth={2.2} />
         </span>
         <div className="flex-1">
-          <p className="font-display text-sm font-extrabold text-foreground">온보딩 다시 보기</p>
+          <p className="font-display text-sm font-extrabold text-foreground">튜토리얼 보기</p>
           <p className="text-xs text-muted-foreground">앱 사용법을 다시 확인해요.</p>
         </div>
       </button>

@@ -36,7 +36,6 @@ import { StatlingScreen } from '@/components/brain-bet/screens/statling-screen'
 import { RankingScreen } from '@/components/brain-bet/screens/ranking-screen'
 import { MyPageScreen } from '@/components/brain-bet/screens/my-page-screen'
 import { OnboardingModal } from '@/components/brain-bet/onboarding-modal'
-import { loadOnboardingSeen } from '@/lib/onboarding-storage'
 import { audioManager } from '@/lib/audio/audio-manager'
 import { NavRail, type NavTab } from '@/components/brain-bet/nav-rail'
 import { QaSkipMenu } from '@/components/brain-bet/qa-skip-menu'
@@ -346,9 +345,13 @@ export function GameFlow() {
   /** A resumable Intro checkpoint found on mount (see lib/game/intro-progress-storage.ts) — non-null only while Landing can still offer "이어서 하기". Cleared the moment the player resumes, restarts, or the run finishes. */
   const [introResume, setIntroResume] = useState<IntroProgressState | null>(null)
   const [confirmingRestartIntro, setConfirmingRestartIntro] = useState(false)
+  // Manual-open only (MyPageScreen's "튜토리얼 보기" row sets this directly
+  // via onShowOnboarding below) — RevealScreen's own ContentUnlockPreview/
+  // NextJourneyPreview now cover this same "discover -> grow -> raise"
+  // explanation before Home is ever reached, so there is no longer an
+  // auto-show-on-first-Home-visit effect here. See onboarding-modal.tsx's
+  // own doc comment for the fuller history.
   const [showOnboarding, setShowOnboarding] = useState(false)
-  /** Guards the auto-show effect below so it only ever fires once per mount, even as `phase` keeps changing between nav tabs — reopening manually (MyPageScreen's "온보딩 다시 보기") goes through setShowOnboarding directly and doesn't touch this. */
-  const autoOnboardingShownRef = useRef(false)
 
   /**
    * topStat/secondaryStat once a pet has been assigned come straight from
@@ -629,16 +632,6 @@ export function GameFlow() {
       setPhase('landing')
     }
   }, [user, phase])
-
-  // Auto-shows the onboarding card exactly once, the first time a first-visit
-  // (never dismissed with "다시 보지 않기") user reaches any of the main tabs —
-  // i.e. right after hatching, not on Landing/game screens.
-  useEffect(() => {
-    if (autoOnboardingShownRef.current) return
-    if (!NAV_PHASES.includes(phase)) return
-    autoOnboardingShownRef.current = true
-    if (!loadOnboardingSeen()) setShowOnboarding(true)
-  }, [phase])
 
   /**
    * True for every screen that belongs to the Intro (First Play) onboarding
