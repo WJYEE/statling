@@ -1963,6 +1963,25 @@ export function GameFlow() {
     setPhase('save')
   }
 
+  /**
+   * The one genuinely first-ever Home entry — fires exactly once, right
+   * before the very first `setPhase('room')` a brand-new pet ever reaches
+   * (see the two call sites below: a signed-in user via BirthdayScreen's
+   * onContinue, or a guest who skips straight past it — see the naming
+   * onConfirm branch just above BirthdayScreen's render). Every OTHER
+   * setPhase('room') call site (stored-profile restore on mount, post-login
+   * restore, returnToRoom nav) is a revisit, not a first arrival, so this
+   * must never be called from anywhere else. Kept as one shared function
+   * (not duplicated inline) specifically so both call sites can never drift
+   * out of sync on this exact event shape.
+   */
+  const fireFirstHomeEntry = () => {
+    if (displayedPetProfile) {
+      trackEvent('home_enter', { statling_type: displayedPetProfile.id, entry_type: 'first_time' })
+      trackProductEvent('home_entered', { entry_type: 'first_time' })
+    }
+  }
+
   const currentBestRaw = statStatus[activeStatId].current?.raw ?? null
   const currentBestScore = statStatus[activeStatId].current?.gameScore ?? null
 
@@ -2202,16 +2221,26 @@ export function GameFlow() {
                 const supabase = getSupabaseBrowserClient()
                 if (supabase) triggerBackgroundMigration(supabase)
               }
-              // Phase 3I-1 — Birthday/Profile beat, once, only for a
-              // brand-new pet (this onConfirm only ever runs the first time
-              // a pet is named — see BirthdayScreen's own doc comment for
-              // why no separate "already seen" flag is needed). home_enter
-              // does NOT fire here (see BirthdayScreen's onContinue below) —
-              // Profile Setup is a mandatory step before Room, so firing the
-              // activation event at naming-confirm time would count a user
-              // as "activated" before they've actually reached Home,
-              // distorting the funnel (Phase 3J-3 fix).
-              setPhase('birthday')
+              // Phase 3I-1 / Guest-friction fix — Birthday/Profile is a
+              // signed-in-only beat: BirthdayScreen has no local mirror for
+              // birth_date/gender (see that component's own doc comment), so
+              // a guest who chose "나중에 하기" on SaveScreen has nothing to
+              // fill in there beyond a static "생일이에요!" moment with no
+              // real function. Sending every guest through it anyway added a
+              // full extra screen between Naming and actually getting to use
+              // the Statling they just got — exactly the friction a guest's
+              // "skip login" choice was meant to avoid. A signed-in user
+              // keeps the original Naming -> Birthday/Profile -> Home path
+              // (home_enter fires from BirthdayScreen's onContinue, once
+              // Profile Setup is actually done); a guest instead fires that
+              // same first-Home-entry event right here and goes straight to
+              // Room.
+              if (user) {
+                setPhase('birthday')
+              } else {
+                fireFirstHomeEntry()
+                setPhase('room')
+              }
             }}
           />
         )}
@@ -2222,18 +2251,11 @@ export function GameFlow() {
             confirmedAtIso={petRecord.confirmedAt}
             onContinue={() => {
               // Phase 3J-3 — the one genuinely first-ever Home entry now
-              // fires exactly here, once Profile Setup (mandatory before
-              // Room) is actually done and Room is the very next screen —
-              // previously fired at naming-confirm time, one full screen
-              // too early (see ANALYTICS_GAP_AUDIT.md's home_enter timing
-              // finding). Every other setPhase('room') call site
-              // (stored-profile restore on mount, post-login restore,
-              // returnToRoom nav) is a revisit, not a first arrival, so
-              // home_enter must still fire only here.
-              if (displayedPetProfile) {
-                trackEvent('home_enter', { statling_type: displayedPetProfile.id, entry_type: 'first_time' })
-                trackProductEvent('home_entered', { entry_type: 'first_time' })
-              }
+              // fires exactly here (see fireFirstHomeEntry's own doc
+              // comment), once Profile Setup (mandatory before Room, for a
+              // signed-in user) is actually done and Room is the very next
+              // screen.
+              fireFirstHomeEntry()
               setPhase('room')
             }}
           />
