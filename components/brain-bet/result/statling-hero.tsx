@@ -1,4 +1,3 @@
-import { Sparkles } from 'lucide-react'
 import { AssetImage } from '@/components/brain-bet/asset-image'
 import { StatBadge } from '@/components/brain-bet/stat-badge'
 import type { StatDef } from '@/lib/brain-bet'
@@ -19,7 +18,10 @@ interface StatlingHeroProps {
  * banner. The pet portrait is the single largest thing on the page by
  * design (spec: the pet, not the text, must be what a user sees first).
  * Dex number + rarity chip are purely cosmetic (see lib/pets/pet-rarity.ts)
- * and never feed into matching/selection.
+ * and never feed into matching/selection. The "새로운 Statling 획득!"
+ * eyebrow this card used to open with now lives one level up, in
+ * RevealScreen's own intro copy (see that screen's own doc comment) — kept
+ * out of this component so the two don't end up stacked/duplicated.
  */
 export function StatlingHero({ petProfile, topStat, secondaryStat, typeName, coreTrait }: StatlingHeroProps) {
   const dexNumber = getDexNumber(petProfile)
@@ -27,12 +29,7 @@ export function StatlingHero({ petProfile, topStat, secondaryStat, typeName, cor
 
   return (
     <div className="flex w-full flex-col items-center">
-      <span className="inline-flex items-center gap-1 font-display text-xs font-bold text-muted-foreground">
-        <Sparkles size={13} strokeWidth={2.8} aria-hidden="true" />
-        새로운 Statling 획득!
-      </span>
-
-      <div className="relative mt-2 flex w-full flex-col items-center rounded-3xl border-2 border-foreground/20 bg-card px-5 pb-6 pt-4 text-center toy-shadow-sm">
+      <div className="relative flex w-full flex-col items-center rounded-3xl border-2 border-foreground/20 bg-card px-5 pb-6 pt-4 text-center toy-shadow-sm">
         <div className="flex w-full items-center justify-between">
           <span className="rounded-md bg-secondary px-2 py-0.5 font-display text-xs font-extrabold tracking-wide text-secondary-foreground">
             {dexNumber}
@@ -65,7 +62,12 @@ export function StatlingHero({ petProfile, topStat, secondaryStat, typeName, cor
         <h1 className="mt-1 font-display text-2xl font-extrabold text-foreground">{petProfile.name}</h1>
         <p className="text-sm font-bold text-primary">{typeName}</p>
 
-        <div className="mt-3 flex items-center gap-2">
+        {/* One small context label, not a sentence — just enough that a
+            first-time viewer knows these two badges are "why this pet",
+            not decoration. Kept to a single uppercase micro-label so the
+            card's own height/hierarchy is untouched. */}
+        <p className="mt-3 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">나의 강점</p>
+        <div className="mt-1 flex items-center gap-2">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-2.5 py-1">
             <StatBadge stat={topStat} size="xs" />
             <span className="text-xs font-bold text-secondary-foreground">{topStat.name}</span>

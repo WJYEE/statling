@@ -179,6 +179,16 @@ export interface ProductEventParams {
   onboarding_skipped: { source: 'auto' | 'manual'; step_index: number }
   /** Reached the end and closed via the final "시작하기" button. */
   onboarding_completed: { source: 'auto' | 'manual' }
+  /**
+   * HomeResultPopup (the short "내 Statling은 어떤 결과로 태어났는지"
+   * summary) opened — either auto-shown on the first real Home arrival
+   * (before HomeOnboardingGuide, see game-flow.tsx's sequencing), or
+   * manually reopened via MyPageScreen's "내 Statling 결과" row. Same
+   * `source` convention as onboarding_viewed. PostHog-only, same reasoning.
+   */
+  result_popup_viewed: { source: 'auto' | 'manual' }
+  /** Closed (there is only one exit action — see home-result-popup.tsx's own doc comment on why this has no separate skip). */
+  result_popup_completed: { source: 'auto' | 'manual' }
 }
 
 /**

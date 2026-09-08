@@ -2,15 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Toast } from '@base-ui/react/toast'
-import { ArrowRight, Share2 } from 'lucide-react'
+import { ArrowRight, Share2, Sparkles } from 'lucide-react'
 import { trackEvent, type ShareContext } from '@/lib/analytics/ga'
 import { trackProductEvent } from '@/lib/analytics/analytics'
-import { CharacterTraits } from '@/components/brain-bet/result/character-traits'
-import { CompatibleEnvironment } from '@/components/brain-bet/result/compatible-environment'
-import { ContentUnlockPreview, withCompanionParticle } from '@/components/brain-bet/result/content-unlock-preview'
-import { NextJourneyPreview } from '@/components/brain-bet/result/next-journey-preview'
-import { StatDistribution } from '@/components/brain-bet/result/stat-distribution'
-import { StatlingCompatibility } from '@/components/brain-bet/result/statling-compatibility'
 import { StatlingHero } from '@/components/brain-bet/result/statling-hero'
 import { Logo } from '@/components/brain-bet/logo'
 import { ShareFallbackModal } from '@/components/brain-bet/share-fallback-modal'
@@ -38,9 +32,25 @@ interface RevealScreenProps {
   secondaryStat: StatId
   finals: Record<StatId, number>
   isConfirmed: boolean
+  /** Writes confirmed:true/confirmedAt/dex-entry — called automatically on mount below (see the effect just under this), never from a click anymore. Kept as a prop (not inlined) since game-flow.tsx also needs the same write from its own boot-restore path. */
   onConfirm: () => void
+  /** The one user-driven action left on this screen — advances to Naming. Confirming (above) and continuing (this) are deliberately separate: a hatch is never "undone", so there's nothing left to decide here, but the user still gets a moment to actually see their Statling before moving on. */
+  onContinue: () => void
 }
 
+/**
+ * Hatch Reveal — trimmed to an emotional "내 Statling이 태어났다" beat
+ * (StatlingHero only: portrait/name/type/top+secondary stat badges/core
+ * trait), not a detailed result report. CharacterTraits/CompatibleEnvironment/
+ * StatDistribution/StatlingCompatibility/ContentUnlockPreview/NextJourneyPreview
+ * used to render here too — none were deleted, they're reserved for a future
+ * "결과 상세" surface reachable after Home (see the onboarding-redesign
+ * report); this screen only stopped mounting them. Share stays exactly as
+ * it was (self-contained: StatlingShareCard/useSharePreview compute their
+ * own data below independent of which visual sections are on screen), since
+ * it doesn't structurally compete with the trimmed flow the way a full
+ * results report would.
+ */
 export function RevealScreen({
   petProfile,
   topStat,
@@ -48,6 +58,7 @@ export function RevealScreen({
   finals,
   isConfirmed,
   onConfirm,
+  onContinue,
 }: RevealScreenProps) {
   const stat = STATS[topStat]
   const secondary = STATS[secondaryStat]
@@ -55,6 +66,32 @@ export function RevealScreen({
 
   const toastManager = Toast.useToastManager()
   const shareCardRef = useRef<HTMLDivElement>(null)
+
+  // Hides the page scrollbar's TRACK/THUMB (never its scroll function —
+  // .scrollbar-hide only sets scrollbar-width/-webkit-scrollbar, see
+  // app/globals.css) for exactly as long as this screen is mounted. This
+  // content sits right at the viewport edge (min-h-dvh, centered), where a
+  // sliver scrollbar can appear from ordinary dvh sub-pixel rounding even
+  // though nothing is actually being clipped.
+  //
+  // Targets `document.scrollingElement` — the browser-standard way to ask
+  // "which element actually owns the viewport's scrollbar right now"
+  // (https://drafts.csswg.org/cssom-view/#dom-document-scrollingelement).
+  // In a standards-mode document (this app always renders one), that's
+  // `document.documentElement` (<html>), NOT <body> — applying the class to
+  // body only (an earlier version of this fix did exactly that) left the
+  // real root scrollbar fully visible, since body was never the element
+  // rendering it. Falls back to documentElement directly if
+  // scrollingElement is ever null (SSR-adjacent edge case; both resolve to
+  // the same element in practice for this app). Captured in a ref-like
+  // const inside the effect so the exact same node is removed on unmount,
+  // even in the (currently impossible, but cheap to guard) case that
+  // scrollingElement could resolve differently between mount and unmount.
+  useEffect(() => {
+    const root = document.scrollingElement ?? document.documentElement
+    root.classList.add('scrollbar-hide')
+    return () => root.classList.remove('scrollbar-hide')
+  }, [])
 
   // "캐릭터 공개" — fires on every mount, including a refresh that bounces
   // straight back here pre-confirm (see game-flow.tsx's restore effect), by
@@ -64,6 +101,18 @@ export function RevealScreen({
     trackEvent('statling_reveal', { statling_type: petProfile.id, top_ability: topStat, second_ability: secondaryStat })
     trackProductEvent('statling_revealed', { character_id: petProfile.id, top_stat: topStat, second_stat: secondaryStat })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per mount only
+  }, [])
+
+  // Confirm now happens automatically the moment this screen is actually
+  // seen — there is no reroll/decline option anywhere in this flow, so
+  // requiring an extra tap to "accept" a foregone conclusion only added
+  // friction. Runs once on mount; a refresh that lands back here with
+  // isConfirmed already true (see game-flow.tsx's boot-restore effect,
+  // which routes any !confirmed pet straight back to 'reveal') correctly
+  // no-ops instead of re-writing confirmedAt.
+  useEffect(() => {
+    if (!isConfirmed) onConfirm()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- read isConfirmed's mount-time value only; onConfirm is idempotent-guarded by the caller anyway
   }, [])
 
   // Phase 3C-1 — Share Preview: image generation, the file/text/clipboard
@@ -116,10 +165,25 @@ export function RevealScreen({
   })
 
   return (
-    <div className="dot-grid-bg contain-[layout] mx-auto flex min-h-dvh w-full max-w-md flex-col items-center overflow-x-hidden px-5 py-6">
+    <div className="dot-grid-bg contain-[layout] mx-auto flex min-h-dvh w-full max-w-md flex-col items-center justify-center overflow-x-hidden px-5 py-6">
       <Logo size="sm" />
 
-      <div className="mt-4 w-full">
+      {/* Replaces StatlingHero's own former internal eyebrow line (see that
+          component's doc comment) — ties this moment back to the test the
+          user just finished, for a first-time viewer who might otherwise
+          not connect "결과" with "이 캐릭터가 왜 나왔는지". Two short lines
+          max (spec: 모바일에서 1~2줄), no "Stat + -ling" etymology. */}
+      <div className="mt-4 flex flex-col items-center gap-1 text-center">
+        <p className="flex items-center gap-1.5 font-display text-lg font-extrabold text-foreground">
+          <Sparkles size={18} strokeWidth={2.6} className="text-primary" aria-hidden="true" />
+          나의 Statling이 태어났어요!
+        </p>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          테스트에서 나타난 나의 능력치를 바탕으로 태어난 나만의 친구예요.
+        </p>
+      </div>
+
+      <div className="mt-3 w-full">
         <StatlingHero
           petProfile={petProfile}
           topStat={stat}
@@ -129,33 +193,12 @@ export function RevealScreen({
         />
       </div>
 
-      <CharacterTraits insight={insight} />
-
-      <CompatibleEnvironment insight={insight} />
-
-      <StatDistribution finals={finals} />
-
-      <StatlingCompatibility goodMatches={goodMatchCards} differentRhythms={differentRhythmCards} />
-
-      {/* "결과를 다 봤다" → "새로운 세계가 열렸다" transition beat, right
-          where the drop-off investigation found users likely to bounce
-          (immediately after 궁합). Sits between StatlingCompatibility and
-          NextJourneyPreview per that investigation's reading-order fix:
-          캐릭터 이해 → 특징 → 잘 맞는 환경 → 궁합 → (새 콘텐츠 해금) →
-          (현재 성장 상태 확인) → CTA. */}
-      <ContentUnlockPreview petProfile={petProfile} />
-
-      <NextJourneyPreview petProfile={petProfile} />
-
       <div className="mt-7 flex w-full flex-col items-center gap-3">
-        {/* Primary CTA — the one action that actually leads into the next
-            service experience (save/login → naming → Home → Free Play/XP/
-            growth). Copy names that destination directly ("성장 시작하기")
-            instead of the previous, direction-less "함께하기" — see this
-            screen's drop-off investigation (RevealScreen read as a finished
-            result report, not a starting point). */}
-        <ToyButton className="w-full" onClick={onConfirm}>
-          {isConfirmed ? '저장하고 시작하기' : `✨ ${withCompanionParticle(petProfile.name)} 성장 시작하기`}
+        {/* The one user-driven action left on this trimmed screen — see
+            onContinue's own doc comment above for why confirming and
+            continuing are separate. */}
+        <ToyButton className="w-full" onClick={onContinue}>
+          이름 지어주기
           <ArrowRight size={20} strokeWidth={2.8} />
         </ToyButton>
 

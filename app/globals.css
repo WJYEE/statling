@@ -181,6 +181,22 @@
     background-image: radial-gradient(var(--line) 1px, transparent 1px);
     background-size: 16px 16px;
   }
+  /* Hides the scrollbar TRACK/THUMB only — scrolling itself (wheel/touch/
+     keyboard) is completely untouched, since this never sets `overflow`.
+     Opt-in per element (never applied globally) for screens whose content
+     height hovers right at the viewport edge, where the browser's own
+     scrollbar affordance reads as visual noise rather than a useful
+     signal. `scrollbar-width: none` covers Firefox, `-ms-overflow-style`
+     covers legacy Edge/IE, and the ::-webkit-scrollbar rule covers
+     Chrome/Safari/new Edge — the standard three-part cross-browser trio
+     for this (there's no single shorthand that covers all engines yet). */
+  .scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
   /* soft sticker border + gentle offset shadow for a cozy toy/game feel */
   .toy-border {
     border: 1.5px solid var(--line);

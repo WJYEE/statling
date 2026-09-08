@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
+  Cake,
   HelpCircle,
   Loader2,
   LogOut,
   Mail,
   Music,
   RotateCcw,
+  Sparkles,
   User,
   Users,
   Volume2,
@@ -74,9 +76,22 @@ interface MyPageScreenProps {
   onResetPet: () => void
   /** Reopens the first-visit Home coach mark on demand — see components/brain-bet/home-onboarding-guide.tsx. */
   onShowOnboarding: () => void
+  /** Reopens the short "내 Statling은 어떤 결과로 태어났는지" summary on demand — see components/brain-bet/home-result-popup.tsx. */
+  onShowResult: () => void
+  /** Opens BirthdayScreen's optional 생년월일/성별 form — no longer a mandatory step before Home for anyone (see game-flow.tsx's naming onConfirm), reachable only from here now. */
+  onShowProfile: () => void
 }
 
-export function MyPageScreen({ statlingName, topStat, secondaryStat, petProfile, onResetPet, onShowOnboarding }: MyPageScreenProps) {
+export function MyPageScreen({
+  statlingName,
+  topStat,
+  secondaryStat,
+  petProfile,
+  onResetPet,
+  onShowOnboarding,
+  onShowResult,
+  onShowProfile,
+}: MyPageScreenProps) {
   // GA4 `my_page_view` — Path Exploration entry signal for one of
   // home_enter's three main downstream destinations (Grow/Ranking/My Page,
   // see grow-screen.tsx's grow_view for the sibling case). Fires once per
@@ -319,14 +334,14 @@ export function MyPageScreen({ statlingName, topStat, secondaryStat, petProfile,
                 onClick={() => setShowLogin((v) => !v)}
                 className="shrink-0 rounded-xl bg-primary px-3 py-2 text-xs font-bold text-primary-foreground"
               >
-                {showLogin ? '닫기' : '로그인'}
+                {showLogin ? '닫기' : '계정 연결'}
               </button>
             )
           )}
         </div>
 
         {!user && showLogin && (
-          <AuthForm className="mt-4" defaultMode="signin" onAuthenticated={() => setShowLogin(false)} />
+          <AuthForm className="mt-4" defaultMode="signup" onAuthenticated={() => setShowLogin(false)} />
         )}
       </div>
 
@@ -355,6 +370,34 @@ export function MyPageScreen({ statlingName, topStat, secondaryStat, petProfile,
         <div className="flex-1">
           <p className="font-display text-sm font-extrabold text-foreground">Statling 가이드</p>
           <p className="text-xs text-muted-foreground">Home 사용법을 다시 확인해요.</p>
+        </div>
+      </button>
+
+      <button
+        type="button"
+        onClick={onShowResult}
+        className="mt-2 flex items-center gap-3 rounded-2xl bg-card px-4 py-4 text-left toy-border"
+      >
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground toy-border">
+          <Sparkles size={20} strokeWidth={2.2} />
+        </span>
+        <div className="flex-1">
+          <p className="font-display text-sm font-extrabold text-foreground">내 Statling 결과</p>
+          <p className="text-xs text-muted-foreground">처음 태어났을 때의 결과를 다시 확인해요.</p>
+        </div>
+      </button>
+
+      <button
+        type="button"
+        onClick={onShowProfile}
+        className="mt-2 flex items-center gap-3 rounded-2xl bg-card px-4 py-4 text-left toy-border"
+      >
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground toy-border">
+          <Cake size={20} strokeWidth={2.2} />
+        </span>
+        <div className="flex-1">
+          <p className="font-display text-sm font-extrabold text-foreground">프로필 정보</p>
+          <p className="text-xs text-muted-foreground">생년월일 등 내 정보를 선택적으로 입력해요.</p>
         </div>
       </button>
 

@@ -36,7 +36,11 @@ import { StatlingScreen } from '@/components/brain-bet/screens/statling-screen'
 import { RankingScreen } from '@/components/brain-bet/screens/ranking-screen'
 import { MyPageScreen } from '@/components/brain-bet/screens/my-page-screen'
 import { HomeOnboardingGuide, ONBOARDING_STEPS } from '@/components/brain-bet/home-onboarding-guide'
+import { HomeResultPopup } from '@/components/brain-bet/home-result-popup'
+import { StatlingResultDetail } from '@/components/brain-bet/statling-result-detail'
 import { loadOnboardingSeen, markOnboardingSeen } from '@/lib/onboarding-storage'
+import { loadHomeEntered, markHomeEntered } from '@/lib/home-entry-storage'
+import { loadResultSeen, markResultSeen } from '@/lib/result-popup-storage'
 import { audioManager } from '@/lib/audio/audio-manager'
 import { NavRail, type NavTab } from '@/components/brain-bet/nav-rail'
 import { QaSkipMenu } from '@/components/brain-bet/qa-skip-menu'
@@ -358,8 +362,31 @@ export function GameFlow() {
   const [onboardingStepIndex, setOnboardingStepIndex] = useState(0)
   /** True once Step 7's "다음" has returned phase to 'room' — HomeOnboardingGuide renders the short completion card instead of a coach-mark step while this is true. */
   const [onboardingComplete, setOnboardingComplete] = useState(false)
-  /** Guards the auto-show effect below so it only ever fires once per mount, even as `phase` keeps changing between nav tabs. */
-  const autoOnboardingShownRef = useRef(false)
+  /**
+   * Guards the Result Popup/Guide auto-trigger effect below so it only ever
+   * runs once PER STATLING, not once per page load. Holds the petKey
+   * (petRecord.confirmedAt) the check has already run for — `undefined`
+   * means "not checked yet this pet". A plain `useRef(false)` here was the
+   * actual bug this comment now documents: after "펫 초기화" -> a brand
+   * new Statling, reaching Room again within the same SPA session (no full
+   * reload) never re-ran the check at all, because a one-shot boolean has
+   * no notion of "which pet" — it had already been permanently spent by
+   * whichever pet first reached Room this page load. Keyed by petKey
+   * instead, so a genuinely new pet (different confirmedAt) always gets its
+   * own first check, while the SAME pet revisiting Room repeatedly still
+   * only ever triggers it once.
+   */
+  const autoHomeIntroCheckedPetKeyRef = useRef<string | undefined>(undefined)
+  // Home Result Popup — the short "내 Statling은 어떤 결과로 태어났는지"
+  // summary, sequenced to show BEFORE HomeOnboardingGuide on a genuine
+  // first Home visit (see the consolidated auto-trigger effect below) and
+  // reopenable anytime via MyPageScreen's "내 Statling 결과" row
+  // (onShowResult below sets this directly, bypassing the seen check).
+  // Deliberately a SEPARATE seen-flag/state pair from onboarding above —
+  // see lib/result-popup-storage.ts's own doc comment for why the two must
+  // never affect each other's seen state.
+  const [showResultPopup, setShowResultPopup] = useState(false)
+  const [resultPopupSource, setResultPopupSource] = useState<'auto' | 'manual'>('auto')
 
   /**
    * topStat/secondaryStat once a pet has been assigned come straight from
@@ -485,18 +512,50 @@ export function GameFlow() {
       setPetRecord(stored)
       if (stored.statlingName) {
         setStatlingName(stored.statlingName)
-        // GA4 counterpart of home_entered{returning} below — previously
-        // missing entirely (see ANALYTICS_GAP_AUDIT.md's home_enter/
-        // home_entered asymmetry finding). Resolved directly from `stored`,
-        // not the displayedPetProfile/petRecord state above, since
-        // setPetRecord(stored) hasn't re-rendered yet at this point in the
-        // same effect.
-        const returningPetProfile = resolveCurrentPetProfile(stored)
-        if (returningPetProfile) {
-          trackEvent('home_enter', { statling_type: returningPetProfile.id, entry_type: 'returning' })
+        // Named alone isn't enough to call this a genuine RETURN visit —
+        // it's also exactly the state a refresh mid-"함께 놀아볼까요?"
+        // transition leaves behind (NamingScreen's onNameSaved already ran,
+        // but its onPlay — the one thing that actually marks Home as
+        // entered — hasn't yet). See lib/home-entry-storage.ts's own doc
+        // comment. Existing pets from before this flag existed are
+        // backfilled from the older onboardingSeen flag here: if THAT was
+        // already true, this pet has unambiguously reached Home before,
+        // regardless of never having set the newer flag.
+        const petKey = stored.confirmedAt
+        if (petKey && !loadHomeEntered(petKey) && loadOnboardingSeen(petKey)) {
+          markHomeEntered(petKey)
         }
-        trackProductEvent('home_entered', { entry_type: 'returning' })
-        setPhase('room')
+        // Same backfill for the Result Popup — an existing pet that had
+        // already finished onboarding under the OLD flow (pre-dating this
+        // Popup entirely) has unambiguously already "seen its own result"
+        // in every way that matters; it should never suddenly surface a
+        // brand-new popup on a device that's been using this Statling for
+        // a while. Only a genuinely NEW pet created through the new flow
+        // (never having set the old onboardingSeen flag either) gets the
+        // Popup applied.
+        if (petKey && !loadResultSeen(petKey) && loadOnboardingSeen(petKey)) {
+          markResultSeen(petKey)
+        }
+        if (!petKey || loadHomeEntered(petKey)) {
+          // GA4 counterpart of home_entered{returning} below — previously
+          // missing entirely (see ANALYTICS_GAP_AUDIT.md's home_enter/
+          // home_entered asymmetry finding). Resolved directly from `stored`,
+          // not the displayedPetProfile/petRecord state above, since
+          // setPetRecord(stored) hasn't re-rendered yet at this point in the
+          // same effect.
+          const returningPetProfile = resolveCurrentPetProfile(stored)
+          if (returningPetProfile) {
+            trackEvent('home_enter', { statling_type: returningPetProfile.id, entry_type: 'returning' })
+          }
+          trackProductEvent('home_entered', { entry_type: 'returning' })
+          setPhase('room')
+        } else {
+          // Named, but "같이 놀러 가기" was never actually pressed yet —
+          // NamingScreen's own initialName prop makes it start directly in
+          // the confirmed sub-state instead of the (already-answered) input
+          // form.
+          setPhase('naming')
+        }
       } else {
         setPhase('naming')
       }
@@ -655,9 +714,7 @@ export function GameFlow() {
     phase === 'login' ||
     phase === 'egg' ||
     phase === 'reveal' ||
-    phase === 'save' ||
     phase === 'naming' ||
-    phase === 'birthday' ||
     (flowMode === 'first' && (phase === 'game' || phase === 'complete'))
 
   // Intro is always silent, no matter what the player previously chose in
@@ -1954,7 +2011,13 @@ export function GameFlow() {
     }
   }
 
-  /** "이 Statling과 함께하기" — locks in whichever pet is currently on screen, then always continues forward. */
+  /**
+   * Locks in whichever pet is currently on screen — pure data write, no
+   * navigation. Called automatically by RevealScreen's own mount effect now
+   * (there's no reroll/decline option anywhere in this flow, so this no
+   * longer waits on a "함께하기" click) — see RevealScreen's onConfirm prop.
+   * Advancing to Naming is the caller's separate onContinue.
+   */
   const handleConfirmPet = () => {
     if (petRecord && !petRecord.confirmed) {
       const updated = confirmPet(petRecord)
@@ -1968,20 +2031,17 @@ export function GameFlow() {
       addMetPet(updated.petId) // becoming your representative pet always registers it in the dex — see lib/pets/dex-storage.ts
       if (isNewDexEntry) scheduleSync('dex_entries')
     }
-    setPhase('save')
   }
 
   /**
-   * The one genuinely first-ever Home entry — fires exactly once, right
-   * before the very first `setPhase('room')` a brand-new pet ever reaches
-   * (see the two call sites below: a signed-in user via BirthdayScreen's
-   * onContinue, or a guest who skips straight past it — see the naming
-   * onConfirm branch just above BirthdayScreen's render). Every OTHER
-   * setPhase('room') call site (stored-profile restore on mount, post-login
-   * restore, returnToRoom nav) is a revisit, not a first arrival, so this
-   * must never be called from anywhere else. Kept as one shared function
-   * (not duplicated inline) specifically so both call sites can never drift
-   * out of sync on this exact event shape.
+   * The one genuinely first-ever Home entry — fires exactly once, from the
+   * single call site left now that guest and signed-in users converge onto
+   * the identical Naming -> "같이 놀러 가기" path (see NamingScreen's onPlay
+   * above; Birthday/Profile is no longer mandatory for anyone, so it can no
+   * longer be this event's trigger). Every OTHER setPhase('room') call site
+   * (stored-profile restore on mount, post-login restore, returnToRoom nav)
+   * is a revisit, not a first arrival, so this must never be called from
+   * anywhere else.
    */
   const fireFirstHomeEntry = () => {
     if (displayedPetProfile) {
@@ -1990,30 +2050,65 @@ export function GameFlow() {
     }
   }
 
-  // Auto-shows the Home coach mark exactly once, the first time `phase`
-  // actually reaches 'room' (never on any other nav tab — every one of
-  // HomeOnboardingGuide's steps targets a Room/NavRail element that only
-  // exists once Room itself has mounted). Runs for guest and signed-in
-  // users alike (no `user` check). The "seen" bar is
-  // loadOnboardingSeen(petRecord?.confirmedAt) — scoped to THIS specific
-  // Statling (confirmedAt is unique per confirm/hatch, see
-  // lib/onboarding-storage.ts's own doc comment for why a single global
+  // Auto-shows the Home Result Popup, then (only once that's out of the
+  // way) the Home coach mark — exactly once each PER STATLING, the first
+  // time `phase` actually reaches 'room' for that pet (never on any other
+  // nav tab — every one of HomeOnboardingGuide's steps targets a
+  // Room/NavRail element that only exists once Room itself has mounted).
+  // Runs for guest and signed-in users alike (no `user` check). Both "seen"
+  // bars are scoped to THIS specific Statling (petRecord.confirmedAt is
+  // unique per confirm/hatch — see lib/result-popup-storage.ts /
+  // lib/onboarding-storage.ts's own doc comments for why a single global
   // flag isn't enough: it would incorrectly stay "seen" forever after
-  // "처음부터 다시 하기" made a brand-new pet). A returning user whose pet
-  // was already confirmed+named on a previous visit correctly never sees
-  // this again for THAT pet, without any extra "already onboarded" flag of
-  // its own.
+  // "처음부터 다시 하기" made a brand-new pet) — see
+  // autoHomeIntroCheckedPetKeyRef's own doc comment for why the GUARD
+  // itself must be pet-keyed too, not just the seen-storage it reads.
+  // Deliberately never shows both at once — a pet that still needs the
+  // Guide but has already seen the Popup (e.g. resumed after closing the
+  // Popup, or an existing pet backfilled straight past the Popup — see the
+  // boot-restore effect above) opens the Guide directly instead of waiting
+  // for a Popup that's never coming.
   useEffect(() => {
-    if (autoOnboardingShownRef.current) return
     if (phase !== 'room') return
-    autoOnboardingShownRef.current = true
-    if (!loadOnboardingSeen(petRecord?.confirmedAt)) {
+    // petKey falls back to loadResultSeen/loadOnboardingSeen's own default
+    // ('legacy') on the rare chance petRecord genuinely isn't populated yet
+    // at this exact tick — never silently skips the check the way an early
+    // return on a missing key would.
+    const petKey = petRecord?.confirmedAt
+    if (autoHomeIntroCheckedPetKeyRef.current === petKey) return
+    autoHomeIntroCheckedPetKeyRef.current = petKey
+    if (!loadResultSeen(petKey)) {
+      setResultPopupSource('auto')
+      setShowResultPopup(true)
+    } else if (!loadOnboardingSeen(petKey)) {
       setOnboardingSource('auto')
       setOnboardingStepIndex(0)
       setOnboardingComplete(false)
       setShowOnboarding(true)
     }
   }, [phase, petRecord])
+
+  /**
+   * The Result Popup's only exit action (see home-result-popup.tsx's own
+   * doc comment — there is no separate skip). Always marks it seen and
+   * fires the completion event; only chains straight into the Guide when
+   * this was the automatic first-visit sequence AND the Guide itself
+   * hasn't been seen yet — a MANUAL reopen from MyPageScreen's "내
+   * Statling 결과" row must never re-trigger the Guide (see that row's own
+   * onClick below).
+   */
+  const handleResultPopupClose = () => {
+    const petKey = petRecord?.confirmedAt
+    if (petKey) markResultSeen(petKey)
+    trackProductEvent('result_popup_completed', { source: resultPopupSource })
+    setShowResultPopup(false)
+    if (resultPopupSource === 'auto' && petKey && !loadOnboardingSeen(petKey)) {
+      setOnboardingSource('auto')
+      setOnboardingStepIndex(0)
+      setOnboardingComplete(false)
+      setShowOnboarding(true)
+    }
+  }
 
   /**
    * Advances the guide one step — Steps 1-3 stay on 'room' (only the
@@ -2266,9 +2361,17 @@ export function GameFlow() {
             finals={finals}
             isConfirmed={petRecord.confirmed}
             onConfirm={handleConfirmPet}
+            onContinue={() => setPhase('naming')}
           />
         )}
 
+        {/* Reachable only from MyPageScreen's own inline "계정 연결" AuthForm
+            today (see that screen's own "계정" section) — no longer part of
+            the Intro sequence (Reveal now leads straight to Naming, see
+            above). Left wired here, untouched, for a future dedicated
+            "계정 연결" entry point to route through if MyPage's inline form
+            ever isn't enough; SaveScreen itself was deliberately kept
+            (never deleted) for exactly this. */}
         {phase === 'save' && (
           <SaveScreen
             onContinue={() => setPhase('naming')}
@@ -2280,7 +2383,8 @@ export function GameFlow() {
         {phase === 'naming' && displayedPetProfile && (
           <NamingScreen
             petProfile={applyTesterOverride(displayedPetProfile)}
-            onConfirm={(name) => {
+            initialName={petRecord?.statlingName}
+            onNameSaved={(name) => {
               setStatlingName(name)
               // Length only — never the name string itself (see the Phase
               // 3A-2 report's privacy section).
@@ -2289,55 +2393,53 @@ export function GameFlow() {
                 saveStoredPetProfile({ ...petRecord, statlingName: name })
                 scheduleSync('pets')
               }
-              // If SIGNED_IN already fired earlier on SaveScreen (this pet
-              // was confirmed but not yet named), the migration triggered
-              // there deferred entirely (see isLocalPetMigrationReady in
+              // If SIGNED_IN already fired earlier (e.g. MyPage's "계정
+              // 연결" for a returning guest), the migration triggered there
+              // deferred entirely (see isLocalPetMigrationReady in
               // lib/migration/migration-orchestrator.ts) rather than upload
               // a nameless pet and lock migrated_at before the name existed.
               // Now that the name is actually saved above, retry once —
-              // a no-op (already_migrated) for every other case: a guest who
-              // isn't logged in, or an already-migrated existing user.
+              // a no-op (already_migrated) for every other case: a guest
+              // who isn't logged in, or an already-migrated existing user.
               if (user) {
                 const supabase = getSupabaseBrowserClient()
                 if (supabase) triggerBackgroundMigration(supabase)
               }
-              // Phase 3I-1 / Guest-friction fix — Birthday/Profile is a
-              // signed-in-only beat: BirthdayScreen has no local mirror for
-              // birth_date/gender (see that component's own doc comment), so
-              // a guest who chose "나중에 하기" on SaveScreen has nothing to
-              // fill in there beyond a static "생일이에요!" moment with no
-              // real function. Sending every guest through it anyway added a
-              // full extra screen between Naming and actually getting to use
-              // the Statling they just got — exactly the friction a guest's
-              // "skip login" choice was meant to avoid. A signed-in user
-              // keeps the original Naming -> Birthday/Profile -> Home path
-              // (home_enter fires from BirthdayScreen's onContinue, once
-              // Profile Setup is actually done); a guest instead fires that
-              // same first-Home-entry event right here and goes straight to
-              // Room.
-              if (user) {
-                setPhase('birthday')
-              } else {
-                fireFirstHomeEntry()
-                setPhase('room')
-              }
+              // No navigation here — this only saves the name.
+              // NamingScreen itself swaps to its own "함께 놀아볼까요?"
+              // sub-state; onPlay below is the one action that actually
+              // leaves for Home.
+            }}
+            onPlay={() => {
+              // Guest and signed-in users now converge on the exact same
+              // path — Birthday/Profile is no longer a mandatory step for
+              // anyone (see BirthdayScreen's own doc comment: it's reachable
+              // only from MyPageScreen now, entirely optional). This is
+              // therefore the ONE call site for the genuinely first-ever
+              // Home entry (see fireFirstHomeEntry's own doc comment) —
+              // marked via lib/home-entry-storage.ts BEFORE firing so a
+              // refresh mid-transition (still on this exact screen) never
+              // re-fires it, and so game-flow.tsx's boot-restore effect can
+              // tell "named but never actually pressed 같이 놀러 가기 yet"
+              // apart from a genuinely returning visit.
+              if (petRecord?.confirmedAt) markHomeEntered(petRecord.confirmedAt)
+              fireFirstHomeEntry()
+              setPhase('room')
             }}
           />
         )}
 
+        {/* No longer part of the mandatory flow for anyone (guest or
+            signed-in) — Naming now leads straight to Home for both (see
+            above). Reachable only from MyPageScreen's own (optional)
+            "프로필 정보" entry, which always returns to 'mypage' — never
+            touches fireFirstHomeEntry, since Home was already entered via
+            Naming's own onPlay long before this could ever be reached. */}
         {phase === 'birthday' && petRecord && (
           <BirthdayScreen
             statlingName={statlingName}
             confirmedAtIso={petRecord.confirmedAt}
-            onContinue={() => {
-              // Phase 3J-3 — the one genuinely first-ever Home entry now
-              // fires exactly here (see fireFirstHomeEntry's own doc
-              // comment), once Profile Setup (mandatory before Room, for a
-              // signed-in user) is actually done and Room is the very next
-              // screen.
-              fireFirstHomeEntry()
-              setPhase('room')
-            }}
+            onContinue={() => setPhase('mypage')}
           />
         )}
 
@@ -2394,6 +2496,19 @@ export function GameFlow() {
               setPhase('room')
               setShowOnboarding(true)
             }}
+            onShowResult={() => {
+              // Manual replay — opens StatlingResultDetail as an overlay
+              // ON TOP of My Page (no setPhase('room') here, deliberately —
+              // that component isn't gated on `phase` at all, see its own
+              // render site below), so closing it lands the user right back
+              // on My Page instead of bouncing through Home. Deliberately
+              // does NOT chain into the Guide on close (see
+              // handleResultPopupClose's own doc comment) and is shown
+              // regardless of resultSeen.
+              setResultPopupSource('manual')
+              setShowResultPopup(true)
+            }}
+            onShowProfile={() => setPhase('birthday')}
           />
         )}
 
@@ -2427,6 +2542,35 @@ export function GameFlow() {
       )}
 
       {NAV_PHASES.includes(phase) && <NavRail active={phase as NavTab} onSelect={handleNavSelect} />}
+
+      {/* auto = HomeResultPopup's short summary ("빠르게 이해"), manual (My
+          Page's "내 Statling 결과") = StatlingResultDetail's full report
+          ("자세히 다시 보기") — same trigger state/seen-marking either way
+          (handleResultPopupClose), only the presentation component differs.
+          See statling-result-detail.tsx's own doc comment for why this is a
+          separate component rather than a branch inside HomeResultPopup. */}
+      {petRecord && displayedPetProfile && (
+        resultPopupSource === 'manual' ? (
+          <StatlingResultDetail
+            open={showResultPopup}
+            petProfile={applyTesterOverride(displayedPetProfile)}
+            topStat={topStat}
+            secondaryStat={secondaryStat}
+            finals={finals}
+            onClose={handleResultPopupClose}
+          />
+        ) : (
+          <HomeResultPopup
+            open={showResultPopup}
+            petProfile={applyTesterOverride(displayedPetProfile)}
+            topStat={topStat}
+            secondaryStat={secondaryStat}
+            finals={finals}
+            source={resultPopupSource}
+            onContinue={handleResultPopupClose}
+          />
+        )
+      )}
 
       <HomeOnboardingGuide
         open={showOnboarding}
