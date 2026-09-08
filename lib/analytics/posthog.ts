@@ -1,4 +1,5 @@
 import posthog from 'posthog-js'
+import { APP_VERSION } from '@/lib/config/app.config'
 
 declare global {
   interface Window {
@@ -61,6 +62,14 @@ export function initPostHog(): void {
       maskInputOptions: { password: true },
     },
   })
+  // Registers app_version as a super property — posthog-js automatically
+  // attaches it to every future posthog.capture() call (every
+  // trackProductEvent, plus autocaptured/pageview events) without touching
+  // ProductEventParams or any individual call site. Single source of truth:
+  // lib/config/app.config.ts (mirrors package.json's "version"), bumped
+  // alongside every release so funnels can be filtered/compared by
+  // app_version (e.g. "1.2.0" vs "1.3.0") without a per-event property.
+  posthog.register({ app_version: APP_VERSION })
   // Exposed on window the same way the classic <script> snippet install
   // always has (this is the npm/bundler install path instead, which does
   // NOT do this on its own) — purely for browser devtools/QA inspection of

@@ -1,5 +1,6 @@
 import Script from 'next/script'
 import { GA_MEASUREMENT_ID } from '@/lib/analytics/ga'
+import { APP_VERSION } from '@/lib/config/app.config'
 
 /**
  * Loads the official GA4 Google tag (gtag.js) and fires the initial
@@ -19,6 +20,13 @@ import { GA_MEASUREMENT_ID } from '@/lib/analytics/ga'
  * NEXT_PUBLIC_GA_MEASUREMENT_ID in Vercel's Preview environment at a
  * separate "test" GA4 property is the recommended way to keep Preview
  * traffic out of Production reports entirely — see the rollout report.
+ *
+ * `gtag('set', 'app_version', ...)` right after `config` registers a
+ * default event parameter — gtag.js automatically merges it into every
+ * subsequent `gtag('event', ...)` call (including every lib/analytics/ga.ts
+ * trackEvent(), and the automatic page_view above), without touching
+ * GAEventParams or any individual call site. Single source of truth:
+ * lib/config/app.config.ts (mirrors package.json's "version").
  */
 export function GoogleAnalytics() {
   if (!GA_MEASUREMENT_ID) return null
@@ -40,6 +48,7 @@ export function GoogleAnalytics() {
           function gtag(){window.dataLayer.push(arguments);}
           gtag('js', new Date());
           gtag('config', ${JSON.stringify(GA_MEASUREMENT_ID)}, ${config});
+          gtag('set', 'app_version', ${JSON.stringify(APP_VERSION)});
         `}
       </Script>
     </>
